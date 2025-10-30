@@ -105,10 +105,11 @@
     "electron-debug": "^4.1.0",
     "electron-log": "^5.3.2",
     "electron-updater": "^6.3.9",
-    "lucide-react": "^0.548.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-router-dom": "^7.3.0"
+    "react-router-dom": "^7.3.0",
+    "simple-icons": "^15.18.0",
+    "lucide-react": "^0.548.0"
   },
   "devDependencies": {
     "@babel/preset-env": "^7.28.5",

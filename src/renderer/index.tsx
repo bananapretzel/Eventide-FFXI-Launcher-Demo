@@ -1,18 +1,18 @@
 import { createRoot } from 'react-dom/client';
+import React from 'react';
 import App from './LauncherUI';
 // Removed Tailwind stylesheet import; using component-scoped CSS instead
-import React from "react";
 
 // Create the root once and render the application.
 const container = document.getElementById('root');
 if (!container) {
-  console.error("Root container (#root) not found. Aborting React mount.");
+  console.error('Root container (#root) not found. Aborting React mount.');
 } else {
   const root = createRoot(container);
   root.render(
     <React.StrictMode>
       <App />
-    </React.StrictMode>
+    </React.StrictMode>,
   );
 }
 

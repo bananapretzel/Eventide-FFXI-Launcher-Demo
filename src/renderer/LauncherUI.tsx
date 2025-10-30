@@ -1,15 +1,7 @@
 import React, { useState } from 'react';
-import {
-  Facebook,
-  Twitter,
-  MessageSquare,
-  Link,
-  Book,
-  MoreHorizontal,
-  ChevronDown,
-  Settings,
-} from 'lucide-react';
+import { siDiscord } from 'simple-icons';
 import './LauncherUI.css';
+import { Home, Puzzle, Settings, Minus, X } from 'lucide-react';
 import logo from '../../assets/slime2.png';
 import titleLogo from '../../assets/eventide-logo.png';
 
@@ -23,38 +15,32 @@ const samplePosts: Post[] = [
   {
     id: '1',
     title: 'Lorem ipsum',
-    body:
-      'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Integer euismod, estda avet fultue vitacies amn ecu. Masque eleifeila lectus ultricies nec.',
+    body: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Integer euismod, estda avet fultue vitacies amn ecu. Masque eleifeila lectus ultricies nec.',
   },
   {
     id: '2',
     title: 'Lorem ipsum',
-    body:
-      'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Integer euismod estda avet fultue vitacies sem ecu. Masque eleifend lectus ultricies nec.',
+    body: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Integer euismod estda avet fultue vitacies sem ecu. Masque eleifend lectus ultricies nec.',
   },
   {
     id: '3',
     title: 'Lorem ipsum',
-    body:
-      'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Integer ipsum lor ortit amet, consectetuer ultriceing aliqusan.',
+    body: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Integer ipsum lor ortit amet, consectetuer ultriceing aliqusan.',
   },
   {
     id: '4',
     title: 'New Update Available',
-    body:
-      'A new version of the client is available for download. This update includes performance improvements and bug fixes. Please restart your launcher to apply the changes.',
+    body: 'A new version of the client is available for download. This update includes performance improvements and bug fixes. Please restart your launcher to apply the changes.',
   },
   {
     id: '5',
     title: 'Community Spotlight',
-    body:
-      'This week we are featuring some amazing community creations. Check out the new "Creations" tab in the extensions menu to see what your fellow players have been up to!',
+    body: 'This week we are featuring some amazing community creations. Check out the new "Creations" tab in the extensions menu to see what your fellow players have been up to!',
   },
   {
     id: '6',
     title: 'Scheduled Maintenance',
-    body:
-      'We will be performing scheduled maintenance on our servers this Friday. The game will be unavailable from 2:00 AM to 4:00 AM UTC. We apologize for any inconvenience.',
+    body: 'We will be performing scheduled maintenance on our servers this Friday. The game will be unavailable from 2:00 AM to 4:00 AM UTC. We apologize for any inconvenience.',
   },
 ];
 
@@ -69,33 +55,43 @@ export default function LauncherUI() {
     <div className="launcher">
       <div className="launcher-shell">
         <header className="launcher-header">
+          {/* window controls live here */}
+          <div className="window-controls" aria-label="Window controls">
+            <button
+              type="button"
+              className="win-btn minimize-btn"
+              aria-label="Minimize"
+            >
+              <Minus size={20} strokeWidth={3} />
+            </button>
+            <button
+              type="button"
+              className="win-btn close-btn"
+              aria-label="Close"
+            >
+              <X size={20} strokeWidth={3} />
+            </button>
+          </div>
+
           <div className="brand">
             <img src={logo} alt="Eventide Logo" className="eventide-slime" />
-            <img src={titleLogo} alt="Eventide" className="eventide-title-logo" />
+            <img
+              src={titleLogo}
+              alt="Eventide"
+              className="eventide-title-logo"
+            />
           </div>
 
           <nav className="main-nav" aria-label="Primary">
             <a href="#home" className="nav-link is-active">
-              HOME
+              <Home size={24} /> HOME
             </a>
             <a href="#Extensions" className="nav-link">
-              EXTENSIONS
+              <Puzzle size={24} /> EXTENSIONS
             </a>
             <a href="#settings" className="nav-link">
-              SETTINGS
+              <Settings size={24} /> SETTINGS
             </a>
-          </nav>
-
-          <nav className="meta-nav" aria-label="Meta">
-            <button type="button" className="meta-btn" title="More">
-              <MoreHorizontal size={20} />
-            </button>
-            <button type="button" className="meta-btn" title="Options">
-              <ChevronDown size={20} />
-            </button>
-            <button type="button" className="meta-btn" title="Settings">
-              <Settings size={20} />
-            </button>
           </nav>
         </header>
 
@@ -124,8 +120,9 @@ export default function LauncherUI() {
                 />
               </div>
 
-              <label className="checkbox">
+              <label className="checkbox" htmlFor="remember-checkbox">
                 <input
+                  id="remember-checkbox"
                   type="checkbox"
                   checked={remember}
                   onChange={(e) => setRemember(e.target.checked)}
@@ -133,11 +130,7 @@ export default function LauncherUI() {
                 <span>Remember credentials</span>
               </label>
 
-              <button
-                type="button"
-                className="play-btn"
-                disabled={!canPlay}
-              >
+              <button type="button" className="play-btn" disabled={!canPlay}>
                 PLAY
               </button>
             </div>
@@ -148,26 +141,24 @@ export default function LauncherUI() {
             <div className="news-header">
               <h2 className="section-title">LATEST NEWS</h2>
               <div className="social-links">
-                <a href="#facebook" className="social-btn" title="Facebook">
-                  <Facebook size={18} />
-                </a>
-                <a href="#twitter" className="social-btn" title="Twitter">
-                  <Twitter size={18} />
-                </a>
                 <a
                   href="https://discord.gg/vT4UQU8z"
                   className="social-btn"
                   title="Discord"
                   target="_blank"
                   rel="noopener noreferrer"
+                  aria-label="Discord"
                 >
-                  <MessageSquare size={18} />
-                </a>
-                <a href="#website" className="social-btn" title="Website">
-                  <Link size={18} />
-                </a>
-                <a href="#forums" className="social-btn" title="Forums">
-                  <Book size={18} />
+                  <svg
+                    width="36"
+                    height="36"
+                    viewBox="0 0 24 24"
+                    role="img"
+                    aria-hidden="true"
+                  >
+                    <title>Discord</title>
+                    <path fill="currentColor" d={siDiscord.path} />
+                  </svg>
                 </a>
               </div>
             </div>
