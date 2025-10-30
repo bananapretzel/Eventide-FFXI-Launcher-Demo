@@ -6,6 +6,7 @@ import App from './App';
 // Create the root once and render the application.
 const container = document.getElementById('root');
 if (!container) {
+  // eslint-disable-next-line no-console
   console.error('Root container (#root) not found. Aborting React mount.');
 } else {
   const root = createRoot(container);
@@ -20,6 +21,7 @@ if (!container) {
 const ipc = window.electron?.ipcRenderer;
 if (ipc?.once) {
   ipc.once('ipc-example', (arg: unknown) => {
+    // eslint-disable-next-line no-console
     console.log(arg);
   });
 }
