@@ -2,7 +2,7 @@
 /* eslint no-unused-vars: off */
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
 
-export type Channels = 'ipc-example';
+export type Channels = 'ipc-example' | 'window:minimize' | 'window:close';
 
 const electronHandler = {
   ipcRenderer: {
@@ -20,6 +20,14 @@ const electronHandler = {
     },
     once(channel: Channels, func: (...args: unknown[]) => void) {
       ipcRenderer.once(channel, (_event, ...args) => func(...args));
+    },
+  },
+  windowControls: {
+    minimize() {
+      ipcRenderer.send('window:minimize');
+    },
+    close() {
+      ipcRenderer.send('window:close');
     },
   },
 };

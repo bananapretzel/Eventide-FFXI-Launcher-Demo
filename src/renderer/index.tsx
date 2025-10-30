@@ -1,6 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import React from 'react';
-import App from './LauncherUI';
+import App from './App';
 // Removed Tailwind stylesheet import; using component-scoped CSS instead
 
 // Create the root once and render the application.
