@@ -50,6 +50,7 @@ function Card({
   title,
   children,
 }: {
+  // eslint-disable-next-line react/require-default-props
   title?: string;
   children: React.ReactNode;
 }) {
@@ -95,8 +96,8 @@ function brightnessToRange(brightness: number): number {
     MIN_BRIGHTNESS_RANGE,
     Math.min(
       MAX_BRIGHTNESS_RANGE,
-      (brightness - BRIGHTNESS_CENTER) / BRIGHTNESS_SCALE
-    )
+      (brightness - BRIGHTNESS_CENTER) / BRIGHTNESS_SCALE,
+    ),
   );
 }
 
@@ -197,7 +198,11 @@ function FFXIGeneralPanel() {
                 style={{ left: `${brightness}%` }}
                 aria-hidden="true"
               >
-                {(Math.round(brightnessToRange(brightness) * TOOLTIP_PRECISION) / TOOLTIP_PRECISION).toFixed(1)}
+                {(
+                  Math.round(
+                    brightnessToRange(brightness) * TOOLTIP_PRECISION,
+                  ) / TOOLTIP_PRECISION
+                ).toFixed(1)}
               </span>
             )}
           </div>

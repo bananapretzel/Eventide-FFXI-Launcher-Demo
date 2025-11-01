@@ -366,6 +366,7 @@ body {
   color: #455a64;
   font-size: 14px;
   line-height: 1.6;
+  white-space: pre-line; /* preserve newlines from post body text */
 }
 
 /* Window Controls */

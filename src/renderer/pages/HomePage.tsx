@@ -1,44 +1,6 @@
 import React from 'react';
 import { siDiscord } from 'simple-icons';
-
-export type Post = {
-  id: string;
-  title: string;
-  body: string;
-};
-
-const samplePosts: Post[] = [
-  {
-    id: '1',
-    title: 'Lorem ipsum',
-    body: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Integer euismod, estda avet fultue vitacies amn ecu. Masque eleifeila lectus ultricies nec.',
-  },
-  {
-    id: '2',
-    title: 'Lorem ipsum',
-    body: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Integer euismod estda avet fultue vitacies sem ecu. Masque eleifend lectus ultricies nec.',
-  },
-  {
-    id: '3',
-    title: 'Lorem ipsum',
-    body: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Integer ipsum lor ortit amet, consectetuer ultriceing aliqusan.',
-  },
-  {
-    id: '4',
-    title: 'New Update Available',
-    body: 'A new version of the client is available for download. This update includes performance improvements and bug fixes. Please restart your launcher to apply the changes.',
-  },
-  {
-    id: '5',
-    title: 'Community Spotlight',
-    body: 'This week we are featuring some amazing community creations. Check out the new "Creations" tab in the extensions menu to see what your fellow players have been up to!',
-  },
-  {
-    id: '6',
-    title: 'Scheduled Maintenance',
-    body: 'We will be performing scheduled maintenance on our servers this Friday. The game will be unavailable from 2:00 AM to 4:00 AM UTC. We apologize for any inconvenience.',
-  },
-];
+import samplePosts from '../data/feed';
 
 export type HomePageProps = {
   username: string;
