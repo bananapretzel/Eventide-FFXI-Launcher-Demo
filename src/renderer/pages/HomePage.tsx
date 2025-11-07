@@ -21,6 +21,41 @@ export default function HomePage({
   setRemember,
   canPlay,
 }: HomePageProps) {
+  const handlePlayClick = async () => {
+    try {
+      // Save config before launching
+      await window.electron.writeConfig({
+        username: remember ? username : '',
+        password: remember ? password : '',
+        rememberCredentials: remember,
+      });
+
+      // Read the INI file first
+      const readResult = await window.electron.readIniFile();
+      if (readResult.success) {
+        // eslint-disable-next-line no-console
+        console.log('Original INI file contents:', readResult.data);
+      }
+
+      // Update the INI file with the current username and password
+      const updateResult = await window.electron.updateIniCredentials(
+        username,
+        password,
+      );
+      if (updateResult.success) {
+        // eslint-disable-next-line no-console
+        console.log('INI file updated successfully:', updateResult.data);
+        // You can now proceed to launch the game or perform other actions
+      } else {
+        // eslint-disable-next-line no-console
+        console.error('Failed to update INI file:', updateResult.error);
+      }
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error('Error handling play button:', error);
+    }
+  };
+
   return (
     <main className="launcher-main">
       <section className="login-section">
@@ -57,7 +92,12 @@ export default function HomePage({
             <span>Remember credentials</span>
           </label>
 
-          <button type="button" className="play-btn" disabled={!canPlay}>
+          <button
+            type="button"
+            className="play-btn"
+            disabled={!canPlay}
+            onClick={handlePlayClick}
+          >
             PLAY
           </button>
         </div>

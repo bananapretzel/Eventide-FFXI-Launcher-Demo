@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 type ExtensionItem = {
   id: string;
@@ -10,7 +10,7 @@ type ExtensionItem = {
 
 // Addons list aligned with provided JSON
 // prettier-ignore
-const sampleAddons: ExtensionItem[] = [
+const Addons: ExtensionItem[] = [
   { id: 'aspect', name: 'aspect', description: "Forces the game's aspect ratio to match the Windows resolution.", author: 'atom0s', version: '1.0' },
   { id: 'autojoin', name: 'autojoin', description: 'Automatically handles party invite related interactions.', author: 'atom0s & Thorny', version: '1.0' },
   { id: 'blucheck', name: 'blucheck', description: 'Helper addon to assist with tracking learned BLU spells with an in-game UI.', author: 'atom0s', version: '1.1' },
@@ -78,7 +78,7 @@ const sampleAddons: ExtensionItem[] = [
 
 // Plugins list aligned with provided JSON
 // prettier-ignore
-const samplePlugins: ExtensionItem[] = [
+const Plugins: ExtensionItem[] = [
   { id: 'addons', name: 'Addons', description: 'Enables use of addons.', author: '', version: '' },
   { id: 'discordrpc', name: 'DiscordRPC', description: 'Sends "rich presence" information to Discord showing your character\'s name, location, levels, etc.', author: '', version: '' },
   { id: 'hardwaremouse', name: 'HardwareMouse', description: 'Fixes issues with the mouse not working properly when using some graphics proxy libraries, such as dgVoodoo.', author: '', version: '' },
@@ -155,18 +155,17 @@ function ExtCard({
   );
 }
 
-function Column({ title, items }: { title: string; items: ExtensionItem[] }) {
-  const initialEnabledState = useMemo(
-    () =>
-      Object.fromEntries(items.map((i) => [i.id, true])) as Record<
-        string,
-        boolean
-      >,
-    [items],
-  );
-  const [enabled, setEnabled] =
-    useState<Record<string, boolean>>(initialEnabledState);
-
+function Column({
+  title,
+  items,
+  enabled,
+  setEnabled,
+}: {
+  title: string;
+  items: ExtensionItem[];
+  enabled: Record<string, boolean>;
+  setEnabled: (id: string, value: boolean) => void;
+}) {
   const openFolder = () => {
     // TODO: wire to IPC (shell.openPath) when paths are defined
     // eslint-disable-next-line no-alert
@@ -186,8 +185,8 @@ function Column({ title, items }: { title: string; items: ExtensionItem[] }) {
           <div role="listitem" key={item.id}>
             <ExtCard
               item={item}
-              enabled={enabled[item.id]}
-              setEnabled={(v) => setEnabled((s) => ({ ...s, [item.id]: v }))}
+              enabled={enabled[item.id] ?? true}
+              setEnabled={(v) => setEnabled(item.id, v)}
             />
           </div>
         ))}
@@ -197,11 +196,80 @@ function Column({ title, items }: { title: string; items: ExtensionItem[] }) {
 }
 
 export default function ExtensionsPage() {
+  const [addonsEnabled, setAddonsEnabled] = useState<Record<string, boolean>>(
+    {},
+  );
+  const [pluginsEnabled, setPluginsEnabled] = useState<Record<string, boolean>>(
+    {},
+  );
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  // Load extension states on mount
+  useEffect(() => {
+    const loadExtensions = async () => {
+      try {
+        const result = await window.electron.readExtensions();
+        if (result.success && result.data) {
+          if (result.data.addons) {
+            setAddonsEnabled(result.data.addons);
+          }
+          if (result.data.plugins) {
+            setPluginsEnabled(result.data.plugins);
+          }
+        }
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error('Failed to load extensions:', error);
+      } finally {
+        setIsLoaded(true);
+      }
+    };
+
+    loadExtensions();
+  }, []);
+
+  // Save extension states whenever they change (but only after initial load)
+  useEffect(() => {
+    if (!isLoaded) return;
+
+    const saveExtensions = async () => {
+      try {
+        await window.electron.writeExtensions({
+          addons: addonsEnabled,
+          plugins: pluginsEnabled,
+        });
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error('Failed to save extensions:', error);
+      }
+    };
+
+    saveExtensions();
+  }, [addonsEnabled, pluginsEnabled, isLoaded]);
+
+  const updateAddonEnabled = (id: string, value: boolean) => {
+    setAddonsEnabled((prev) => ({ ...prev, [id]: value }));
+  };
+
+  const updatePluginEnabled = (id: string, value: boolean) => {
+    setPluginsEnabled((prev) => ({ ...prev, [id]: value }));
+  };
+
   return (
     <div className="extensions-page">
       <div className="ext-columns">
-        <Column title="ADDONS" items={sampleAddons} />
-        <Column title="PLUGINS" items={samplePlugins} />
+        <Column
+          title="ADDONS"
+          items={Addons}
+          enabled={addonsEnabled}
+          setEnabled={updateAddonEnabled}
+        />
+        <Column
+          title="PLUGINS"
+          items={Plugins}
+          enabled={pluginsEnabled}
+          setEnabled={updatePluginEnabled}
+        />
       </div>
     </div>
   );

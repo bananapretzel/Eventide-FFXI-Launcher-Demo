@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, NavLink } from 'react-router-dom';
 import { Home, Puzzle, Settings, Minus, X } from 'lucide-react';
 import './App.css';
@@ -12,6 +12,52 @@ export default function App() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(true);
+
+  // Load config on mount
+  useEffect(() => {
+    const loadConfig = async () => {
+      try {
+        const result = await window.electron.readConfig();
+        if (result.success && result.data) {
+          const {
+            username: savedUsername,
+            password: savedPassword,
+            rememberCredentials,
+          } = result.data;
+          if (rememberCredentials) {
+            setUsername(savedUsername || '');
+            setPassword(savedPassword || '');
+          }
+          setRemember(rememberCredentials);
+        }
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error('Error loading config:', error);
+      }
+    };
+    loadConfig();
+  }, []);
+
+  // Save config when credentials or remember state changes
+  useEffect(() => {
+    const saveConfig = async () => {
+      try {
+        await window.electron.writeConfig({
+          username: remember ? username : '',
+          password: remember ? password : '',
+          rememberCredentials: remember,
+        });
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error('Error saving config:', error);
+      }
+    };
+
+    // Only save if we have some user interaction (not initial load)
+    if (username || password || !remember) {
+      saveConfig();
+    }
+  }, [username, password, remember]);
 
   const canPlay = username.trim().length > 0 && password.trim().length > 0;
   const onMinimize = () => window.electron?.windowControls?.minimize();

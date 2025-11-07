@@ -30,6 +30,18 @@ const electronHandler = {
       ipcRenderer.send('window:close');
     },
   },
+  readIniFile: () => ipcRenderer.invoke('read-ini-file'),
+  updateIniCredentials: (username: string, password: string) =>
+    ipcRenderer.invoke('update-ini-auth-and-run', username, password),
+  readExtensions: () => ipcRenderer.invoke('read-extensions'),
+  writeExtensions: (data: { addons: Record<string, boolean>, plugins: Record<string, boolean> }) =>
+    ipcRenderer.invoke('write-extensions', data),
+  readSettings: () => ipcRenderer.invoke('read-settings'),
+  writeSettings: (data: Record<string, any>) =>
+    ipcRenderer.invoke('write-settings', data),
+  readConfig: () => ipcRenderer.invoke('read-config'),
+  writeConfig: (data: { username: string, password: string, rememberCredentials: boolean }) =>
+    ipcRenderer.invoke('write-config', data),
 };
 
 contextBridge.exposeInMainWorld('electron', electronHandler);
