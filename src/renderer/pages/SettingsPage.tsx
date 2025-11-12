@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 
 interface Settings {
   ffxi?: {
-    windowMode?: string;
+    windowMode?: number;
     windowWidth?: number;
     windowHeight?: number;
     menuWidth?: number;
@@ -12,11 +12,11 @@ interface Settings {
     bgWidth?: number;
     bgHeight?: number;
     maintainAspectRatio?: boolean;
-    textureCompression?: string;
-    mapCompression?: string;
-    fontCompression?: string;
-    envAnimations?: string;
-    mipMapping?: string;
+    textureCompression?: number;
+    mapCompression?: number;
+    fontCompression?: number;
+    envAnimations?: number;
+    mipMapping?: number;
     bumpMapping?: boolean;
     savePath?: string;
     enableSounds?: boolean;
@@ -202,13 +202,15 @@ function FFXIGeneralPanel({
           <Field label="Window Mode" htmlFor="window-mode">
             <select
               id="window-mode"
-              value={settings.ffxi?.windowMode ?? 'borderless'}
-              onChange={(e) => updateSetting('ffxi.windowMode', e.target.value)}
+              value={settings.ffxi?.windowMode ?? 3}
+              onChange={(e) =>
+                updateSetting('ffxi.windowMode', Number(e.target.value))
+              }
               className="select"
             >
-              <option value="windowed">Windowed</option>
-              <option value="fullscreen">Fullscreen</option>
-              <option value="borderless">Borderless Window</option>
+              <option value={0}>Full Screen</option>
+              <option value={1}>Window Mode</option>
+              <option value={3}>Borderless Window Mode</option>
             </select>
           </Field>
         </Row>
@@ -391,15 +393,15 @@ function FFXIGraphicsPanel({
           <Field label="Texture Compression" htmlFor="tex-comp">
             <select
               id="tex-comp"
-              value={settings.ffxi?.textureCompression ?? 'uncompressed'}
+              value={settings.ffxi?.textureCompression ?? 2}
               onChange={(e) =>
-                updateSetting('ffxi.textureCompression', e.target.value)
+                updateSetting('ffxi.textureCompression', Number(e.target.value))
               }
               className="select"
             >
-              <option value="uncompressed">Uncompressed</option>
-              <option value="low">Low</option>
-              <option value="high">High</option>
+              <option value={0}>High</option>
+              <option value={1}>Low</option>
+              <option value={2}>Uncompressed</option>
             </select>
           </Field>
         </Row>
@@ -407,14 +409,14 @@ function FFXIGraphicsPanel({
           <Field label="Map Compression" htmlFor="map-comp">
             <select
               id="map-comp"
-              value={settings.ffxi?.mapCompression ?? 'uncompressed'}
+              value={settings.ffxi?.mapCompression ?? 0}
               onChange={(e) =>
-                updateSetting('ffxi.mapCompression', e.target.value)
+                updateSetting('ffxi.mapCompression', Number(e.target.value))
               }
               className="select"
             >
-              <option value="uncompressed">Uncompressed</option>
-              <option value="compressed">compressed</option>
+              <option value={0}>Compressed</option>
+              <option value={1}>Uncompressed</option>
             </select>
           </Field>
         </Row>
@@ -422,15 +424,15 @@ function FFXIGraphicsPanel({
           <Field label="Font Compression" htmlFor="font-comp">
             <select
               id="font-comp"
-              value={settings.ffxi?.fontCompression ?? 'high-quality'}
+              value={settings.ffxi?.fontCompression ?? 2}
               onChange={(e) =>
-                updateSetting('ffxi.fontCompression', e.target.value)
+                updateSetting('ffxi.fontCompression', Number(e.target.value))
               }
               className="select"
             >
-              <option value="uncompressed">Uncompressed</option>
-              <option value="compressed">Compressed</option>
-              <option value="high-quality">High Quality</option>
+              <option value={0}>Compressed</option>
+              <option value={1}>Uncompressed</option>
+              <option value={2}>High Quality</option>
             </select>
           </Field>
         </Row>
@@ -438,15 +440,15 @@ function FFXIGraphicsPanel({
           <Field label="Environment Animations" htmlFor="env-animations">
             <select
               id="env-animations"
-              value={settings.ffxi?.envAnimations ?? 'smooth'}
+              value={settings.ffxi?.envAnimations ?? 2}
               onChange={(e) =>
-                updateSetting('ffxi.envAnimations', e.target.value)
+                updateSetting('ffxi.envAnimations', Number(e.target.value))
               }
               className="select"
             >
-              <option value="off">Off</option>
-              <option value="on">On</option>
-              <option value="smooth">Smooth</option>
+              <option value={0}>Off</option>
+              <option value={1}>Normal</option>
+              <option value={2}>Smooth</option>
             </select>
           </Field>
         </Row>
@@ -457,13 +459,19 @@ function FFXIGraphicsPanel({
           <Field label="Mip Mapping" htmlFor="mip-mapping">
             <select
               id="mip-mapping"
-              value={settings.ffxi?.mipMapping ?? 'best-quality'}
-              onChange={(e) => updateSetting('ffxi.mipMapping', e.target.value)}
+              value={settings.ffxi?.mipMapping ?? 6}
+              onChange={(e) =>
+                updateSetting('ffxi.mipMapping', Number(e.target.value))
+              }
               className="select"
             >
-              <option value="0">0</option>
-              <option value="1">1</option>
-              <option value="best-quality">Best Quality</option>
+              <option value={0}>Off</option>
+              <option value={1}>1</option>
+              <option value={2}>2</option>
+              <option value={3}>3</option>
+              <option value={4}>4</option>
+              <option value={5}>5</option>
+              <option value={6}>High</option>
             </select>
           </Field>
         </Row>

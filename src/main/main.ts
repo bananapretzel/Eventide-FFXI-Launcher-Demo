@@ -128,11 +128,109 @@ ipcMain.handle('update-ini-auth-and-run', async (_event, username: string, passw
       console.log('Updated command:', config.ashita.boot.command);
     }
 
-    // Write the updated config back to the file with proper formatting
-    const updatedIniContent = ini.stringify(config);
-    fs.writeFileSync(iniPath, updatedIniContent, 'utf-8');
+    // Also attempt to read settings.json and apply mapped settings to the INI
+    try {
+      const settingsPath = app.isPackaged
+        ? path.join(process.resourcesPath, 'settings.json')
+        : path.join(__dirname, '../../settings.json');
 
-    console.log('INI file updated successfully');
+      if (fs.existsSync(settingsPath)) {
+        console.log('Applying settings from:', settingsPath);
+        const settingsContent = fs.readFileSync(settingsPath, 'utf-8');
+        const settings = JSON.parse(settingsContent) as Record<string, any>;
+
+        // Keep original INI snapshot to detect if anything changed
+        const originalIni = ini.stringify(config);
+
+        // Mapping table: settings path -> { section, key(s), transform }
+        const mapping: Record<
+          string,
+          { section: string; keys: string | string[]; transform?: (v: any) => any }
+        > = {
+          // FFXI registry mappings (authoritative mapping)
+          'ffxi.mipMapping': { section: 'ffxi.registry', keys: '0000', transform: (v) => String(v) },
+          'ffxi.windowWidth': { section: 'ffxi.registry', keys: '0001', transform: (v) => String(v) },
+          'ffxi.windowHeight': { section: 'ffxi.registry', keys: '0002', transform: (v) => String(v) },
+          'ffxi.bgWidth': { section: 'ffxi.registry', keys: '0003', transform: (v) => String(v) },
+          'ffxi.bgHeight': { section: 'ffxi.registry', keys: '0004', transform: (v) => String(v) },
+          'ffxi.enableSounds': { section: 'ffxi.registry', keys: '0007', transform: (v) => (v ? '1' : '0') },
+          'ffxi.envAnimations': { section: 'ffxi.registry', keys: '0011', transform: (v) => String(v) },
+          'ffxi.bumpMapping': { section: 'ffxi.registry', keys: '0017', transform: (v) => (v ? '1' : '0') },
+          'ffxi.textureCompression': { section: 'ffxi.registry', keys: '0018', transform: (v) => String(v) },
+          'ffxi.mapCompression': { section: 'ffxi.registry', keys: '0019', transform: (v) => String(v) },
+          'ffxi.hardwareMouse': { section: 'ffxi.registry', keys: '0021', transform: (v) => (v ? '1' : '0') },
+          'ffxi.playOpeningMovie': { section: 'ffxi.registry', keys: '0022', transform: (v) => (v ? '1' : '0') },
+          'ffxi.simplifiedCCG': { section: 'ffxi.registry', keys: '0023', transform: (v) => (v ? '1' : '0') },
+          'ffxi.numSounds': { section: 'ffxi.registry', keys: '0029', transform: (v) => String(v) },
+          'ffxi.windowMode': { section: 'ffxi.registry', keys: '0034', transform: (v) => String(v) },
+          'ffxi.bgSounds': { section: 'ffxi.registry', keys: '0035', transform: (v) => (v ? '1' : '0') },
+          'ffxi.fontCompression': { section: 'ffxi.registry', keys: '0036', transform: (v) => String(v) },
+          'ffxi.menuWidth': { section: 'ffxi.registry', keys: '0037', transform: (v) => String(v) },
+          'ffxi.menuHeight': { section: 'ffxi.registry', keys: '0038', transform: (v) => String(v) },
+          'ffxi.graphicsStabilization': { section: 'ffxi.registry', keys: '0040', transform: (v) => (v ? '1' : '0') },
+          'ffxi.savePath': { section: 'ffxi.registry', keys: '0042', transform: (v) => String(v) },
+        };
+
+        // Helper to set nested section/key creating objects as needed
+        const setIniValue = (sectionPath: string, key: string, value: any) => {
+          const parts = sectionPath.split('.');
+          let node: any = config;
+          for (const p of parts) {
+            if (!node[p]) node[p] = {};
+            node = node[p];
+          }
+          node[key] = value;
+        };
+
+        // Walk mapping table and apply values that are present in settings
+        for (const [settingPath, mapInfo] of Object.entries(mapping)) {
+          // convert settingPath like 'ffxi.windowWidth' to a value from settings
+          const keys = settingPath.split('.');
+          let value: any = settings;
+          for (const k of keys) {
+            if (value && Object.prototype.hasOwnProperty.call(value, k)) {
+              value = value[k];
+            } else {
+              value = undefined;
+              break;
+            }
+          }
+
+          if (typeof value !== 'undefined') {
+            const transformed = mapInfo.transform ? mapInfo.transform(value) : value;
+            if (Array.isArray(mapInfo.keys)) {
+              for (const key of mapInfo.keys) {
+                setIniValue(mapInfo.section, key, transformed);
+              }
+            } else {
+              setIniValue(mapInfo.section, mapInfo.keys, transformed);
+            }
+          }
+        }
+
+        // After applying all mappings, compare to original to avoid unnecessary writes
+        const newIni = ini.stringify(config);
+        if (newIni === originalIni) {
+          console.log('No INI changes detected; skipping write');
+        } else {
+          // backup existing INI before writing
+          try {
+            const bakPath = `${iniPath}.bak`;
+            fs.copyFileSync(iniPath, bakPath);
+            console.log('Created INI backup at', bakPath);
+          } catch (bkErr) {
+            console.warn('Failed to create INI backup:', bkErr);
+          }
+
+          fs.writeFileSync(iniPath, newIni, 'utf-8');
+          console.log('INI file updated successfully');
+        }
+      } else {
+        console.log('No settings.json found at', settingsPath, '- skipping extra INI mappings');
+      }
+    } catch (err) {
+      console.error('Failed to apply settings.json to INI:', err);
+    }
 
     // Execute ashita-cli.exe with eventide.ini as argument
     const exePath = app.isPackaged

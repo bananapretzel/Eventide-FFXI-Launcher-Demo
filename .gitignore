@@ -31,3 +31,5 @@ npm-debug.log.*
 config.json
 extensions.json
 settings.json
+Eventide.ini.bak
+
