@@ -8,10 +8,11 @@ export async function downloadGame(
   url: string,
   sha256: string,
   installDir: string,
+  downloadsDir: string,
   baseVersion: string,
   onProgress?: (dl: number, total: number) => void
 ): Promise<void> {
-  const tmpZip = join(installDir, 'tmp-game.zip');
+  const tmpZip = join(downloadsDir, 'tmp-game.zip');
   await downloadFile(url, tmpZip, onProgress);
   if (!(await verifySha256(tmpZip, sha256))) throw new Error('SHA256 mismatch');
   await extractZip(tmpZip, installDir);

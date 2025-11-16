@@ -1,9 +1,9 @@
-
-
 import log from 'electron-log';
+import { getEventidePaths, ensureDirs } from './paths';
 import path from 'path';
 import fs from 'fs-extra';
 import crypto from 'crypto';
+import keytar from 'keytar';
 import { spawn } from 'child_process';
 import ini from 'ini';
 import { promisify } from 'util';
@@ -14,54 +14,130 @@ import { RELEASE_JSON_URL, getExePath, getGameInstallDir, getResourcePath, IS_PR
 import { getClientVersion } from '../core/versions';
 import { getReleaseJson, getPatchManifest } from '../core/manifest';
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
+// Set the app name to 'Eventide Launcherv2' so userData points to %APPDATA%\Eventide Launcherv2
+app.setName('Eventide Launcherv2');
+
+// --- Ensure config.json exists with defaults on startup ---
+// ...existing code...
+app.once('ready', async () => {
+  try {
+    const paths = getEventidePaths();
+    const configPath = paths.config;
+    if (!fs.existsSync(configPath)) {
+      const defaultConfig = {
+        username: '',
+        password: '',
+        rememberCredentials: false,
+        launcherVersion: '0.1.0',
+        installDir: ''
+      };
+      await writeJson(configPath, defaultConfig);
+      console.log('[startup] Created default config.json at', configPath);
+    }
+  } catch (err) {
+    console.error('[startup] Failed to create default config.json:', err);
+  }
+});
 import { autoUpdater } from 'electron-updater';
 import { writeJson, readJson } from '../core/fs';
 import { downloadGame } from '../logic/download';
 import { applyPatches } from '../logic/patch';
 
-// Crypto constants for password encryption (replace with secure values in production)
-const IV_LENGTH = 16;
-const ENCRYPTION_KEY = crypto.randomBytes(32); // Replace with a securely stored key
-
-// IPC handler to read settings.json
-ipcMain.handle('read-settings', async () => {
+// IPC handler to expose all EventideXI paths to the renderer
+ipcMain.handle('eventide:get-paths', async () => {
   try {
-    const settingsPath = getResourcePath('settings.json');
-    console.log('Reading settings from:', settingsPath);
-    if (!fs.existsSync(settingsPath)) {
-      return { success: false, error: 'Settings file not found' };
-    }
-    const settingsContent = fs.readFileSync(settingsPath, 'utf-8');
-    const settings = JSON.parse(settingsContent);
-    return { success: true, data: settings };
+    const paths = getEventidePaths();
+    return { success: true, data: paths };
   } catch (error) {
-    console.error('Error reading settings file:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+
+const SERVICE_NAME = 'EventideLauncher';
+
+// IPC handler to read config.json (settings)
+
+async function readConfigHandler() {
+  try {
+    const paths = getEventidePaths();
+    const configPath = paths.config;
+    console.log('Reading config from:', configPath);
+    if (!fs.existsSync(configPath)) {
+      return { success: false, error: 'Config file not found' };
+    }
+    const configContent = fs.readFileSync(configPath, 'utf-8');
+    const config = JSON.parse(configContent);
+    // Retrieve password from keytar if rememberCredentials is true and username is set
+    let password = '';
+    if (config.rememberCredentials && config.username) {
+      try {
+        password = (await keytar.getPassword(SERVICE_NAME, config.username)) || '';
+      } catch (e) {
+        console.warn('[keytar] Failed to get password:', e);
+      }
+    }
+    return { success: true, data: { ...config, password } };
+  } catch (error) {
+    console.error('Error reading config file:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'
     };
   }
-});
+}
 
-// IPC handler to write settings.json
+ipcMain.handle('read-settings', readConfigHandler);
+// Alias: support 'read-config' for compatibility
+ipcMain.handle('read-config', readConfigHandler);
+
+// Alias: support 'read-config' for compatibility
+
+// IPC handler to write config.json (settings)
 ipcMain.handle('write-settings', async (_event, data: any) => {
   try {
-    const settingsPath = getResourcePath('settings.json');
-    console.log('Writing settings to:', settingsPath);
-    await writeJson(settingsPath, data);
+    const paths = getEventidePaths();
+    const configPath = paths.config;
+    // Ensure all required directories exist before anything else
+    ensureDirs();
+    // Log the data to be written
+    try {
+      const json = JSON.stringify(data);
+      if (json.length > 1000000) { // 1MB limit for sanity
+        console.error('[write-settings] Refusing to write config: data too large');
+        return {
+          success: false,
+          error: 'Config data too large to write.'
+        };
+      }
+      console.log('[write-settings] Writing config data:', json.slice(0, 500) + (json.length > 500 ? '...truncated' : ''));
+      await writeJson(configPath, data);
+    } catch (writeErr) {
+      console.error('[write-settings] writeJson failed:', writeErr);
+      return {
+        success: false,
+        error: writeErr instanceof Error ? writeErr.stack || writeErr.message : String(writeErr)
+      };
+    }
     return { success: true };
   } catch (error) {
-    console.error('Error writing settings file:', error);
+    console.error('[write-settings] outer error:', error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.stack || error.message : 'Unknown error'
     };
   }
 });
 
 ipcMain.handle('launcher:downloadGame', async (_event, fullUrl: string, sha256: string, installDir: string, baseVersion: string) => {
   try {
-    await downloadGame(fullUrl, sha256, installDir, baseVersion);
+    const paths = getEventidePaths();
+    await downloadGame(fullUrl, sha256, paths.gameRoot, paths.dlRoot, baseVersion, (dl, total) => {
+      console.log('[main] download:progress', dl, total);
+      if (mainWindow) {
+        mainWindow.webContents.send('download:progress', { dl, total });
+      }
+    });
     return { success: true };
   } catch (err) {
     return { success: false, error: String(err) };
@@ -90,30 +166,6 @@ ipcMain.handle('launcher:launchGame', async (_event, installDir: string) => {
 // (Manifest schema validation removed; handled in modular code if needed)
 
 
-function encryptPassword(password: string): string {
-  const iv = crypto.randomBytes(IV_LENGTH);
-  const cipher = crypto.createCipheriv('aes-256-cbc', ENCRYPTION_KEY, iv);
-  let encrypted = cipher.update(password, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  return iv.toString('hex') + ':' + encrypted;
-}
-
-function decryptPassword(encryptedPassword: string): string {
-  try {
-    const parts = encryptedPassword.split(':');
-    if (parts.length !== 2) {
-      return '';
-    }
-    const iv = Buffer.from(parts[0], 'hex');
-    const encryptedText = parts[1];
-    const decipher = crypto.createDecipheriv('aes-256-cbc', ENCRYPTION_KEY, iv);
-    let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
-  } catch {
-    return '';
-  }
-}
 
 
 
@@ -163,14 +215,9 @@ ipcMain.on('window:close', () => {
 
 ipcMain.handle('read-ini-file', async () => {
   try {
-    // Try to use installDir if available from global or environment (for renderer calls, prefer root fallback)
-    let iniPath: string;
-    const installDir = process.env.EVENTIDE_INSTALL_DIR;
-    if (installDir) {
-      iniPath = path.join(installDir, 'config', 'boot', 'Eventide.ini');
-    } else {
-      iniPath = getResourcePath('Eventide.ini');
-    }
+    // Always use canonical gameRoot for INI file
+    const paths = getEventidePaths();
+    const iniPath = path.join(paths.gameRoot, 'config', 'boot', 'Eventide.ini');
     console.log('Reading INI from:', iniPath);
     const iniContent = fs.readFileSync(iniPath, 'utf-8');
     const config = ini.parse(iniContent);
@@ -186,10 +233,11 @@ ipcMain.handle('read-ini-file', async () => {
 
 ipcMain.handle('update-ini-auth-and-run', async (_event, username: string, password: string, installDir?: string) => {
   try {
-    if (!installDir) {
-      throw new Error('installDir is required and was not provided.');
-    }
-    const iniPath = path.join(installDir, 'config', 'boot', 'Eventide.ini');
+    const paths = getEventidePaths();
+    const targetDir = installDir || paths.gameRoot;
+    // Ensure all required directories exist before anything else
+    ensureDirs();
+    const iniPath = path.join(targetDir, 'config', 'boot', 'Eventide.ini');
     if (!fs.existsSync(iniPath)) {
       throw new Error(`INI file not found at: ${iniPath}`);
     }
@@ -221,7 +269,7 @@ ipcMain.handle('update-ini-auth-and-run', async (_event, username: string, passw
 
     // Also attempt to read settings.json and apply mapped settings to the INI
     try {
-      const settingsPath = getResourcePath('settings.json');
+      const settingsPath = paths.config;
       if (fs.existsSync(settingsPath)) {
         console.log('Applying settings from:', settingsPath);
         const settings = (await readJson<Record<string, any>>(settingsPath)) || {};
@@ -325,30 +373,12 @@ ipcMain.handle('update-ini-auth-and-run', async (_event, username: string, passw
   }
 });
 
-// ...existing code...
-// IPC handler to read config.json
-ipcMain.handle('read-config', async () => {
-  try {
-    const configPath = getResourcePath('config.json');
-    console.log('Reading config from:', configPath);
-    if (!fs.existsSync(configPath)) {
-      return { success: false, error: 'Config file not found' };
-    }
-    const configContent = fs.readFileSync(configPath, 'utf-8');
-    const config = JSON.parse(configContent);
-    return { success: true, data: config };
-  } catch (error) {
-    console.error('Error reading config file:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
-    };
-  }
-});
 
 ipcMain.handle('write-config', async (_event, data: { username: string, password: string, rememberCredentials: boolean }) => {
   try {
-    const configPath = getResourcePath('config.json');
+    const paths = getEventidePaths();
+    ensureDirs();
+    const configPath = paths.config;
     console.log('Writing config to:', configPath);
     let existingConfig = {};
     if (fs.existsSync(configPath)) {
@@ -358,13 +388,17 @@ ipcMain.handle('write-config', async (_event, data: { username: string, password
         console.warn('Could not parse existing config.json, starting fresh.');
       }
     }
-    const encryptedPassword = data.password && data.password.length > 0
-      ? encryptPassword(data.password)
-      : '';
+    // Save password to keytar if rememberCredentials is true, otherwise delete
+    if (data.rememberCredentials && data.username && data.password) {
+      await keytar.setPassword(SERVICE_NAME, data.username, data.password);
+    } else if (data.username) {
+      await keytar.deletePassword(SERVICE_NAME, data.username);
+    }
+    // Do not store password in config file
     const configData = {
       ...existingConfig,
       username: data.username,
-      password: encryptedPassword,
+      password: '',
       rememberCredentials: data.rememberCredentials,
       launcherVersion: app.getVersion()
     };
@@ -395,7 +429,11 @@ async function launchGameWithBatch(installDir: string, launchBat: string) {
         return resolve({ success: false, error: `Launch batch not found: ${launchBat}` });
       }
 
-      const logPath = path.join(installDir, 'launcher-invoke-output.log');
+      // Use logsRoot for launcher logs
+      const paths = getEventidePaths();
+      const logPath = path.join(paths.logsRoot, 'launcher-invoke-output.log');
+      // Ensure all required directories exist before anything else
+      ensureDirs();
       try { fs.appendFileSync(logPath, `\n--- Launcher invoke at ${new Date().toISOString()} ---\n`); } catch {}
 
       // Use cmd.exe to run the batch file so behavior is closer to double-click
@@ -437,10 +475,9 @@ async function launchGameWithBatch(installDir: string, launchBat: string) {
 ipcMain.handle('game:check', async () => {
   try {
     const PATCH_MANIFEST_URL = 'https://raw.githubusercontent.com/bananapretzel/eventide-patch-manifest/refs/heads/main/patch-manifest.json';
-    const exePath = getExePath();
-    const installDir = path.dirname(exePath);
-    const exists = fs.existsSync(exePath);
-    // Read local version from game-version.json (try installDir, then project root)
+    const paths = getEventidePaths();
+    const installDir = paths.gameRoot;
+    // Read local version from game-version.json
     let localVersion = '';
     let localVersionPath = path.join(installDir, 'game-version.json');
     if (fs.existsSync(localVersionPath)) {
@@ -449,18 +486,6 @@ ipcMain.handle('game:check', async () => {
         localVersion = localData.version || '';
       } catch (e) {
         console.warn('[game:check] Failed to read local game-version.json in installDir:', e);
-      }
-    }
-    // Fallback: check project root if not found
-    if (!localVersion) {
-      const projectRootPath = path.join(__dirname, '../../game-version.json');
-      if (fs.existsSync(projectRootPath)) {
-        try {
-          const localData = fs.readJsonSync(projectRootPath);
-          localVersion = localData.version || '';
-        } catch (e) {
-          console.warn('[game:check] Failed to read local game-version.json in project root:', e);
-        }
       }
     }
     // Fetch remote patch manifest
@@ -473,6 +498,9 @@ ipcMain.handle('game:check', async () => {
     console.log('[game:check] remoteVersion:', remoteVersion);
     console.log('[game:check] patchManifest:', JSON.stringify(patchManifest, null, 2));
     console.log('[game:check] updateAvailable:', updateAvailable);
+    // For existence, check for a main executable (e.g., ashita-cli.exe) in gameRoot
+    const mainExe = path.join(installDir, 'ashita-cli.exe');
+    const exists = fs.existsSync(mainExe);
     return { exists, updateAvailable, remoteVersion, installedVersion: localVersion };
   } catch (err) {
     console.error('[game:check] error:', err);
@@ -512,10 +540,11 @@ ipcMain.handle('debug:get-last-checksum', async () => {
 
 ipcMain.handle('game:download', async () => {
   try {
-    const exePath = getExePath();
-    const installDir = path.dirname(exePath);
+    const paths = getEventidePaths();
+    const installDir = paths.gameRoot;
+    const downloadsDir = paths.dlRoot;
     const release = await getReleaseJson(RELEASE_JSON_URL);
-    await downloadGame(release.game.fullUrl, release.game.sha256, installDir, release.game.baseVersion);
+    await downloadGame(release.game.fullUrl, release.game.sha256, installDir, downloadsDir, release.game.baseVersion);
     return { success: true };
   } catch (err) {
     console.error('Download failed:', err);
@@ -527,8 +556,10 @@ ipcMain.handle('game:download', async () => {
 // Import an existing installation: scan installDir, compute per-file hashes, and write game-version.json
 ipcMain.handle('game:import-existing', async () => {
   try {
-    const exePath = getExePath();
-    const installDir = app.isPackaged ? path.dirname(exePath) : path.join(__dirname, '../../');
+    const paths = getEventidePaths();
+    // Ensure all required directories exist before anything else
+    ensureDirs();
+    const installDir = paths.gameRoot;
 
     if (!fs.existsSync(installDir)) {
       return { success: false, error: `Install directory not found: ${installDir}` };
@@ -583,7 +614,6 @@ ipcMain.handle('game:import-existing', async () => {
     };
 
     const localVersionPath = path.join(installDir, 'game-version.json');
-    // safeWriteJson(localVersionPath, versionData);
     await writeJson(localVersionPath, versionData);
 
     return { success: true, installedFiles: fileEntries.length, snapshot: snapshotHash };
@@ -594,8 +624,8 @@ ipcMain.handle('game:import-existing', async () => {
 
 ipcMain.handle('game:update', async () => {
   try {
-    const exePath = getExePath();
-    const installDir = path.dirname(exePath);
+    const paths = getEventidePaths();
+    const installDir = paths.gameRoot;
     const projectRoot = path.resolve(__dirname, '../../');
     const release = await getReleaseJson(RELEASE_JSON_URL);
     const patchManifest = await getPatchManifest(release.patchManifestUrl);
@@ -611,16 +641,11 @@ ipcMain.handle('game:update', async () => {
 
 ipcMain.handle('game:launch', async () => {
   try {
-    const exePath = getExePath();
-    const installDir = app.isPackaged ? path.dirname(exePath) : getGameInstallDir();
+    const paths = getEventidePaths();
+    const installDir = paths.gameRoot;
     const launchBat = path.join(installDir, 'Launch_Eventide.bat');
 
     mainWindow?.webContents.send('game:status', { status: 'launching' });
-
-    console.log('exePath =', exePath);
-console.log('installDir =', installDir);
-console.log('launchBat =', launchBat);
-console.log('launchBat exists?', fs.existsSync(launchBat));
 
     // Require the batch wrapper in all cases; do not fall back to directly
     // launching the executable. Return a clear error if the wrapper is missing.

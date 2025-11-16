@@ -8,33 +8,37 @@ try {
   console.log('[preload] loaded');
 } catch (e) {}
 
-export type Channels = 'ipc-example' | 'window:minimize' | 'window:close';
+export type Channels =
+  | 'ipc-example'
+  | 'window:minimize'
+  | 'window:close'
+  | 'download:progress'
+  | 'game:status';
 
 const electronHandler = {
-      getUpdateStatus: (installDir?: string) => ipcRenderer.invoke('get-update-status', installDir),
-    // Launcher API for renderer
-    bootstrap: (releaseUrl: string, installDir: string) =>
-      ipcRenderer.invoke('launcher:bootstrap', releaseUrl, installDir),
-    downloadGame: (fullUrl: string, sha256: string, installDir: string, baseVersion: string) =>
-      ipcRenderer.invoke('launcher:downloadGame', fullUrl, sha256, installDir, baseVersion),
-    applyPatches: (patchManifest: any, clientVersion: string, installDir: string) =>
-      ipcRenderer.invoke('launcher:applyPatches', patchManifest, clientVersion, installDir),
-    launchGame: (installDir: string) =>
-      ipcRenderer.invoke('launcher:launchGame', installDir),
+  getUpdateStatus: (installDir?: string) => ipcRenderer.invoke('get-update-status', installDir),
+  // Launcher API for renderer
+  bootstrap: (releaseUrl: string, installDir: string) =>
+    ipcRenderer.invoke('launcher:bootstrap', releaseUrl, installDir),
+  downloadGame: (fullUrl: string, sha256: string, installDir: string, baseVersion: string) =>
+    ipcRenderer.invoke('launcher:downloadGame', fullUrl, sha256, installDir, baseVersion),
+  applyPatches: (patchManifest: any, clientVersion: string, installDir: string) =>
+    ipcRenderer.invoke('launcher:applyPatches', patchManifest, clientVersion, installDir),
+  launchGame: (installDir: string) =>
+    ipcRenderer.invoke('launcher:launchGame', installDir),
   ipcRenderer: {
-    sendMessage(channel: Channels, ...args: unknown[]) {
+    sendMessage(channel: string, ...args: unknown[]) {
       ipcRenderer.send(channel, ...args);
     },
-    on(channel: Channels, func: (...args: unknown[]) => void) {
+    on(channel: string, func: (...args: unknown[]) => void) {
       const subscription = (event: IpcRendererEvent, ...args: unknown[]) =>
         func(event, ...args);
       ipcRenderer.on(channel, subscription);
-
       return () => {
         ipcRenderer.removeListener(channel, subscription);
       };
     },
-    once(channel: Channels, func: (...args: unknown[]) => void) {
+    once(channel: string, func: (...args: unknown[]) => void) {
       ipcRenderer.once(channel, (event, ...args) => func(event, ...args));
     },
   },

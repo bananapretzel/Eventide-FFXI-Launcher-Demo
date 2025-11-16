@@ -836,17 +836,63 @@ export default function SettingsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Save settings to file
+  // Save settings to file, ensuring password is never compounded
   const saveSettings = async (newSettings: Settings) => {
     try {
+      // Deep clone to avoid mutating state
+      const safeSettings: Settings = JSON.parse(JSON.stringify(newSettings));
+
+      // Sanitize password field if present and looks like a hash or is too long
+      let passwordSanitized = false;
+      if (safeSettings && (safeSettings as any).password) {
+        const pwd = (safeSettings as any).password;
+        // If password is suspiciously long or looks like a hash, sanitize
+        if (
+          typeof pwd === 'string' &&
+          (pwd.length > 128 || /[A-Fa-f0-9]{32,}/.test(pwd))
+        ) {
+          (safeSettings as any).password = '';
+          passwordSanitized = true;
+        }
+      }
+
+      // Safe check: try to serialize settings before writing
+      let json: string;
+      try {
+        json = JSON.stringify(safeSettings);
+      } catch (err) {
+        console.error(
+          '[SettingsPage] Refusing to write settings: not serializable',
+          err,
+          safeSettings,
+        );
+        handleShowToast('Settings not serializable!');
+        return;
+      }
+      if (json.length > 1000000) {
+        // 1MB limit for sanity
+        console.error(
+          '[SettingsPage] Refusing to write settings: data too large',
+        );
+        handleShowToast('Settings too large!');
+        return;
+      }
+      console.log(
+        '[SettingsPage] Writing settings:',
+        json.slice(0, 500) + (json.length > 500 ? '...truncated' : ''),
+      );
       if (!window.electron?.writeSettings) {
         setError('Electron preload API not available.');
         return;
       }
-      const result = await window.electron.writeSettings(newSettings);
+      const result = await window.electron.writeSettings(safeSettings);
       if (result.success) {
-        setSettings(newSettings);
-        handleShowToast('Settings saved');
+        setSettings(safeSettings);
+        handleShowToast(
+          passwordSanitized
+            ? 'Settings saved (password sanitized)'
+            : 'Settings saved',
+        );
       } else {
         handleShowToast('Error saving settings');
       }

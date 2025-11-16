@@ -18,6 +18,7 @@ export async function fetchJson<T>(url: string): Promise<T> {
 
 export async function downloadFile(url: string, dest: string, onProgress?: (dl: number, total: number) => void, _redirectCount = 0): Promise<void> {
   const MAX_REDIRECTS = 10;
+  console.log('[core/net] downloadFile called', url, dest);
   return new Promise((resolve, reject) => {
     get(url, (res: IncomingMessage) => {
       // Handle redirects
@@ -34,12 +35,27 @@ export async function downloadFile(url: string, dest: string, onProgress?: (dl: 
       const total = parseInt(res.headers['content-length'] || '0', 10);
       let dl = 0;
       const file = createWriteStream(dest);
+      // Emit initial progress (0 bytes)
+      if (onProgress) {
+        console.log('[core/net] progress (initial)', dl, total);
+        onProgress(dl, total);
+      }
       res.on('data', chunk => {
         dl += chunk.length;
+        if (onProgress) {
+          console.log('[core/net] progress', dl, total);
+        }
         onProgress?.(dl, total);
       });
       res.pipe(file);
-      file.on('finish', () => file.close(err => err ? reject(err) : resolve()));
+      file.on('finish', () => {
+        // Emit final progress (total bytes)
+        if (onProgress && dl < total) {
+          console.log('[core/net] progress (final)', total, total);
+          onProgress(total, total);
+        }
+        file.close(err => err ? reject(err) : resolve());
+      });
       file.on('error', reject);
     }).on('error', reject);
   });

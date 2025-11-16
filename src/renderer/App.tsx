@@ -13,12 +13,36 @@ export default function App() {
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [installDir, setInstallDir] = useState<string>('C://Eventide-test'); // fallback default
+  const [installDir, setInstallDir] = useState<string>(''); // will be set from IPC
 
-  // Load config on mount
+  // Play button handler
+  const handlePlay = async () => {
+    try {
+      if (!window.electron?.launchGame) {
+        setError('Electron preload API not available.');
+        return;
+      }
+      await window.electron.launchGame(installDir);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('Error launching game:', err);
+      setError('Failed to launch game.');
+    }
+  };
+
+  // Load config and default installDir on mount
   useEffect(() => {
-    const loadConfig = async () => {
+    const loadConfigAndPaths = async () => {
       try {
+        // Get paths from main process
+        let defaultInstallDir = '';
+        if (window.electron?.invoke) {
+          const res = await window.electron.invoke('eventide:get-paths');
+          if (res && res.success && res.data && res.data.gameRoot) {
+            defaultInstallDir = res.data.gameRoot;
+            setInstallDir(defaultInstallDir);
+          }
+        }
         if (!window.electron?.readConfig) {
           setError('Electron preload API not available.');
           return;
@@ -36,16 +60,19 @@ export default function App() {
             setPassword(savedPassword || '');
           }
           setRemember(rememberCredentials);
+          // Use savedInstallDir if present, else default from IPC
           if (savedInstallDir && typeof savedInstallDir === 'string') {
             setInstallDir(savedInstallDir);
+          } else if (defaultInstallDir) {
+            setInstallDir(defaultInstallDir);
           }
         }
       } catch (err) {
         // eslint-disable-next-line no-console
-        console.error('Error loading config:', err);
+        console.error('Error loading config or paths:', err);
       }
     };
-    loadConfig();
+    loadConfigAndPaths();
   }, []);
 
   // Save config when credentials or remember state changes
@@ -56,6 +83,7 @@ export default function App() {
           setError('Electron preload API not available.');
           return;
         }
+        // Only save password if remember is true
         await window.electron.writeConfig({
           username: remember ? username : '',
           password: remember ? password : '',
@@ -164,6 +192,7 @@ export default function App() {
                   setRemember={setRemember}
                   canPlay={canPlay}
                   installDir={installDir}
+                  onPlay={handlePlay}
                 />
               }
             />

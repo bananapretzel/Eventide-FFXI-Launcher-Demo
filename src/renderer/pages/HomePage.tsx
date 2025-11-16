@@ -1,11 +1,9 @@
-
 import React, { useEffect, useReducer } from 'react';
 import { siDiscord } from 'simple-icons';
 import samplePosts from '../data/feed';
 
 // Check update status on mount
 // (moved below imports)
-
 
 export type HomePageProps = {
   username: string;
@@ -16,11 +14,21 @@ export type HomePageProps = {
   setRemember: (v: boolean) => void;
   canPlay: boolean;
   installDir: string;
+  onPlay: () => void | Promise<void>;
 };
 
-
 export default function HomePage(props: HomePageProps) {
-  const { username, setUsername, password, setPassword, remember, setRemember, canPlay, installDir } = props;
+  const {
+    username,
+    setUsername,
+    password,
+    setPassword,
+    remember,
+    setRemember,
+    canPlay,
+    installDir,
+    onPlay,
+  } = props;
 
   type State =
     | { status: 'checking' }
@@ -47,22 +55,28 @@ export default function HomePage(props: HomePageProps) {
     | { type: 'ERROR'; msg: string };
 
   function reducer(_: State, action: Action): State {
-    switch (action.type) {
-      case 'CHECK':
-        return { status: 'checking' };
-      case 'SET':
-        return action.state;
-      case 'PROGRESS':
-        return {
-          status: 'downloading',
-          progress: action.p,
-          downloaded: action.downloaded,
-          total: action.total,
-        };
-      case 'ERROR':
-        return { status: 'error', message: action.msg };
-      default:
-        return { status: 'checking' };
+    try {
+      switch (action.type) {
+        case 'CHECK':
+          return { status: 'checking' };
+        case 'SET':
+          return action.state;
+        case 'PROGRESS':
+          return {
+            status: 'downloading',
+            progress: action.p,
+            downloaded: action.downloaded,
+            total: action.total,
+          };
+        case 'ERROR':
+          return { status: 'error', message: action.msg };
+        default:
+          return { status: 'checking' };
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[HomePage reducer] Error:', err, action);
+      return { status: 'error', message: String(err) };
     }
   }
   const [state, dispatch] = useReducer(reducer, { status: 'checking' });
@@ -70,8 +84,16 @@ export default function HomePage(props: HomePageProps) {
   // Debug: log state and button status
   useEffect(() => {
     // eslint-disable-next-line no-console
-    console.log('[HomePage] state:', state, 'canPlay:', canPlay, 'disabled:',
-      state.status === 'checking' || state.status === 'downloading' || state.status === 'launching');
+    console.log(
+      '[HomePage] state:',
+      state,
+      'canPlay:',
+      canPlay,
+      'disabled:',
+      state.status === 'checking' ||
+        state.status === 'downloading' ||
+        state.status === 'launching',
+    );
   }, [state, canPlay]);
 
   // Helper: safe invoke that prefers window.electron.invoke if available,
@@ -154,61 +176,16 @@ export default function HomePage(props: HomePageProps) {
   useEffect(() => {
     let unsubProgress: (() => void) | undefined;
     let unsubStatus: (() => void) | undefined;
-
-    const doCheck = async () => {
-      dispatch({ type: 'CHECK' });
-      try {
-        const res = await safeInvoke('game:check');
-        const { exists, updateAvailable, remoteVersion, installedVersion } =
-          res ?? {};
-
-        if (!exists) {
-          dispatch({ type: 'SET', state: { status: 'missing' } });
-        } else if (updateAvailable) {
-          dispatch({
-            type: 'SET',
-            state: {
-              status: 'update-available',
-              remoteVersion,
-              installedVersion,
-            },
-          });
-        } else {
-          dispatch({ type: 'SET', state: { status: 'ready' } });
-        }
-      } catch (err) {
-        dispatch({ type: 'ERROR', msg: String(err) });
-      }
-    };
-
-    // subscribe to progress/status events (main should send these)
     try {
-      const { electron } = window as any;
-      const ipc = electron?.ipcRenderer;
-      if (ipc && typeof ipc.on === 'function') {
-        unsubProgress = ipc.on('game:progress', (_ev: any, payload: any) => {
-          // debug log incoming progress payload (kept minimal to satisfy linter)
-          // eslint-disable-next-line no-console
-          console.log('renderer received game:progress', payload);
-          const { percent, progress, downloaded, total } = payload ?? {};
-          const pct = percent ?? progress ?? 0;
-          dispatch({
-            type: 'PROGRESS',
-            p: Math.max(0, Math.min(100, Math.round(pct))),
-            downloaded,
-            total,
-          });
-        });
-
-        unsubStatus = ipc.on('game:status', (_ev: any, payload: any) => {
-          const { status, remoteVersion, installedVersion, message } =
-            payload ?? {};
-          // payload.status: 'downloaded'|'ready'|'error'|'launching' etc.
-          if (status === 'downloaded' || status === 'ready') {
-            dispatch({ type: 'SET', state: { status: 'ready' } });
-          } else if (status === 'error') {
-            dispatch({ type: 'ERROR', msg: message ?? 'Unknown error' });
-          } else if (status === 'update-available') {
+      const doCheck = async () => {
+        dispatch({ type: 'CHECK' });
+        try {
+          const res = await safeInvoke('game:check');
+          const { exists, updateAvailable, remoteVersion, installedVersion } =
+            res ?? {};
+          if (!exists) {
+            dispatch({ type: 'SET', state: { status: 'missing' } });
+          } else if (updateAvailable) {
             dispatch({
               type: 'SET',
               state: {
@@ -217,31 +194,104 @@ export default function HomePage(props: HomePageProps) {
                 installedVersion,
               },
             });
+          } else {
+            dispatch({ type: 'SET', state: { status: 'ready' } });
           }
-        });
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error('[HomePage useEffect] doCheck error:', err);
+          dispatch({ type: 'ERROR', msg: String(err) });
+        }
+      };
+
+      // subscribe to progress/status events (main should send these)
+      try {
+        const { electron } = window as any;
+        const ipc = electron?.ipcRenderer;
+        if (ipc && typeof ipc.on === 'function') {
+          unsubProgress = ipc.on(
+            'download:progress',
+            (_ev: any, payload: any) => {
+              try {
+                // debug log incoming progress payload
+                // eslint-disable-next-line no-console
+                console.log('[renderer] received download:progress', payload);
+                const { dl, total } = payload ?? {};
+                const percent = total ? Math.round((dl / total) * 100) : 0;
+                dispatch({
+                  type: 'PROGRESS',
+                  p: percent,
+                  downloaded: dl,
+                  total,
+                });
+              } catch (err) {
+                // eslint-disable-next-line no-console
+                console.error(
+                  '[HomePage useEffect] download:progress handler error:',
+                  err,
+                );
+              }
+            },
+          );
+
+          unsubStatus = ipc.on('game:status', (_ev: any, payload: any) => {
+            try {
+              const { status, remoteVersion, installedVersion, message } =
+                payload ?? {};
+              // payload.status: 'downloaded'|'ready'|'error'|'launching' etc.
+              if (status === 'downloaded' || status === 'ready') {
+                dispatch({ type: 'SET', state: { status: 'ready' } });
+              } else if (status === 'error') {
+                dispatch({ type: 'ERROR', msg: message ?? 'Unknown error' });
+              } else if (status === 'update-available') {
+                dispatch({
+                  type: 'SET',
+                  state: {
+                    status: 'update-available',
+                    remoteVersion,
+                    installedVersion,
+                  },
+                });
+              }
+            } catch (err) {
+              // eslint-disable-next-line no-console
+              console.error(
+                '[HomePage useEffect] game:status handler error:',
+                err,
+              );
+            }
+          });
+        }
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('[HomePage useEffect] subscription error:', err);
       }
-    } catch {
-      // ignore subscription failures
+
+      doCheck();
+
+      return () => {
+        try {
+          if (typeof unsubProgress === 'function') {
+            unsubProgress();
+          }
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error('[HomePage useEffect] unsubProgress error:', err);
+        }
+        try {
+          if (typeof unsubStatus === 'function') {
+            unsubStatus();
+          }
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error('[HomePage useEffect] unsubStatus error:', err);
+        }
+      };
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[HomePage useEffect] outer error:', err);
     }
-
-    doCheck();
-
-    return () => {
-      try {
-        if (typeof unsubProgress === 'function') {
-          unsubProgress();
-        }
-      } catch {
-        // ignore
-      }
-      try {
-        if (typeof unsubStatus === 'function') {
-          unsubStatus();
-        }
-      } catch {
-        // ignore
-      }
-    };
+    return undefined;
   }, []);
 
   const handleActionClick = async () => {
@@ -315,16 +365,8 @@ export default function HomePage(props: HomePageProps) {
     }
   };
 
-
   // Only require credentials for Play, not for Update/Download
-  let disabled = false;
-  if (state.status === 'checking' || state.status === 'downloading' || state.status === 'launching') {
-    disabled = true;
-  } else if (state.status === 'ready') {
-    disabled = !canPlay;
-  } else if (state.status === 'update-available' || state.status === 'missing') {
-    disabled = false;
-  }
+  // (button 'disabled' prop is computed inline below)
 
   return (
     <main className="launcher-main">
@@ -371,7 +413,7 @@ export default function HomePage(props: HomePageProps) {
               state.status === 'launching' ||
               (state.status === 'ready' && !canPlay)
             }
-            onClick={handleActionClick}
+            onClick={state.status === 'ready' ? onPlay : handleActionClick}
           >
             {renderLabel()}
           </button>

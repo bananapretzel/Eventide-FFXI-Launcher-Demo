@@ -1,6 +1,16 @@
 // Debug: Log window.electron to confirm preload script injection
 // eslint-disable-next-line no-console
 console.log('window.electron:', window.electron);
+
+// Global error handlers to catch fatal errors
+window.addEventListener('error', (event) => {
+  // eslint-disable-next-line no-console
+  console.error('[Global Error Handler] Uncaught error:', event.error || event.message, event);
+});
+window.addEventListener('unhandledrejection', (event) => {
+  // eslint-disable-next-line no-console
+  console.error('[Global Error Handler] Unhandled promise rejection:', event.reason, event);
+});
 import { createRoot } from 'react-dom/client';
 import React from 'react';
 import App from './App';
