@@ -804,6 +804,7 @@ export default function SettingsPage() {
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
   const [settings, setSettings] = useState<Settings>({});
+  const [error, setError] = useState<string | null>(null);
 
   const handleShowToast = (message: string) => {
     setToastMessage(message);
@@ -817,13 +818,17 @@ export default function SettingsPage() {
   useEffect(() => {
     const loadSettings = async () => {
       try {
+        if (!window.electron?.readSettings) {
+          setError('Electron preload API not available.');
+          return;
+        }
         const result = await window.electron.readSettings();
         if (result.success && result.data) {
           setSettings(result.data);
         }
-      } catch (error) {
+      } catch (err) {
         // eslint-disable-next-line no-console
-        console.error('Error loading settings:', error);
+        console.error('Error loading settings:', err);
         handleShowToast('Error loading settings');
       }
     };
@@ -834,6 +839,10 @@ export default function SettingsPage() {
   // Save settings to file
   const saveSettings = async (newSettings: Settings) => {
     try {
+      if (!window.electron?.writeSettings) {
+        setError('Electron preload API not available.');
+        return;
+      }
       const result = await window.electron.writeSettings(newSettings);
       if (result.success) {
         setSettings(newSettings);
@@ -841,9 +850,9 @@ export default function SettingsPage() {
       } else {
         handleShowToast('Error saving settings');
       }
-    } catch (error) {
+    } catch (err) {
       // eslint-disable-next-line no-console
-      console.error('Error saving settings:', error);
+      console.error('Error saving settings:', err);
       handleShowToast('Error saving settings');
     }
   };
@@ -873,11 +882,21 @@ export default function SettingsPage() {
     }
   }, [category]);
 
+  // Render error if present (after all hooks)
+  if (error) {
+    return (
+      <div className="settings-error">
+        <h2>Error</h2>
+        <p>{error}</p>
+      </div>
+    );
+  }
+
   return (
     <div className="settings-page">
       {/* Top category tabs */}
       <nav className="settings-tabs" aria-label="Settings categories">
-        {(Object.keys(CATEGORY_DEFS) as CategoryId[]).map((id) => (
+        {(Object.keys(CATEGORY_DEFS || {}) as CategoryId[]).map((id) => (
           <button
             key={id}
             type="button"
@@ -890,13 +909,13 @@ export default function SettingsPage() {
       </nav>
 
       {/* Sub-tabs for the selected category (if any) */}
-      {CATEGORY_DEFS[category].subTabs.length > 0 && (
+      {CATEGORY_DEFS[category]?.subTabs?.length > 0 && (
         <div
           className="settings-subtabs"
           role="tablist"
           aria-label="Subcategories"
         >
-          {CATEGORY_DEFS[category].subTabs.map((st) => (
+          {(CATEGORY_DEFS[category]?.subTabs || []).map((st) => (
             <button
               key={st.id}
               type="button"

@@ -12,27 +12,37 @@ export default function App() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [installDir, setInstallDir] = useState<string>('C://Eventide-test'); // fallback default
 
   // Load config on mount
   useEffect(() => {
     const loadConfig = async () => {
       try {
+        if (!window.electron?.readConfig) {
+          setError('Electron preload API not available.');
+          return;
+        }
         const result = await window.electron.readConfig();
         if (result.success && result.data) {
           const {
             username: savedUsername,
             password: savedPassword,
             rememberCredentials,
+            installDir: savedInstallDir,
           } = result.data;
           if (rememberCredentials) {
             setUsername(savedUsername || '');
             setPassword(savedPassword || '');
           }
           setRemember(rememberCredentials);
+          if (savedInstallDir && typeof savedInstallDir === 'string') {
+            setInstallDir(savedInstallDir);
+          }
         }
-      } catch (error) {
+      } catch (err) {
         // eslint-disable-next-line no-console
-        console.error('Error loading config:', error);
+        console.error('Error loading config:', err);
       }
     };
     loadConfig();
@@ -42,14 +52,18 @@ export default function App() {
   useEffect(() => {
     const saveConfig = async () => {
       try {
+        if (!window.electron?.writeConfig) {
+          setError('Electron preload API not available.');
+          return;
+        }
         await window.electron.writeConfig({
           username: remember ? username : '',
           password: remember ? password : '',
           rememberCredentials: remember,
         });
-      } catch (error) {
+      } catch (err) {
         // eslint-disable-next-line no-console
-        console.error('Error saving config:', error);
+        console.error('Error saving config:', err);
       }
     };
 
@@ -60,8 +74,12 @@ export default function App() {
   }, [username, password, remember]);
 
   const canPlay = username.trim().length > 0 && password.trim().length > 0;
-  const onMinimize = () => window.electron?.windowControls?.minimize();
-  const onClose = () => window.electron?.windowControls?.close();
+  const onMinimize = () =>
+    window.electron?.windowControls?.minimize &&
+    window.electron.windowControls.minimize();
+  const onClose = () =>
+    window.electron?.windowControls?.close &&
+    window.electron.windowControls.close();
 
   return (
     <div className="launcher">
@@ -126,6 +144,13 @@ export default function App() {
             </nav>
           </header>
 
+          {/* Error display */}
+          {error && (
+            <div className="error" style={{ color: 'red', margin: '1em' }}>
+              {error}
+            </div>
+          )}
+
           <Routes>
             <Route
               path="/"
@@ -138,6 +163,7 @@ export default function App() {
                   remember={remember}
                   setRemember={setRemember}
                   canPlay={canPlay}
+                  installDir={installDir}
                 />
               }
             />

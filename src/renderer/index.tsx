@@ -1,9 +1,10 @@
+// Debug: Log window.electron to confirm preload script injection
+// eslint-disable-next-line no-console
+console.log('window.electron:', window.electron);
 import { createRoot } from 'react-dom/client';
 import React from 'react';
 import App from './App';
-// Removed Tailwind stylesheet import; using component-scoped CSS instead
 
-// Create the root once and render the application.
 const container = document.getElementById('root');
 if (!container) {
   // eslint-disable-next-line no-console
@@ -13,7 +14,7 @@ if (!container) {
   root.render(
     <React.StrictMode>
       <App />
-    </React.StrictMode>,
+    </React.StrictMode>
   );
 }
 

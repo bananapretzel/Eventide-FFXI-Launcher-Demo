@@ -32,4 +32,6 @@ config.json
 extensions.json
 settings.json
 Eventide.ini.bak
+test
+Eventide-test/
 

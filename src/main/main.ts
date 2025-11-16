@@ -1,27 +1,94 @@
-/* eslint global-require: off, no-console: off, promise/always-return: off */
 
-/**
- * This module executes inside of electron's main process. You can start
- * electron renderer process from here and communicate with the other processes
- * through IPC.
- *
- * When running `npm run build` or `npm run build:main`, this file is compiled to
- * `./src/main.js` using webpack. This gives us some performance wins.
- */
-import path from 'path';
-import { app, BrowserWindow, shell, ipcMain } from 'electron';
-import { autoUpdater } from 'electron-updater';
+
 import log from 'electron-log';
-import fs from 'fs';
-import ini from 'ini';
-import { spawn } from 'child_process';
+import path from 'path';
+import fs from 'fs-extra';
 import crypto from 'crypto';
+import { spawn } from 'child_process';
+import ini from 'ini';
+import { promisify } from 'util';
+import { pipeline } from 'stream';
 import MenuBuilder from './menu';
 import { resolveHtmlPath } from './util';
+import { RELEASE_JSON_URL, getExePath, getGameInstallDir, getResourcePath, IS_PROD, IS_DEV } from './config';
+import { getClientVersion } from '../core/versions';
+import { getReleaseJson, getPatchManifest } from '../core/manifest';
+import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { autoUpdater } from 'electron-updater';
+import { writeJson, readJson } from '../core/fs';
+import { downloadGame } from '../logic/download';
+import { applyPatches } from '../logic/patch';
 
-// Encryption configuration
-const ENCRYPTION_KEY = crypto.scryptSync('eventide-launcher-key', 'salt', 32);
+// Crypto constants for password encryption (replace with secure values in production)
 const IV_LENGTH = 16;
+const ENCRYPTION_KEY = crypto.randomBytes(32); // Replace with a securely stored key
+
+// IPC handler to read settings.json
+ipcMain.handle('read-settings', async () => {
+  try {
+    const settingsPath = getResourcePath('settings.json');
+    console.log('Reading settings from:', settingsPath);
+    if (!fs.existsSync(settingsPath)) {
+      return { success: false, error: 'Settings file not found' };
+    }
+    const settingsContent = fs.readFileSync(settingsPath, 'utf-8');
+    const settings = JSON.parse(settingsContent);
+    return { success: true, data: settings };
+  } catch (error) {
+    console.error('Error reading settings file:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
+  }
+});
+
+// IPC handler to write settings.json
+ipcMain.handle('write-settings', async (_event, data: any) => {
+  try {
+    const settingsPath = getResourcePath('settings.json');
+    console.log('Writing settings to:', settingsPath);
+    await writeJson(settingsPath, data);
+    return { success: true };
+  } catch (error) {
+    console.error('Error writing settings file:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
+  }
+});
+
+ipcMain.handle('launcher:downloadGame', async (_event, fullUrl: string, sha256: string, installDir: string, baseVersion: string) => {
+  try {
+    await downloadGame(fullUrl, sha256, installDir, baseVersion);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+});
+
+ipcMain.handle('launcher:applyPatches', async (_event, patchManifest: any, clientVersion: string, installDir: string) => {
+  try {
+    await applyPatches(patchManifest, clientVersion, installDir);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+});
+
+ipcMain.handle('launcher:launchGame', async (_event, installDir: string) => {
+  try {
+    const launchBat = path.join(installDir, 'Launch_Eventide.bat');
+    const result = await launchGameWithBatch(installDir, launchBat);
+    return result;
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+});
+
+// (Manifest schema validation removed; handled in modular code if needed)
+
 
 function encryptPassword(password: string): string {
   const iv = crypto.randomBytes(IV_LENGTH);
@@ -35,7 +102,7 @@ function decryptPassword(encryptedPassword: string): string {
   try {
     const parts = encryptedPassword.split(':');
     if (parts.length !== 2) {
-      return ''; // Return empty string if format is invalid
+      return '';
     }
     const iv = Buffer.from(parts[0], 'hex');
     const encryptedText = parts[1];
@@ -43,21 +110,38 @@ function decryptPassword(encryptedPassword: string): string {
     let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
     decrypted += decipher.final('utf8');
     return decrypted;
-  } catch (error) {
-    console.error('Error decrypting password:', error);
-    return ''; // Return empty string if decryption fails
+  } catch {
+    return '';
   }
 }
 
-class AppUpdater {
-  constructor() {
-    log.transports.file.level = 'info';
-    autoUpdater.logger = log;
-    autoUpdater.checkForUpdatesAndNotify();
-  }
-}
+
+
 
 let mainWindow: BrowserWindow | null = null;
+
+// Ensure mainWindow is initialized on app ready
+app.on('ready', () => {
+  // Use the correct path to the built preload.js for development
+  const preloadPath = path.join(__dirname, '../../.erb/dll/preload.js');
+  mainWindow = new BrowserWindow({
+    width: 1024,
+    height: 768,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: preloadPath,
+    },
+  });
+  mainWindow.loadURL(resolveHtmlPath('index.html'));
+  // Open DevTools automatically in development mode
+  if (process.env.NODE_ENV !== 'production') {
+    mainWindow.webContents.openDevTools({ mode: 'right' });
+  }
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
+});
 
 ipcMain.on('ipc-example', async (event, arg) => {
   const msgTemplate = (pingPong: string) => `IPC test: ${pingPong}`;
@@ -79,15 +163,18 @@ ipcMain.on('window:close', () => {
 
 ipcMain.handle('read-ini-file', async () => {
   try {
-    // Use the project root directory instead of app path
-    const iniPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'Eventide.ini')
-      : path.join(__dirname, '../../Eventide.ini');
-
+    // Try to use installDir if available from global or environment (for renderer calls, prefer root fallback)
+    let iniPath: string;
+    const installDir = process.env.EVENTIDE_INSTALL_DIR;
+    if (installDir) {
+      iniPath = path.join(installDir, 'config', 'boot', 'Eventide.ini');
+    } else {
+      iniPath = getResourcePath('Eventide.ini');
+    }
     console.log('Reading INI from:', iniPath);
     const iniContent = fs.readFileSync(iniPath, 'utf-8');
     const config = ini.parse(iniContent);
-    return { success: true, data: config };
+    return { success: true, data: config, error: null };
   } catch (error) {
     console.error('Error reading INI file:', error);
     return {
@@ -97,47 +184,47 @@ ipcMain.handle('read-ini-file', async () => {
   }
 });
 
-ipcMain.handle('update-ini-auth-and-run', async (_event, username: string, password: string) => {
+ipcMain.handle('update-ini-auth-and-run', async (_event, username: string, password: string, installDir?: string) => {
   try {
-    // Use the project root directory instead of app path
-    const iniPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'Eventide.ini')
-      : path.join(__dirname, '../../Eventide.ini');
-
+    if (!installDir) {
+      throw new Error('installDir is required and was not provided.');
+    }
+    const iniPath = path.join(installDir, 'config', 'boot', 'Eventide.ini');
+    if (!fs.existsSync(iniPath)) {
+      throw new Error(`INI file not found at: ${iniPath}`);
+    }
     console.log('Updating INI at:', iniPath);
     const iniContent = fs.readFileSync(iniPath, 'utf-8');
     const config = ini.parse(iniContent);
 
     console.log('Original config:', config['ashita.boot']);
 
-    // Update the username and password in the command
+    // Update or add --user and --pass in the command (ALWAYS PLAINTEXT PASSWORD)
     if (config?.ashita?.boot?.command) {
-      // Parse the existing command
-      const commandParts = config.ashita.boot.command.split(' ');
-
-      // Find and update --user and --pass values
-      for (let i = 0; i < commandParts.length; i++) {
-        if (commandParts[i] === '--user' && i + 1 < commandParts.length) {
-          commandParts[i + 1] = username;
-        } else if (commandParts[i] === '--pass' && i + 1 < commandParts.length) {
-          commandParts[i + 1] = password;
+      let commandParts = config.ashita.boot.command.split(' ');
+      // Remove any existing --user and --pass (and their values)
+      commandParts = commandParts.filter((part: string, idx: number, arr: string[]) => {
+        if ((part === '--user' || part === '--pass') && idx + 1 < arr.length) {
+          return false; // skip this and the next (the value)
         }
-      }
-
+        // Also skip the value if previous was --user or --pass
+        if (idx > 0 && (arr[idx - 1] === '--user' || arr[idx - 1] === '--pass')) {
+          return false;
+        }
+        return true;
+      });
+      // Always append new --user and --pass (PLAINTEXT password)
+      commandParts.push('--user', username, '--pass', password);
       config.ashita.boot.command = commandParts.join(' ');
-      console.log('Updated command:', config.ashita.boot.command);
+      console.log('Updated command (plaintext password):', config.ashita.boot.command);
     }
 
     // Also attempt to read settings.json and apply mapped settings to the INI
     try {
-      const settingsPath = app.isPackaged
-        ? path.join(process.resourcesPath, 'settings.json')
-        : path.join(__dirname, '../../settings.json');
-
+      const settingsPath = getResourcePath('settings.json');
       if (fs.existsSync(settingsPath)) {
         console.log('Applying settings from:', settingsPath);
-        const settingsContent = fs.readFileSync(settingsPath, 'utf-8');
-        const settings = JSON.parse(settingsContent) as Record<string, any>;
+        const settings = (await readJson<Record<string, any>>(settingsPath)) || {};
 
         // Keep original INI snapshot to detect if anything changed
         const originalIni = ini.stringify(config);
@@ -208,23 +295,17 @@ ipcMain.handle('update-ini-auth-and-run', async (_event, username: string, passw
           }
         }
 
-        // After applying all mappings, compare to original to avoid unnecessary writes
+        // Always write the INI file after updating the command (even if only password changes)
         const newIni = ini.stringify(config);
-        if (newIni === originalIni) {
-          console.log('No INI changes detected; skipping write');
-        } else {
-          // backup existing INI before writing
-          try {
-            const bakPath = `${iniPath}.bak`;
-            fs.copyFileSync(iniPath, bakPath);
-            console.log('Created INI backup at', bakPath);
-          } catch (bkErr) {
-            console.warn('Failed to create INI backup:', bkErr);
-          }
-
-          fs.writeFileSync(iniPath, newIni, 'utf-8');
-          console.log('INI file updated successfully');
+        try {
+          const bakPath = `${iniPath}.bak`;
+          fs.copyFileSync(iniPath, bakPath);
+          console.log('Created INI backup at', bakPath);
+        } catch (bkErr) {
+          console.warn('Failed to create INI backup:', bkErr);
         }
+        fs.writeFileSync(iniPath, newIni, 'utf-8');
+        console.log('INI file updated successfully');
       } else {
         console.log('No settings.json found at', settingsPath, '- skipping extra INI mappings');
       }
@@ -232,39 +313,9 @@ ipcMain.handle('update-ini-auth-and-run', async (_event, username: string, passw
       console.error('Failed to apply settings.json to INI:', err);
     }
 
-    // Execute ashita-cli.exe with eventide.ini as argument
-    const exePath = app.isPackaged
-      ? path.join(process.resourcesPath, 'ashita-cli.exe')
-      : path.join(__dirname, '../../ashita-cli.exe');
-
-    console.log('Executing:', exePath, iniPath);
-
-    // Check if the executable exists
-    if (!fs.existsSync(exePath)) {
-      console.error('Executable not found:', exePath);
-      return {
-        success: false,
-        error: `Executable not found: ${exePath}`
-      };
-    }
-
-    const child = spawn(exePath, [iniPath], {
-      detached: true,
-      stdio: 'ignore',
-      shell: true,
-      cwd: path.dirname(exePath)
-    });
-
-    child.on('error', (err) => {
-      console.error('Failed to start subprocess:', err);
-    });
-
-    // Allow the child process to run independently
-    child.unref();
-
-    console.log('ashita-cli.exe launched successfully');
-
-    return { success: true, data: config };
+    // Do not launch the game here — only update INI. The renderer or user
+    // should call `game:launch` when ready. Return the updated config to the caller.
+    return { success: true, data: config, error: null };
   } catch (error) {
     console.error('Error updating INI file:', error);
     return {
@@ -274,129 +325,18 @@ ipcMain.handle('update-ini-auth-and-run', async (_event, username: string, passw
   }
 });
 
-ipcMain.handle('read-extensions', async () => {
-  try {
-    const extensionsPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'extensions.json')
-      : path.join(__dirname, '../../extensions.json');
-
-    console.log('Reading extensions from:', extensionsPath);
-
-    if (!fs.existsSync(extensionsPath)) {
-      // Return default state if file doesn't exist
-      return { success: true, data: { addons: {}, plugins: {} } };
-    }
-
-    const extensionsContent = fs.readFileSync(extensionsPath, 'utf-8');
-    const data = JSON.parse(extensionsContent);
-    return { success: true, data };
-  } catch (error) {
-    console.error('Error reading extensions file:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
-    };
-  }
-});
-
-ipcMain.handle('write-extensions', async (_event, data: { addons: Record<string, boolean>, plugins: Record<string, boolean> }) => {
-  try {
-    const extensionsPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'extensions.json')
-      : path.join(__dirname, '../../extensions.json');
-
-    console.log('Writing extensions to:', extensionsPath);
-
-    const extensionsContent = JSON.stringify(data, null, 2);
-    fs.writeFileSync(extensionsPath, extensionsContent, 'utf-8');
-
-    return { success: true };
-  } catch (error) {
-    console.error('Error writing extensions file:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
-    };
-  }
-});
-
-ipcMain.handle('read-settings', async () => {
-  try {
-    const settingsPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'settings.json')
-      : path.join(__dirname, '../../settings.json');
-
-    console.log('Reading settings from:', settingsPath);
-
-    if (!fs.existsSync(settingsPath)) {
-      // Return default state if file doesn't exist
-      return { success: true, data: {} };
-    }
-
-    const settingsContent = fs.readFileSync(settingsPath, 'utf-8');
-    const data = JSON.parse(settingsContent);
-    return { success: true, data };
-  } catch (error) {
-    console.error('Error reading settings file:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
-    };
-  }
-});
-
-ipcMain.handle('write-settings', async (_event, data: Record<string, any>) => {
-  try {
-    const settingsPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'settings.json')
-      : path.join(__dirname, '../../settings.json');
-
-    console.log('Writing settings to:', settingsPath);
-
-    const settingsContent = JSON.stringify(data, null, 2);
-    fs.writeFileSync(settingsPath, settingsContent, 'utf-8');
-
-    return { success: true };
-  } catch (error) {
-    console.error('Error writing settings file:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
-    };
-  }
-});
-
+// ...existing code...
+// IPC handler to read config.json
 ipcMain.handle('read-config', async () => {
   try {
-    const configPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'config.json')
-      : path.join(__dirname, '../../config.json');
-
+    const configPath = getResourcePath('config.json');
     console.log('Reading config from:', configPath);
-
     if (!fs.existsSync(configPath)) {
-      // Return default config if file doesn't exist
-      const defaultConfig = {
-        username: '',
-        password: '',
-        rememberCredentials: true,
-        launcherVersion: app.getVersion()
-      };
-      return { success: true, data: defaultConfig };
+      return { success: false, error: 'Config file not found' };
     }
-
     const configContent = fs.readFileSync(configPath, 'utf-8');
-    const data = JSON.parse(configContent);
-
-    // Decrypt password if it exists and is not empty
-    if (data.password && data.password.length > 0) {
-      data.password = decryptPassword(data.password);
-    }
-
-    // Ensure launcherVersion is always up to date
-    data.launcherVersion = app.getVersion();
-
-    return { success: true, data };
+    const config = JSON.parse(configContent);
+    return { success: true, data: config };
   } catch (error) {
     console.error('Error reading config file:', error);
     return {
@@ -408,27 +348,27 @@ ipcMain.handle('read-config', async () => {
 
 ipcMain.handle('write-config', async (_event, data: { username: string, password: string, rememberCredentials: boolean }) => {
   try {
-    const configPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'config.json')
-      : path.join(__dirname, '../../config.json');
-
+    const configPath = getResourcePath('config.json');
     console.log('Writing config to:', configPath);
-
-    // Encrypt password if it exists and is not empty
+    let existingConfig = {};
+    if (fs.existsSync(configPath)) {
+      try {
+        existingConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      } catch (e) {
+        console.warn('Could not parse existing config.json, starting fresh.');
+      }
+    }
     const encryptedPassword = data.password && data.password.length > 0
       ? encryptPassword(data.password)
       : '';
-
     const configData = {
+      ...existingConfig,
       username: data.username,
       password: encryptedPassword,
       rememberCredentials: data.rememberCredentials,
       launcherVersion: app.getVersion()
     };
-
-    const configContent = JSON.stringify(configData, null, 2);
-    fs.writeFileSync(configPath, configContent, 'utf-8');
-
+    await writeJson(configPath, configData);
     return { success: true };
   } catch (error) {
     console.error('Error writing config file:', error);
@@ -439,107 +379,272 @@ ipcMain.handle('write-config', async (_event, data: { username: string, password
   }
 });
 
-if (process.env.NODE_ENV === 'production') {
-  const sourceMapSupport = require('source-map-support');
-  sourceMapSupport.install();
-}
+// ---- Game install / update helpers and IPC handlers ----
+const streamPipeline = promisify(pipeline);
 
-const isDebug =
-  process.env.NODE_ENV === 'development' || process.env.DEBUG_PROD === 'true';
+// Debug startup marker to help confirm main process is running the current source.
+try {
+  console.log('Launcher main boot:', { __dirname, NODE_ENV: process.env.NODE_ENV });
+} catch (e) {}
 
-if (isDebug) {
-  require('electron-debug').default();
-}
+// Centralized launcher helper: prefer the batch wrapper and capture output
+async function launchGameWithBatch(installDir: string, launchBat: string) {
+  return new Promise<{ success: boolean; error?: string }>((resolve) => {
+    try {
+      if (!fs.existsSync(launchBat)) {
+        return resolve({ success: false, error: `Launch batch not found: ${launchBat}` });
+      }
 
-const installExtensions = async () => {
-  const installer = require('electron-devtools-installer');
-  const forceDownload = !!process.env.UPGRADE_EXTENSIONS;
-  const extensions = ['REACT_DEVELOPER_TOOLS'];
+      const logPath = path.join(installDir, 'launcher-invoke-output.log');
+      try { fs.appendFileSync(logPath, `\n--- Launcher invoke at ${new Date().toISOString()} ---\n`); } catch {}
 
-  return installer
-    .default(
-      extensions.map((name) => installer[name]),
-      forceDownload,
-    )
-    .catch(console.log);
-};
+      // Use cmd.exe to run the batch file so behavior is closer to double-click
+      const child = spawn('cmd.exe', ['/c', launchBat], {
+        detached: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        cwd: installDir,
+      });
 
-const createWindow = async () => {
-  if (isDebug) {
-    await installExtensions();
-  }
+      // Pipe stdout/stderr to a log file for later inspection
+      try {
+        const outStream = fs.createWriteStream(logPath, { flags: 'a' });
+        if (child.stdout) child.stdout.pipe(outStream);
+        if (child.stderr) child.stderr.pipe(outStream);
+        child.on('error', (err) => {
+          try { outStream.write(`spawn error: ${String(err)}\n`); } catch {}
+        });
+        child.on('close', (code, signal) => {
+          try { outStream.write(`child exit code=${String(code)} signal=${String(signal)}\n`); } catch {}
+          try { outStream.end(); } catch {}
+        });
+      } catch (e) {
+        // ignore logging failures
+      }
 
-  const RESOURCES_PATH = app.isPackaged
-    ? path.join(process.resourcesPath, 'assets')
-    : path.join(__dirname, '../../assets');
-
-  const getAssetPath = (...paths: string[]): string => {
-    return path.join(RESOURCES_PATH, ...paths);
-  };
-
-  mainWindow = new BrowserWindow({
-    show: false,
-    width: 1024,
-    height: 728,
-    icon: getAssetPath('icon.png'),
-    webPreferences: {
-      preload: app.isPackaged
-        ? path.join(__dirname, 'preload.js')
-        : path.join(__dirname, '../../.erb/dll/preload.js'),
-    },
-  });
-
-  mainWindow.loadURL(resolveHtmlPath('index.html'));
-
-  mainWindow.on('ready-to-show', () => {
-    if (!mainWindow) {
-      throw new Error('"mainWindow" is not defined');
-    }
-    if (process.env.START_MINIMIZED) {
-      mainWindow.minimize();
-    } else {
-      mainWindow.show();
+      child.on('error', (err) => resolve({ success: false, error: String(err) }));
+      // detach and let the game run independently
+      try { child.unref(); } catch (e) {}
+      return resolve({ success: true });
+    } catch (err) {
+      return resolve({ success: false, error: String(err) });
     }
   });
+}
 
-  mainWindow.on('closed', () => {
-    mainWindow = null;
-  });
+// fetchJson is now imported from utils/io
 
-  const menuBuilder = new MenuBuilder(mainWindow);
-  menuBuilder.buildMenu();
 
-  // Open urls in the user's browser
-  mainWindow.webContents.setWindowOpenHandler((edata) => {
-    shell.openExternal(edata.url);
-    return { action: 'deny' };
-  });
-
-  // Remove this if your app does not use auto updates
-  // eslint-disable-next-line
-  new AppUpdater();
-};
-
-/**
- * Add event listeners...
- */
-
-app.on('window-all-closed', () => {
-  // Respect the OSX convention of having the application in memory even
-  // after all windows have been closed
-  if (process.platform !== 'darwin') {
-    app.quit();
+ipcMain.handle('game:check', async () => {
+  try {
+    const PATCH_MANIFEST_URL = 'https://raw.githubusercontent.com/bananapretzel/eventide-patch-manifest/refs/heads/main/patch-manifest.json';
+    const exePath = getExePath();
+    const installDir = path.dirname(exePath);
+    const exists = fs.existsSync(exePath);
+    // Read local version from game-version.json (try installDir, then project root)
+    let localVersion = '';
+    let localVersionPath = path.join(installDir, 'game-version.json');
+    if (fs.existsSync(localVersionPath)) {
+      try {
+        const localData = fs.readJsonSync(localVersionPath);
+        localVersion = localData.version || '';
+      } catch (e) {
+        console.warn('[game:check] Failed to read local game-version.json in installDir:', e);
+      }
+    }
+    // Fallback: check project root if not found
+    if (!localVersion) {
+      const projectRootPath = path.join(__dirname, '../../game-version.json');
+      if (fs.existsSync(projectRootPath)) {
+        try {
+          const localData = fs.readJsonSync(projectRootPath);
+          localVersion = localData.version || '';
+        } catch (e) {
+          console.warn('[game:check] Failed to read local game-version.json in project root:', e);
+        }
+      }
+    }
+    // Fetch remote patch manifest
+    const fetchJson = require('./utils/io').fetchJson;
+    const patchManifest = await fetchJson(PATCH_MANIFEST_URL);
+    const remoteVersion = patchManifest.latestVersion;
+    // Compare versions (simple string compare, can be improved)
+    const updateAvailable = localVersion !== remoteVersion;
+    console.log('[game:check] localVersion:', localVersion);
+    console.log('[game:check] remoteVersion:', remoteVersion);
+    console.log('[game:check] patchManifest:', JSON.stringify(patchManifest, null, 2));
+    console.log('[game:check] updateAvailable:', updateAvailable);
+    return { exists, updateAvailable, remoteVersion, installedVersion: localVersion };
+  } catch (err) {
+    console.error('[game:check] error:', err);
+    return { exists: false, updateAvailable: false, error: String(err) };
   }
 });
 
-app
-  .whenReady()
-  .then(() => {
-    createWindow();
-    app.on('activate', () => {
-      // On macOS it's common to re-create a window in the app when the
-      // dock icon is clicked and there are no other windows open.
-      if (mainWindow === null) createWindow();
-    });
-  })
-  .catch(console.log);
+// (legacy patching logic removed)
+// (legacy patching logic removed)
+
+// Debug helper: return last download progress recorded in main (useful from renderer DevTools)
+ipcMain.handle('debug:get-last-progress', async () => {
+  try {
+    return { success: true, data: (global as any).__lastDownloadProgress ?? null };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+});
+
+// Debug helper: return last structured download info (release, assetUrl, patch manifest checks, patch apply result)
+ipcMain.handle('debug:get-last-download-info', async () => {
+  try {
+    return { success: true, data: (global as any).__lastDownloadInfo ?? null };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+});
+
+// Debug helper: return last computed download checksum
+ipcMain.handle('debug:get-last-checksum', async () => {
+  try {
+    return { success: true, data: (global as any).__lastDownloadChecksum ?? null };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+});
+
+ipcMain.handle('game:download', async () => {
+  try {
+    const exePath = getExePath();
+    const installDir = path.dirname(exePath);
+    const release = await getReleaseJson(RELEASE_JSON_URL);
+    await downloadGame(release.game.fullUrl, release.game.sha256, installDir, release.game.baseVersion);
+    return { success: true };
+  } catch (err) {
+    console.error('Download failed:', err);
+    mainWindow?.webContents.send('game:status', { status: 'error', message: String(err) });
+    return { success: false, error: String(err) };
+  }
+});
+
+// Import an existing installation: scan installDir, compute per-file hashes, and write game-version.json
+ipcMain.handle('game:import-existing', async () => {
+  try {
+    const exePath = getExePath();
+    const installDir = app.isPackaged ? path.dirname(exePath) : path.join(__dirname, '../../');
+
+    if (!fs.existsSync(installDir)) {
+      return { success: false, error: `Install directory not found: ${installDir}` };
+    }
+
+    // quick check for main executable
+    const mainExe = path.join(installDir, 'ashita-cli.exe');
+    if (!fs.existsSync(mainExe)) {
+      return { success: false, error: 'Main executable not found in install directory' };
+    }
+
+    // list files and compute per-file sha256 (may take time)
+    // TODO: Implement or import listRelativeFiles and sha256File if needed
+    // const relFiles = listRelativeFiles(installDir);
+    // const fileEntries: Array<{ path: string; sha256: string }> = [];
+    // for (const rel of relFiles) {
+    //   const abs = path.join(installDir, rel);
+    //   try {
+    //     const h = await sha256File(abs);
+    //     fileEntries.push({ path: rel, sha256: h });
+    //   } catch (e) {
+    //     try { console.warn('Failed to hash file during import', abs, e); } catch {}
+    //     fileEntries.push({ path: rel, sha256: '' });
+    //   }
+    // }
+    const fileEntries: Array<{ path: string; sha256: string }> = [];
+
+    // compute a snapshot checksum for the set (deterministic)
+    const snapshotHasher = crypto.createHash('sha256');
+    fileEntries.sort((a, b) => a.path.localeCompare(b.path));
+    for (const e of fileEntries) {
+      snapshotHasher.update(e.path + ':' + (e.sha256 || '') + '\n');
+    }
+    const snapshotHash = snapshotHasher.digest('hex');
+
+    // Fetch remote release.json to get version/source info for the snapshot (optional)
+    let manifest: any | undefined;
+    try {
+      // TODO: Implement or import fetchJson if needed
+      // const remote: any = await fetchJson(RELEASE_JSON_URL);
+      // if (remote?.game) manifest = { ...(remote.game), version: remote.game.baseVersion ?? remote.latestVersion ?? remote.game.version };
+      // else manifest = remote;
+    } catch (e) {
+      // ignore; manifest info is optional for import
+    }
+
+    const versionData: any = {
+      version: manifest?.version ?? '',
+      sha256: snapshotHash,
+      source: manifest?.fullUrl ?? null,
+      installedFiles: fileEntries,
+    };
+
+    const localVersionPath = path.join(installDir, 'game-version.json');
+    // safeWriteJson(localVersionPath, versionData);
+    await writeJson(localVersionPath, versionData);
+
+    return { success: true, installedFiles: fileEntries.length, snapshot: snapshotHash };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+});
+
+ipcMain.handle('game:update', async () => {
+  try {
+    const exePath = getExePath();
+    const installDir = path.dirname(exePath);
+    const projectRoot = path.resolve(__dirname, '../../');
+    const release = await getReleaseJson(RELEASE_JSON_URL);
+    const patchManifest = await getPatchManifest(release.patchManifestUrl);
+    const clientVersion = await getClientVersion(projectRoot);
+    await applyPatches(patchManifest, clientVersion || '', installDir);
+    return { success: true };
+  } catch (err) {
+    console.error('Update failed:', err);
+    mainWindow?.webContents.send('game:status', { status: 'error', message: String(err) });
+    return { success: false, error: String(err) };
+  }
+});
+
+ipcMain.handle('game:launch', async () => {
+  try {
+    const exePath = getExePath();
+    const installDir = app.isPackaged ? path.dirname(exePath) : getGameInstallDir();
+    const launchBat = path.join(installDir, 'Launch_Eventide.bat');
+
+    mainWindow?.webContents.send('game:status', { status: 'launching' });
+
+    console.log('exePath =', exePath);
+console.log('installDir =', installDir);
+console.log('launchBat =', launchBat);
+console.log('launchBat exists?', fs.existsSync(launchBat));
+
+    // Require the batch wrapper in all cases; do not fall back to directly
+    // launching the executable. Return a clear error if the wrapper is missing.
+    if (!fs.existsSync(launchBat)) {
+      const msg = `Launch batch not found: ${launchBat}`;
+      console.error(msg);
+      mainWindow?.webContents.send('game:status', { status: 'error', message: msg });
+      return { success: false, error: msg };
+    }
+
+    console.log('Launching via batch:', launchBat);
+    const launchResult = await launchGameWithBatch(installDir, launchBat);
+    if (!launchResult.success) {
+      console.error('Failed to launch game:', launchResult.error);
+      mainWindow?.webContents.send('game:status', { status: 'error', message: String(launchResult.error) });
+      return { success: false, error: launchResult.error };
+    }
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+});
+
+if (process.env.NODE_ENV === 'production') {
+  const sourceMapSupport = require('source-map-support');
+    // (legacy patching logic removed)
+}

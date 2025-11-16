@@ -181,7 +181,7 @@ function Column({
         </button>
       </div>
       <div className="ext-list" role="list">
-        {items.map((item) => (
+        {(items || []).map((item) => (
           <div role="listitem" key={item.id}>
             <ExtCard
               item={item}
@@ -196,18 +196,19 @@ function Column({
 }
 
 export default function ExtensionsPage() {
-  const [addonsEnabled, setAddonsEnabled] = useState<Record<string, boolean>>(
-    {},
-  );
-  const [pluginsEnabled, setPluginsEnabled] = useState<Record<string, boolean>>(
-    {},
-  );
+  const [addonsEnabled, setAddonsEnabled] = useState<Record<string, boolean>>({});
+  const [pluginsEnabled, setPluginsEnabled] = useState<Record<string, boolean>>({});
   const [isLoaded, setIsLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Load extension states on mount
   useEffect(() => {
     const loadExtensions = async () => {
       try {
+        if (!window.electron?.readExtensions) {
+          setError('Electron preload API not available.');
+          return;
+        }
         const result = await window.electron.readExtensions();
         if (result.success && result.data) {
           if (result.data.addons) {
@@ -234,6 +235,10 @@ export default function ExtensionsPage() {
 
     const saveExtensions = async () => {
       try {
+        if (!window.electron?.writeExtensions) {
+          setError('Electron preload API not available.');
+          return;
+        }
         await window.electron.writeExtensions({
           addons: addonsEnabled,
           plugins: pluginsEnabled,

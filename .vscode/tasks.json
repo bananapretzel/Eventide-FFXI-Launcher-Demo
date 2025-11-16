@@ -1,45 +1,105 @@
 {
-  "version": "2.0.0",
-  "tasks": [
-    {
-      "label": "Start Renderer Dev Server",
-      "type": "shell",
-      "command": "npm",
-      "args": ["run", "start:renderer"],
-      "isBackground": true,
-      "problemMatcher": {
-        "pattern": {
-          "regexp": "."
-        },
-        "background": {
-          "activeOnStart": true,
-          "beginsPattern": ".",
-          "endsPattern": "Compiled|compiled"
-        }
-      }
-    },
-    {
-      "label": "Start Electron",
-      "type": "shell",
-      "command": "npm",
-      "args": ["run", "start:main:debug"],
-      "isBackground": true,
-      "dependsOn": ["Start Renderer Dev Server"],
-      "dependsOrder": "sequence",
-      "problemMatcher": {
-        "pattern": {
-          "regexp": "."
-        },
-        "background": {
-          "activeOnStart": true,
-          "beginsPattern": ".",
-          "endsPattern": "compiled"
-        }
-      },
-      "presentation": {
-        "reveal": "always",
-        "panel": "new"
-      }
-    }
-  ]
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Start Renderer Dev Server",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"start:renderer"
+			],
+			"isBackground": true,
+			"problemMatcher": {
+				"pattern": {
+					"regexp": "."
+				},
+				"background": {
+					"activeOnStart": true,
+					"beginsPattern": ".",
+					"endsPattern": "Compiled|compiled"
+				}
+			}
+		},
+		{
+			"label": "Start Electron",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"start:main:debug"
+			],
+			"isBackground": true,
+			"dependsOn": [
+				"Start Renderer Dev Server"
+			],
+			"dependsOrder": "sequence",
+			"problemMatcher": {
+				"pattern": {
+					"regexp": "."
+				},
+				"background": {
+					"activeOnStart": true,
+					"beginsPattern": ".",
+					"endsPattern": "compiled"
+				}
+			},
+			"presentation": {
+				"reveal": "always",
+				"panel": "new"
+			}
+		},
+		{
+			"label": "TypeScript Check",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"tsc",
+				"--noEmit"
+			],
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "test"
+		},
+		{
+			"label": "TypeScript Check",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"tsc",
+				"--noEmit"
+			],
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "test"
+		},
+		{
+			"label": "TypeScript Check",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"tsc",
+				"--noEmit"
+			],
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "test"
+		},
+		{
+			"label": "TypeScript Check",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"tsc",
+				"--noEmit"
+			],
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "test"
+		}
+	]
 }
