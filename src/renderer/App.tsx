@@ -101,7 +101,7 @@ export default function App() {
     }
   }, [username, password, remember]);
 
-  const canPlay = username.trim().length > 0 && password.trim().length > 0;
+  const canPlay = true; // Allow play even if username/password are empty
   const onMinimize = () =>
     window.electron?.windowControls?.minimize &&
     window.electron.windowControls.minimize();
@@ -192,7 +192,6 @@ export default function App() {
                   setRemember={setRemember}
                   canPlay={canPlay}
                   installDir={installDir}
-                  onPlay={handlePlay}
                 />
               }
             />

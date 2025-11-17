@@ -28,7 +28,13 @@ function Main() {
           setState('error');
           return;
         }
-        const { release, patchManifest, clientVersion } = result;
+        const {
+          release,
+          patchManifest,
+          clientVersion,
+          baseGameDownloaded,
+          baseGameExtracted,
+        } = result;
         // eslint-disable-next-line promise/always-return
         if (!release || !clientVersion) {
           const msg = `[ERROR] Missing release or clientVersion in bootstrap result: ${JSON.stringify(
@@ -38,11 +44,19 @@ function Main() {
           setState('error');
           return;
         }
-        setCtx({ release, patchManifest, clientVersion });
+        setCtx({
+          release,
+          patchManifest,
+          clientVersion,
+          baseGameDownloaded,
+          baseGameExtracted,
+        });
         setState(
           getLauncherState({
             clientVersion,
             latestVersion: release.latestVersion,
+            baseGameDownloaded: !!baseGameDownloaded,
+            baseGameExtracted: !!baseGameExtracted,
           }),
         );
       })

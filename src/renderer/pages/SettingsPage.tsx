@@ -824,7 +824,14 @@ export default function SettingsPage() {
         }
         const result = await window.electron.readSettings();
         if (result.success && result.data) {
-          setSettings(result.data);
+          // Ensure bgWidth and bgHeight always have defaults
+          const loaded = { ...result.data };
+          loaded.ffxi = loaded.ffxi || {};
+          if (typeof loaded.ffxi.bgWidth === 'undefined')
+            loaded.ffxi.bgWidth = 3840;
+          if (typeof loaded.ffxi.bgHeight === 'undefined')
+            loaded.ffxi.bgHeight = 2160;
+          setSettings(loaded);
         }
       } catch (err) {
         // eslint-disable-next-line no-console

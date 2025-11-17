@@ -14,7 +14,6 @@ export type HomePageProps = {
   setRemember: (v: boolean) => void;
   canPlay: boolean;
   installDir: string;
-  onPlay: () => void | Promise<void>;
 };
 
 export default function HomePage(props: HomePageProps) {
@@ -27,7 +26,6 @@ export default function HomePage(props: HomePageProps) {
     setRemember,
     canPlay,
     installDir,
-    onPlay,
   } = props;
 
   type State =
@@ -181,21 +179,22 @@ export default function HomePage(props: HomePageProps) {
         dispatch({ type: 'CHECK' });
         try {
           const res = await safeInvoke('game:check');
-          const { exists, updateAvailable, remoteVersion, installedVersion } =
-            res ?? {};
-          if (!exists) {
+          const { launcherState, latestVersion, installedVersion } = res ?? {};
+          if (launcherState === 'missing') {
             dispatch({ type: 'SET', state: { status: 'missing' } });
-          } else if (updateAvailable) {
+          } else if (launcherState === 'update-available') {
             dispatch({
               type: 'SET',
               state: {
                 status: 'update-available',
-                remoteVersion,
+                remoteVersion: latestVersion,
                 installedVersion,
               },
             });
-          } else {
+          } else if (launcherState === 'ready') {
             dispatch({ type: 'SET', state: { status: 'ready' } });
+          } else {
+            dispatch({ type: 'SET', state: { status: 'missing' } });
           }
         } catch (err) {
           // eslint-disable-next-line no-console
@@ -295,6 +294,7 @@ export default function HomePage(props: HomePageProps) {
   }, []);
 
   const handleActionClick = async () => {
+    console.log('[HomePage] Play/Action button clicked, state:', state);
     try {
       if (state.status === 'missing') {
         // start download
@@ -413,7 +413,7 @@ export default function HomePage(props: HomePageProps) {
               state.status === 'launching' ||
               (state.status === 'ready' && !canPlay)
             }
-            onClick={state.status === 'ready' ? onPlay : handleActionClick}
+            onClick={handleActionClick}
           >
             {renderLabel()}
           </button>

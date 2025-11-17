@@ -1,16 +1,20 @@
 export type LauncherState = 'missing' | 'outdated' | 'latest' | 'downloading' | 'updating' | 'playing' | 'error';
 
+
 export interface StateContext {
   clientVersion: string | null;
   latestVersion: string;
+  baseGameDownloaded: boolean;
+  baseGameExtracted: boolean;
   error?: string;
 }
 
 export function getLauncherState(ctx: StateContext): LauncherState {
   if (ctx.error) return 'error';
-  if (!ctx.clientVersion) return 'missing';
-  if (ctx.clientVersion !== ctx.latestVersion) return 'outdated';
-  return 'latest';
+  if (!ctx.baseGameDownloaded) return 'missing';
+  if (ctx.clientVersion === ctx.latestVersion) return 'latest';
+  if (ctx.baseGameExtracted && ctx.clientVersion !== ctx.latestVersion) return 'outdated';
+  return 'missing';
 }
 
 export function getButtonLabel(state: LauncherState): string {
