@@ -495,12 +495,28 @@ function FFXIGraphicsPanel({
   );
 }
 
+function getDefaultFFXISavePath(platform: string) {
+  if (platform === 'win32') {
+    return 'C:\\Program Files (x86)\\Square Enix\\FINAL FANTASY XI';
+  }
+  if (platform === 'linux') {
+    // Example Linux default, adjust as needed
+    return '~/PlayOnLinux/FINAL FANTASY XI';
+  }
+  if (platform === 'darwin') {
+    return '/Applications/FINAL FANTASY XI';
+  }
+  return '';
+}
+
 function FFXIFeaturesPanel({
   settings,
   updateSetting,
+  platform,
 }: {
   settings: Settings;
   updateSetting: (path: string, value: any) => void;
+  platform: string;
 }) {
   return (
     <Card title="Location to store settings and screenshots">
@@ -509,10 +525,7 @@ function FFXIFeaturesPanel({
           id="ffxi-save-path"
           type="text"
           className="input ffxi-save-path"
-          value={
-            settings.ffxi?.savePath ??
-            'C:\\Program Files (x86)\\Square Enix\\FINAL FANTASY XI'
-          }
+          value={settings.ffxi?.savePath ?? getDefaultFFXISavePath(platform)}
           onChange={(e) => updateSetting('ffxi.savePath', e.target.value)}
           aria-label="Location to store settings and screenshots"
         />
@@ -805,6 +818,21 @@ export default function SettingsPage() {
   const [toastMessage, setToastMessage] = useState('');
   const [settings, setSettings] = useState<Settings>({});
   const [error, setError] = useState<string | null>(null);
+  const [platform, setPlatform] = useState<string>('win32');
+  // Get platform on mount
+  useEffect(() => {
+    async function fetchPlatform() {
+      if (window.electron?.getPlatform) {
+        const result = await window.electron.getPlatform();
+        if (typeof result === 'string') {
+          setPlatform(result);
+        } else if (result && typeof result.platform === 'string') {
+          setPlatform(result.platform);
+        }
+      }
+    }
+    fetchPlatform();
+  }, []);
 
   const handleShowToast = (message: string) => {
     setToastMessage(message);
@@ -833,9 +861,7 @@ export default function SettingsPage() {
             loaded.ffxi.bgHeight = 2160;
           setSettings(loaded);
         }
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.error('Error loading settings:', err);
+      } catch {
         handleShowToast('Error loading settings');
       }
     };
@@ -867,27 +893,16 @@ export default function SettingsPage() {
       let json: string;
       try {
         json = JSON.stringify(safeSettings);
-      } catch (err) {
-        console.error(
-          '[SettingsPage] Refusing to write settings: not serializable',
-          err,
-          safeSettings,
-        );
+      } catch {
         handleShowToast('Settings not serializable!');
         return;
       }
       if (json.length > 1000000) {
         // 1MB limit for sanity
-        console.error(
-          '[SettingsPage] Refusing to write settings: data too large',
-        );
         handleShowToast('Settings too large!');
         return;
       }
-      console.log(
-        '[SettingsPage] Writing settings:',
-        json.slice(0, 500) + (json.length > 500 ? '...truncated' : ''),
-      );
+      // Optionally, show a toast or log to a UI element if needed
       if (!window.electron?.writeSettings) {
         setError('Electron preload API not available.');
         return;
@@ -903,9 +918,7 @@ export default function SettingsPage() {
       } else {
         handleShowToast('Error saving settings');
       }
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('Error saving settings:', err);
+    } catch {
       handleShowToast('Error saving settings');
     }
   };
@@ -998,6 +1011,7 @@ export default function SettingsPage() {
           <FFXIFeaturesPanel
             settings={settings}
             updateSetting={updateSetting}
+            platform={platform}
           />
         )}
         {category === 'ffxi' && subTab === 'other' && (
@@ -1019,7 +1033,18 @@ export default function SettingsPage() {
                     id="boot-file"
                     type="text"
                     className="input"
-                    defaultValue=".\\bootloader\\xiloader.exe"
+                    defaultValue={(() => {
+                      if (platform === 'win32') {
+                        return '.\\bootloader\\xiloader.exe';
+                      }
+                      if (platform === 'linux') {
+                        return './bootloader/xiloader';
+                      }
+                      if (platform === 'darwin') {
+                        return './bootloader/xiloader';
+                      }
+                      return '';
+                    })()}
                   />
                 </Field>
               </Row>
@@ -1029,7 +1054,12 @@ export default function SettingsPage() {
                     id="game-module"
                     type="text"
                     className="input"
-                    defaultValue="ffximain.dll"
+                    defaultValue={(() => {
+                      if (platform === 'win32') return 'ffximain.dll';
+                      if (platform === 'linux') return 'ffximain.so';
+                      if (platform === 'darwin') return 'ffximain.dylib';
+                      return '';
+                    })()}
                   />
                 </Field>
               </Row>

@@ -16,6 +16,7 @@ export type Channels =
   | 'game:status';
 
 const electronHandler = {
+  getPlatform: () => ipcRenderer.invoke('get-platform'),
   getUpdateStatus: (installDir?: string) => ipcRenderer.invoke('get-update-status', installDir),
   // Launcher API for renderer
   bootstrap: (releaseUrl: string, installDir: string) =>

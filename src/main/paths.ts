@@ -3,7 +3,7 @@ import path from "path";
 import fs from "fs";
 
 /**
- * Returns all important Eventide launcher paths centralized under userData/Eventide.
+ * Returns all important Eventide launcher paths centralized under Electron's userData directory (cross-platform).
  *
  * Layout:
  *   <userData>/Eventide/
@@ -15,9 +15,9 @@ import fs from "fs";
  */
 export function getEventidePaths() {
   const root = app.getPath("userData");
-  // Game client should be stored in %APPDATA%/Eventide Launcherv2/Game
+  // Game client is stored in <userData>/Eventide/Game (cross-platform)
   const gameRoot = path.join(root, "Eventide", "Game");
-  // Patch and base game zip files should be stored in %APPDATA%/Eventide Launcherv2/Eventide/Downloads
+  // Patch and base game zip files are stored in <userData>/Eventide/Downloads (cross-platform)
   const dlRoot   = path.join(root, "Eventide", "Downloads");
   const logsRoot = path.join(root, "logs");
   const config   = path.join(root, "config.json");

@@ -1,5 +1,6 @@
 
 import log from 'electron-log';
+import chalk from 'chalk';
 import { getEventidePaths, ensureDirs } from './paths';
 import path from 'path';
 import fs from 'fs-extra';
@@ -9,14 +10,12 @@ import { spawn } from 'child_process';
 import ini from 'ini';
 import { promisify } from 'util';
 import { pipeline } from 'stream';
-import MenuBuilder from './menu';
 import { resolveHtmlPath } from './util';
-import { RELEASE_JSON_URL, getExePath, getGameInstallDir, getResourcePath, IS_PROD, IS_DEV } from './config';
+import { RELEASE_JSON_URL } from './config';
 import { getClientVersion } from '../core/versions';
 import { getReleaseJson, getPatchManifest } from '../core/manifest';
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
-import { readStorage, writeStorage } from '../core/storage';
-
+import { readStorage, writeStorage, hasRequiredGameFiles, getDefaultStorage, validateStorageJson } from '../core/storage';
 import { bootstrap as logicBootstrap } from '../logic/bootstrap';
 // IPC handler for bootstrap (used by renderer to get initial state)
 ipcMain.handle('launcher:bootstrap', async (_event, releaseUrl: string, installDir: string) => {
@@ -42,61 +41,77 @@ ipcMain.handle('launcher:bootstrap', async (_event, releaseUrl: string, installD
   }
 });
 
-// Helper to log to both terminal and electron-log
+// Helper to log to both terminal and electron-log, with color by severity
 const logBoth = Object.assign(
   (msg: string, ...args: any[]) => {
-    console.log(msg, ...args);
+    console.log(chalk.cyan(msg), ...args);
     log.info(msg, ...args);
   },
   {
     error: (msg: string, ...args: any[]) => {
-      console.error(msg, ...args);
+      console.error(chalk.red(msg), ...args);
       log.error(msg, ...args);
     },
     warn: (msg: string, ...args: any[]) => {
-      console.warn(msg, ...args);
+      console.warn(chalk.yellow(msg), ...args);
       log.warn(msg, ...args);
     }
   }
 );
 
-// Stub: read-extensions
-ipcMain.handle('read-extensions', async () => {
-  return { success: true, data: [] };
-});
-
-// Stub: write-extensions
-ipcMain.handle('write-extensions', async (_event, data) => {
-  return { success: true };
-});
 // Set the app name to 'Eventide Launcherv2' so userData points to %APPDATA%\Eventide Launcherv2
 app.setName('Eventide Launcherv2');
 
 // --- Ensure config.json exists with defaults on startup ---
 // ...existing code...
+// Consolidated extraction logic for base game zip
+async function extractBaseGameIfNeeded(storageData: any, dlRoot: string, gameRoot: string) {
+  try {
+    const { extractZip } = require('../core/fs');
+    const baseGameZipName = 'Eventide-test.zip'; // TODO: make dynamic if needed
+    const baseGameZipPath = path.join(dlRoot, baseGameZipName);
+    if (fs.existsSync(baseGameZipPath)) {
+      logBoth('[startup] Game zip is downloaded but not extracted. Extracting now...');
+      const g: any = global;
+      if (g.mainWindow && g.mainWindow.webContents) {
+        g.mainWindow.webContents.send('extract:start');
+      }
+      await extractZip(baseGameZipPath, gameRoot);
+      storageData.GAME_UPDATER.baseGame.extracted = true;
+      await writeStorage(storageData);
+      logBoth('[startup] Extraction complete. Updated baseGame.extracted to true.');
+      if (g.mainWindow && g.mainWindow.webContents) {
+        g.mainWindow.webContents.send('extract:done');
+      }
+    } else {
+      logBoth('[startup] Expected base game zip not found at', baseGameZipPath);
+    }
+  } catch (extractErr) {
+    logBoth.error('[startup] Error during auto-extraction:', extractErr);
+    const g: any = global;
+    if (g.mainWindow && g.mainWindow.webContents) {
+      g.mainWindow.webContents.send('extract:done');
+    }
+  }
+}
+
+
 app.once('ready', async () => {
   try {
+    ensureDirs(); // Centralized directory creation
     const paths = getEventidePaths();
-    const { storage, gameRoot, dlRoot } = paths;
-    let storageData = await readStorage();
-    // If the game is downloaded but not extracted, extract now
-    if (storageData && storageData.GAME_UPDATER && storageData.GAME_UPDATER.baseGame.downloaded && !storageData.GAME_UPDATER.baseGame.extracted) {
-      try {
-        const { extractZip } = require('../core/fs');
-        const baseGameZipName = 'Eventide-test.zip'; // TODO: make dynamic if needed
-        const baseGameZipPath = path.join(dlRoot, baseGameZipName);
-        if (fs.existsSync(baseGameZipPath)) {
-          logBoth('[startup] Game zip is downloaded but not extracted. Extracting now...');
-          await extractZip(baseGameZipPath, gameRoot);
-          storageData.GAME_UPDATER.baseGame.extracted = true;
-          await writeStorage(storageData);
-          logBoth('[startup] Extraction complete. Updated baseGame.extracted to true.');
-        } else {
-          logBoth('[startup] Expected base game zip not found at', baseGameZipPath);
-        }
-      } catch (extractErr) {
-        logBoth.error('[startup] Error during auto-extraction:', extractErr);
-      }
+    const { gameRoot, dlRoot } = paths;
+    // Read storage.json with validation and log resets
+    let storageData = await readStorage((msg) => logBoth.warn(msg));
+    if (!storageData) {
+      storageData = getDefaultStorage();
+      await writeStorage(storageData);
+      logBoth.warn('[startup] storage.json was missing or invalid, created default.');
+    }
+
+    // If the game is downloaded but not extracted, extract now (consolidated logic)
+    if (storageData.GAME_UPDATER.baseGame.downloaded && !storageData.GAME_UPDATER.baseGame.extracted) {
+      await extractBaseGameIfNeeded(storageData, dlRoot, gameRoot);
     }
     const version = app.getVersion ? app.getVersion() : 'unknown';
     const env = process.env.NODE_ENV || 'production';
@@ -114,161 +129,112 @@ app.once('ready', async () => {
       logBoth('[startup] First run detected. Created default config.json at', configPath);
     }
 
-    // Initialize storage.json with installPath and downloadPath if not set
+    // Always check for required files in Game folder and update baseGame.extracted accordingly
     try {
-      let storageData = await readStorage();
-      let baseGameDownloaded = false;
-      let baseGameExtracted = false;
-      let detectedVersion = "0";
-      let storageJustCreated = false;
-      const baseGameZipName = 'Eventide-test.zip'; // TODO: make dynamic if needed
-      const baseGameZipPath = path.join(dlRoot, baseGameZipName);
-      if (!storageData) {
-        storageData = {
-          paths: {
-            installPath: gameRoot,
-            downloadPath: dlRoot
-          },
-          GAME_UPDATER: {
-            currentVersion: "0",
-            latestVersion: "0",
-            baseGame: { downloaded: false, extracted: false },
-            updater: { downloaded: "0", extracted: "0" }
-          }
-        };
+      const actuallyExtracted = hasRequiredGameFiles(gameRoot);
+      if (storageData.GAME_UPDATER.baseGame.extracted !== actuallyExtracted) {
+        storageData.GAME_UPDATER.baseGame.extracted = actuallyExtracted;
         await writeStorage(storageData);
-        storageJustCreated = true;
-        logBoth('[startup] Initialized storage.json with default paths.');
-      }
-
-      // Always check the actual Game folder contents and update baseGame.extracted accordingly
-      try {
-        const files = fs.existsSync(gameRoot) ? fs.readdirSync(gameRoot) : [];
-        // You can add more robust checks here for required files if needed
-        const actuallyExtracted = files.length > 0;
-        if (storageData.GAME_UPDATER.baseGame.extracted !== actuallyExtracted) {
-          storageData.GAME_UPDATER.baseGame.extracted = actuallyExtracted;
-          await writeStorage(storageData);
-          logBoth(`[startup] Synced baseGame.extracted to ${actuallyExtracted} based on Game folder contents.`);
-        }
-        baseGameExtracted = actuallyExtracted;
-      } catch (e) {
-        logBoth.error('[startup] Error checking Game folder for extraction state:', e);
-        storageData.GAME_UPDATER.baseGame.extracted = false;
-        await writeStorage(storageData);
-        baseGameExtracted = false;
-      }
-
-      // If the game is downloaded but not extracted, extract now
-      if (storageData.GAME_UPDATER.baseGame.downloaded && !storageData.GAME_UPDATER.baseGame.extracted) {
-        logBoth('[debug] Extraction block entered: downloaded=true, extracted=false');
-        try {
-          const { extractZip } = require('../core/fs');
-          const baseGameZipName = 'Eventide-test.zip'; // TODO: make dynamic if needed
-          const baseGameZipPath = path.join(dlRoot, baseGameZipName);
-          logBoth(`[debug] Checking for zip at: ${baseGameZipPath}`);
-          if (fs.existsSync(baseGameZipPath)) {
-            logBoth('[startup] Game zip is downloaded but not extracted. Extracting now...');
-            await extractZip(baseGameZipPath, gameRoot);
-            logBoth('[debug] Extraction finished, updating storage.');
-            storageData.GAME_UPDATER.baseGame.extracted = true;
-            await writeStorage(storageData);
-            logBoth('[startup] Extraction complete. Updated baseGame.extracted to true.');
-          } else {
-            logBoth('[startup] Expected base game zip not found at', baseGameZipPath);
-          }
-        } catch (extractErr) {
-          logBoth.error('[startup] Error during auto-extraction:', extractErr);
-        }
-      }
-
-      // Robust state detection if currentVersion is 0
-      if (Number(storageData.GAME_UPDATER.currentVersion) === 0) {
-        // Check for base game zip in downloads
-        if (fs.existsSync(baseGameZipPath)) {
-          baseGameDownloaded = true;
-          logBoth(`[startup] Found base game zip: ${baseGameZipPath}`);
-        } else {
-          baseGameDownloaded = false;
-          logBoth('[startup] Base game zip not found in downloads. Download required.');
-        }
-        // Check if installPath (Game folder) is empty
-        let extracted = false;
-        if (baseGameDownloaded) {
-          try {
-            const files = fs.readdirSync(gameRoot);
-            if (files.length === 0) {
-              extracted = false;
-              logBoth('[startup] Game folder is empty. Extraction required.');
-              // Extract the zip into installPath
-              const { extractZip } = require('../core/fs');
-              await extractZip(baseGameZipPath, gameRoot);
-              logBoth('[startup] Extracted base game zip to installPath.');
-              extracted = true;
-            } else {
-              extracted = true;
-              logBoth('[startup] Game folder is not empty. Extraction not required.');
-            }
-          } catch (extractErr) {
-            logBoth.error('[startup] Error during extraction check/extract:', extractErr);
-            extracted = false;
-          }
-        }
-        baseGameExtracted = extracted;
-        // Set currentVersion to 1.0.0 if both downloaded and extracted are true
-        if (baseGameDownloaded && baseGameExtracted) {
-          storageData.GAME_UPDATER.currentVersion = '1.0.0';
-        }
-        storageData.GAME_UPDATER.baseGame.downloaded = baseGameDownloaded;
-        storageData.GAME_UPDATER.baseGame.extracted = baseGameExtracted;
-        // Always coerce updater fields and latestVersion to "0" if null/undefined
-        if (storageData.GAME_UPDATER.updater.downloaded == null) storageData.GAME_UPDATER.updater.downloaded = "0";
-        if (storageData.GAME_UPDATER.updater.extracted == null) storageData.GAME_UPDATER.updater.extracted = "0";
-        if (storageData.GAME_UPDATER.latestVersion == null) storageData.GAME_UPDATER.latestVersion = "0";
-        await writeStorage(storageData);
-        logBoth(`[startup] State after detection: downloaded=${baseGameDownloaded}, extracted=${baseGameExtracted}, version=${storageData.GAME_UPDATER.currentVersion}`);
-      } else {
-        baseGameDownloaded = storageData.GAME_UPDATER.baseGame.downloaded;
-        baseGameExtracted = storageData.GAME_UPDATER.baseGame.extracted;
-        detectedVersion = storageData.GAME_UPDATER.currentVersion;
-        let changed = false;
-        if (!storageData.paths.installPath) {
-          storageData.paths.installPath = gameRoot;
-          changed = true;
-        }
-        if (!storageData.paths.downloadPath) {
-          storageData.paths.downloadPath = dlRoot;
-          changed = true;
-        }
-        if (changed) {
-          await writeStorage(storageData);
-          logBoth('[startup] Updated storage.json with missing paths.');
-        }
-      }
-
-      // --- Fetch remote version and patch manifest if base game is extracted ---
-      if (baseGameExtracted) {
-        try {
-          logBoth('[startup] Base game extracted, fetching remote release and patch manifest...');
-          const release = await getReleaseJson(RELEASE_JSON_URL);
-          const patchManifest = await getPatchManifest(release.patchManifestUrl);
-          const remoteVersion = patchManifest.latestVersion;
-          // Only update latestVersion, do not overwrite currentVersion
-          storageData.GAME_UPDATER.latestVersion = remoteVersion;
-          await writeStorage(storageData);
-          logBoth(`[startup] Updated storage.json: currentVersion=${storageData.GAME_UPDATER.currentVersion}, latestVersion=${remoteVersion}`);
-          if (storageData.GAME_UPDATER.currentVersion !== remoteVersion) {
-            logBoth(`[startup] Update available: currentVersion=${storageData.GAME_UPDATER.currentVersion}, latestVersion=${remoteVersion}`);
-            // Optionally, trigger patch logic here or notify renderer
-          } else {
-            logBoth('[startup] Game is up to date.');
-          }
-        } catch (remoteErr) {
-          logBoth.warn('[startup] Failed to fetch remote version or patch manifest:', remoteErr);
-        }
+        logBoth(`[startup] Synced baseGame.extracted to ${actuallyExtracted} based on required files in Game folder.`);
       }
     } catch (e) {
-      logBoth.error('[startup] Failed to initialize storage.json:', e);
+      logBoth.error('[startup] Error checking Game folder for extraction state:', e);
+      storageData.GAME_UPDATER.baseGame.extracted = false;
+      await writeStorage(storageData);
+    }
+
+    // If the game is downloaded but not extracted, extract now
+    if (storageData.GAME_UPDATER.baseGame.downloaded && !storageData.GAME_UPDATER.baseGame.extracted) {
+      logBoth('[debug] Extraction block entered: downloaded=true, extracted=false');
+      await extractBaseGameIfNeeded(storageData, dlRoot, gameRoot);
+    }
+
+    // Robust state detection if currentVersion is 0 (treat '0', '0.0.0', etc. as zero)
+    const baseGameZipName = 'Eventide-test.zip'; // TODO: make dynamic if needed
+    const baseGameZipPath = path.join(dlRoot, baseGameZipName);
+    let baseGameDownloaded = false;
+    let baseGameExtracted = false;
+    if (isZeroVersion(storageData.GAME_UPDATER.currentVersion)) {
+      // Check for base game zip in downloads
+      if (fs.existsSync(baseGameZipPath)) {
+        baseGameDownloaded = true;
+        logBoth(`[startup] Found base game zip: ${baseGameZipPath}`);
+      } else {
+        baseGameDownloaded = false;
+        logBoth('[startup] Base game zip not found in downloads. Download required.');
+      }
+      // Check for required files in installPath (Game folder)
+      let extracted = false;
+      if (baseGameDownloaded) {
+        try {
+          if (hasRequiredGameFiles(gameRoot)) {
+            extracted = true;
+            logBoth('[startup] Required files found in Game folder. Extraction not required.');
+          } else {
+            extracted = false;
+            logBoth('[startup] Required files missing. Extraction required.');
+            // Extract the zip into installPath
+            const { extractZip } = require('../core/fs');
+            await extractZip(baseGameZipPath, gameRoot);
+            logBoth('[startup] Extracted base game zip to installPath.');
+            extracted = hasRequiredGameFiles(gameRoot);
+          }
+        } catch (extractErr) {
+          logBoth.error('[startup] Error during extraction check/extract:', extractErr);
+          extracted = false;
+        }
+      }
+      baseGameExtracted = extracted;
+      // Set currentVersion to 1.0.0 if both downloaded and extracted are true
+      if (baseGameDownloaded && baseGameExtracted) {
+        storageData.GAME_UPDATER.currentVersion = '1.0.0';
+      }
+      storageData.GAME_UPDATER.baseGame.downloaded = baseGameDownloaded;
+      storageData.GAME_UPDATER.baseGame.extracted = baseGameExtracted;
+      // Always coerce updater fields and latestVersion to "0" if null/undefined
+      if (storageData.GAME_UPDATER.updater.downloaded == null) storageData.GAME_UPDATER.updater.downloaded = "0";
+      if (storageData.GAME_UPDATER.updater.extracted == null) storageData.GAME_UPDATER.updater.extracted = "0";
+      if (storageData.GAME_UPDATER.latestVersion == null) storageData.GAME_UPDATER.latestVersion = "0";
+      await writeStorage(storageData);
+      logBoth(`[startup] State after detection: downloaded=${baseGameDownloaded}, extracted=${baseGameExtracted}, version=${storageData.GAME_UPDATER.currentVersion}`);
+    } else {
+      baseGameDownloaded = storageData.GAME_UPDATER.baseGame.downloaded;
+      baseGameExtracted = storageData.GAME_UPDATER.baseGame.extracted;
+      let changed = false;
+      if (!storageData.paths.installPath) {
+        storageData.paths.installPath = gameRoot;
+        changed = true;
+      }
+      if (!storageData.paths.downloadPath) {
+        storageData.paths.downloadPath = dlRoot;
+        changed = true;
+      }
+      if (changed) {
+        await writeStorage(storageData);
+        logBoth('[startup] Updated storage.json with missing paths.');
+      }
+    }
+
+    // --- Fetch remote version and patch manifest if base game is extracted ---
+    if (baseGameExtracted) {
+      try {
+        logBoth('[startup] Base game extracted, fetching remote release and patch manifest...');
+        const release = await getReleaseJson(RELEASE_JSON_URL);
+        const patchManifest = await getPatchManifest(release.patchManifestUrl);
+        const remoteVersion = patchManifest.latestVersion;
+        // Only update latestVersion, do not overwrite currentVersion
+        storageData.GAME_UPDATER.latestVersion = remoteVersion;
+        await writeStorage(storageData);
+        logBoth(`[startup] Updated storage.json: currentVersion=${storageData.GAME_UPDATER.currentVersion}, latestVersion=${remoteVersion}`);
+        if (storageData.GAME_UPDATER.currentVersion !== remoteVersion) {
+          logBoth(`[startup] Update available: currentVersion=${storageData.GAME_UPDATER.currentVersion}, latestVersion=${remoteVersion}`);
+          // Optionally, trigger patch logic here or notify renderer
+        } else {
+          logBoth('[startup] Game is up to date.');
+        }
+      } catch (remoteErr) {
+        logBoth.warn('[startup] Failed to fetch remote version or patch manifest:', remoteErr);
+      }
     }
   } catch (err) {
     logBoth.error('[startup] Failed to create default config.json:', err);
@@ -326,18 +292,13 @@ async function readConfigHandler() {
 }
 
 ipcMain.handle('read-settings', readConfigHandler);
-// Alias: support 'read-config' for compatibility
-ipcMain.handle('read-config', async (...args) => {
-  try {
-    // Forward only the event argument, since readConfigHandler expects none or just event
-    return await readConfigHandler();
-  } catch (error) {
-    logBoth.error('[ipc] Error in read-config handler:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-  }
-});
 
-// Alias: support 'read-config' for compatibility
+// Version normalization utility
+function isZeroVersion(v: string): boolean {
+  if (!v) return true;
+  const norm = v.trim().replace(/\./g, '');
+  return norm === '0';
+}
 
 // IPC handler to write config.json (settings)
 ipcMain.handle('write-settings', async (_event, data: any) => {
@@ -407,9 +368,14 @@ ipcMain.handle('launcher:applyPatches', async (_event, patchManifest: any, clien
 
 ipcMain.handle('launcher:launchGame', async (_event, installDir: string) => {
   try {
-    const launchBat = path.join(installDir, 'Launch_Eventide.bat');
-    logBoth(`[launch] Attempting to launch game using: ${launchBat}`);
-    const result = await launchGameWithBatch(installDir, launchBat);
+    let launchScript: string;
+    if (process.platform === 'win32') {
+      launchScript = path.join(installDir, 'Launch_Eventide.bat');
+    } else {
+      launchScript = path.join(installDir, 'Launch_Eventide.sh');
+    }
+    logBoth(`[launch] Attempting to launch game using: ${launchScript}`);
+    const result = await launchGameWithBatch(installDir, launchScript);
     if (result.success) {
       logBoth('[launch] Game launched successfully');
     } else {
@@ -430,6 +396,10 @@ ipcMain.handle('launcher:launchGame', async (_event, installDir: string) => {
 
 
 let mainWindow: BrowserWindow | null = null;
+// Expose mainWindow globally for extraction IPC events
+if (!(global as any).mainWindow) {
+  (global as any).mainWindow = null;
+}
 
 // Ensure mainWindow is initialized on app ready
 app.on('ready', () => {
@@ -451,7 +421,9 @@ app.on('ready', () => {
   }
   mainWindow.on('closed', () => {
     mainWindow = null;
+    (global as any).mainWindow = null;
   });
+  (global as any).mainWindow = mainWindow;
 });
 
 ipcMain.on('ipc-example', async (event, arg) => {
@@ -692,11 +664,11 @@ try {
 } catch (e) {}
 
 // Centralized launcher helper: prefer the batch wrapper and capture output
-async function launchGameWithBatch(installDir: string, launchBat: string) {
+async function launchGameWithBatch(installDir: string, launchScript: string) {
   return new Promise<{ success: boolean; error?: string }>((resolve) => {
     try {
-      if (!fs.existsSync(launchBat)) {
-        return resolve({ success: false, error: `Launch batch not found: ${launchBat}` });
+      if (!fs.existsSync(launchScript)) {
+        return resolve({ success: false, error: `Launch script not found: ${launchScript}` });
       }
 
       // Use logsRoot for launcher logs
@@ -706,12 +678,22 @@ async function launchGameWithBatch(installDir: string, launchBat: string) {
       ensureDirs();
       try { fs.appendFileSync(logPath, `\n--- Launcher invoke at ${new Date().toISOString()} ---\n`); } catch {}
 
-      // Use cmd.exe to run the batch file so behavior is closer to double-click
-      const child = spawn('cmd.exe', ['/c', launchBat], {
-        detached: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        cwd: installDir,
-      });
+      let child;
+      if (process.platform === 'win32') {
+        // Use cmd.exe to run the batch file
+        child = spawn('cmd.exe', ['/c', launchScript], {
+          detached: true,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          cwd: installDir,
+        });
+      } else {
+        // Use /bin/sh to run the shell script
+        child = spawn('/bin/sh', [launchScript], {
+          detached: true,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          cwd: installDir,
+        });
+      }
 
       // Pipe stdout/stderr to a log file for later inspection
       try {
@@ -766,25 +748,10 @@ ipcMain.handle('game:check', async () => {
 
     // If downloaded but not extracted, extract now
     if (baseDownloaded && !baseExtracted) {
-      try {
-        const { extractZip } = require('../core/fs');
-        const baseGameZipName = 'Eventide-test.zip'; // TODO: make dynamic if needed
-        const baseGameZipPath = path.join(paths.dlRoot, baseGameZipName);
-        logBoth('[game:check] Game zip is downloaded but not extracted. Extracting now...');
-        if (fs.existsSync(baseGameZipPath)) {
-          await extractZip(baseGameZipPath, installDir);
-          // Update storage
-          if (storage && storage.GAME_UPDATER) {
-            storage.GAME_UPDATER.baseGame.extracted = true;
-            await writeStorage(storage);
-            baseExtracted = true;
-            logBoth('[game:check] Extraction complete. Updated baseGame.extracted to true.');
-          }
-        } else {
-          logBoth('[game:check] Expected base game zip not found at', baseGameZipPath);
-        }
-      } catch (extractErr) {
-        logBoth.error('[game:check] Error during auto-extraction:', extractErr);
+      await extractBaseGameIfNeeded(storage, paths.dlRoot, installDir);
+      // Update local state after extraction
+      if (storage && storage.GAME_UPDATER) {
+        baseExtracted = !!storage.GAME_UPDATER.baseGame.extracted;
       }
     }
     // Fetch remote patch manifest
@@ -885,19 +852,6 @@ ipcMain.handle('game:import-existing', async () => {
     }
 
     // list files and compute per-file sha256 (may take time)
-    // TODO: Implement or import listRelativeFiles and sha256File if needed
-    // const relFiles = listRelativeFiles(installDir);
-    // const fileEntries: Array<{ path: string; sha256: string }> = [];
-    // for (const rel of relFiles) {
-    //   const abs = path.join(installDir, rel);
-    //   try {
-    //     const h = await sha256File(abs);
-    //     fileEntries.push({ path: rel, sha256: h });
-    //   } catch (e) {
-    //     logBoth.warn('[import] Failed to hash file during import', abs, e);
-    //     fileEntries.push({ path: rel, sha256: '' });
-    //   }
-    // }
     const fileEntries: Array<{ path: string; sha256: string }> = [];
 
     // compute a snapshot checksum for the set (deterministic)

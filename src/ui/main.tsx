@@ -7,7 +7,7 @@ const RELEASE_URL =
 const INSTALL_DIR = 'asdf';
 
 function Main() {
-  const [state, setState] = useState<LauncherState>('missing');
+  const [state, setState] = useState<LauncherState>('NOT_INSTALLED');
   const [ctx, setCtx] = useState<any>({});
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -16,17 +16,17 @@ function Main() {
       const msg =
         '[ERROR] window.electron or window.electron.bootstrap is not available!';
       setErrorMsg(msg);
-      setState('error');
+      setState('DOWNLOAD_FAILED');
       return;
     }
     window.electron
       .bootstrap(RELEASE_URL, INSTALL_DIR)
-      .then((result) => {
+      .then((result): void => {
         if (!result || typeof result !== 'object') {
           const msg = `[ERROR] bootstrap returned null or non-object: ${String(result)}`;
           setErrorMsg(msg);
-          setState('error');
-          return;
+          setState('DOWNLOAD_FAILED');
+          throw new Error(msg);
         }
         const {
           release,
@@ -35,14 +35,11 @@ function Main() {
           baseGameDownloaded,
           baseGameExtracted,
         } = result;
-        // eslint-disable-next-line promise/always-return
         if (!release || !clientVersion) {
-          const msg = `[ERROR] Missing release or clientVersion in bootstrap result: ${JSON.stringify(
-            result,
-          )}`;
+          const msg = `[ERROR] Missing release or clientVersion in bootstrap result: ${JSON.stringify(result)}`;
           setErrorMsg(msg);
-          setState('error');
-          return;
+          setState('DOWNLOAD_FAILED');
+          throw new Error(msg);
         }
         setCtx({
           release,
@@ -59,23 +56,38 @@ function Main() {
             baseGameExtracted: !!baseGameExtracted,
           }),
         );
+        return undefined;
       })
       .catch((err) => {
-        const msg = `[ERROR] bootstrap threw: ${
-          err && err.message ? err.message : String(err)
-        }`;
+        const msg = `[ERROR] bootstrap threw: ${err && err.message ? err.message : String(err)}`;
         setErrorMsg(msg);
-        setState('error');
+        setState('DOWNLOAD_FAILED');
       });
+
+    // Listen for extraction and patching IPC events
+    if (window.electron && window.electron.ipcRenderer) {
+      window.electron.ipcRenderer.on('extract:start', () => {
+        setState('EXTRACTING');
+      });
+      window.electron.ipcRenderer.on('extract:done', () => {
+        setState((prev) => (prev === 'EXTRACTING' ? 'READY_TO_PLAY' : prev));
+      });
+      window.electron.ipcRenderer.on('patch:start', () => {
+        setState('PATCHING');
+      });
+      window.electron.ipcRenderer.on('patch:done', () => {
+        setState((prev) => (prev === 'PATCHING' ? 'READY_TO_PLAY' : prev));
+      });
+    }
   }, []);
 
   const handleClick = async () => {
-    if (state === 'missing') {
-      setState('downloading');
+    if (state === 'NOT_INSTALLED') {
+      setState('DOWNLOADING');
       try {
         if (!ctx || !ctx.release || !ctx.release.game) {
           setErrorMsg('Game information is missing. Cannot download.');
-          setState('error');
+          setState('DOWNLOAD_FAILED');
           return;
         }
         await window.electron.downloadGame(
@@ -84,21 +96,21 @@ function Main() {
           INSTALL_DIR,
           ctx.release.game.baseVersion,
         );
-        setState('latest');
+        setState('DOWNLOADED');
       } catch (err: any) {
         setErrorMsg(
           `Download failed: ${err && err.message ? err.message : String(err)}`,
         );
-        setState('error');
+        setState('DOWNLOAD_FAILED');
       }
-    } else if (state === 'outdated') {
-      setState('updating');
+    } else if (state === 'CHECKING_FOR_UPDATES') {
+      setState('PATCHING');
       try {
         if (!ctx || !ctx.patchManifest || !ctx.clientVersion) {
           setErrorMsg(
             'Patch or version information is missing. Cannot update.',
           );
-          setState('error');
+          setState('PATCH_FAILED');
           return;
         }
         await window.electron.applyPatches(
@@ -106,23 +118,23 @@ function Main() {
           ctx.clientVersion,
           INSTALL_DIR,
         );
-        setState('latest');
+        setState('READY_TO_PLAY');
       } catch (err: any) {
         setErrorMsg(
           `Update failed: ${err && err.message ? err.message : String(err)}`,
         );
-        setState('error');
+        setState('PATCH_FAILED');
       }
-    } else if (state === 'latest') {
-      setState('playing');
+    } else if (state === 'READY_TO_PLAY') {
+      // No PLAYING state in the new enum, just set to READY_TO_PLAY after launch
       try {
         await window.electron.launchGame(INSTALL_DIR);
-        setState('latest');
+        setState('READY_TO_PLAY');
       } catch (err: any) {
         setErrorMsg(
           `Launch failed: ${err && err.message ? err.message : String(err)}`,
         );
-        setState('error');
+        setState('PATCH_FAILED');
       }
     }
   };
@@ -130,7 +142,9 @@ function Main() {
   return (
     <div>
       <LauncherButton state={state} onClick={handleClick} />
-      {state === 'error' && (
+      {(state === 'DOWNLOAD_FAILED' ||
+        state === 'EXTRACT_FAILED' ||
+        state === 'PATCH_FAILED') && (
         <div style={{ color: 'red', marginTop: 16 }}>
           Error occurred. Please check logs.
           <br />
