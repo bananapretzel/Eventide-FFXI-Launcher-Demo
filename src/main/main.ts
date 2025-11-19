@@ -161,14 +161,48 @@ app.once('ready', async () => {
       log.info(chalk.cyan(`[startup] Synced baseGame.extracted to ${filesExist}`));
     }
 
-    // Step 6: Auto-extract if downloaded but not extracted
+    // Step 6: Fetch remote version info FIRST (needed for version reset logic)
+    let release: any = null;
+    let patchManifest: any = null;
+    let remoteVersion: string = "0";
+    let baseVersion: string = "1.0.0"; // fallback default
+
+    try {
+      log.info(chalk.cyan('[startup] Fetching remote release and patch manifest...'));
+      release = await getReleaseJson(RELEASE_JSON_URL);
+      patchManifest = await getPatchManifest(release.patchManifestUrl);
+      remoteVersion = patchManifest.latestVersion;
+      baseVersion = release.game.baseVersion || "1.0.0";
+      log.info(chalk.cyan(`[startup] Remote versions - base: ${baseVersion}, latest: ${remoteVersion}`));
+    } catch (remoteErr) {
+      log.warn(chalk.yellow('[startup] Failed to fetch remote version info:'), remoteErr);
+      // Continue with fallback values
+    }
+
+    // Step 7: Auto-extract if downloaded but not extracted
     if (zipExists && !filesExist) {
       try {
         log.info(chalk.cyan('[startup] Game zip exists but not extracted. Extracting now...'));
         await extractBaseGameIfNeeded(storageData, dlRoot, gameRoot);
         // Re-check after extraction
         storageData.GAME_UPDATER.baseGame.extracted = hasRequiredGameFiles(gameRoot);
+        // IMPORTANT: Reset version to base version after extraction (even if storage had a different version)
+        storageData.GAME_UPDATER.currentVersion = baseVersion;
+        storageData.GAME_UPDATER.updater.downloaded = "0";
+        storageData.GAME_UPDATER.updater.extracted = "0";
         needsUpdate = true;
+        log.info(chalk.cyan(`[startup] Reset version to ${baseVersion} after base game extraction`));
+
+        // Notify renderer that extraction is complete and state has changed
+        const g: any = global;
+        if (g.mainWindow && g.mainWindow.webContents) {
+          g.mainWindow.webContents.send('game:status', {
+            status: 'update-available',
+            installedVersion: baseVersion,
+            remoteVersion: remoteVersion !== "0" ? remoteVersion : undefined
+          });
+          log.info(chalk.cyan('[startup] Notified renderer of update-available state'));
+        }
       } catch (extractErr) {
         log.error(chalk.red('[startup] Auto-extraction failed:'), extractErr);
         storageData.GAME_UPDATER.baseGame.extracted = false;
@@ -176,14 +210,14 @@ app.once('ready', async () => {
       }
     }
 
-    // Step 7: Initialize version if this is first extraction
+    // Step 8: Initialize version if this is first extraction (for backward compatibility)
     if (isZeroVersion(storageData.GAME_UPDATER.currentVersion) && storageData.GAME_UPDATER.baseGame.extracted) {
-      storageData.GAME_UPDATER.currentVersion = '1.0.0'; // Base game version
+      storageData.GAME_UPDATER.currentVersion = baseVersion;
       needsUpdate = true;
-      log.info(chalk.cyan('[startup] Initialized version to 1.0.0 after base game extraction'));
+      log.info(chalk.cyan(`[startup] Initialized version to ${baseVersion} after base game extraction`));
     }
 
-    // Step 8: Ensure updater fields are initialized
+    // Step 9: Ensure updater fields are initialized
     if (!storageData.GAME_UPDATER.updater.downloaded) {
       storageData.GAME_UPDATER.updater.downloaded = "0";
       needsUpdate = true;
@@ -192,9 +226,12 @@ app.once('ready', async () => {
       storageData.GAME_UPDATER.updater.extracted = "0";
       needsUpdate = true;
     }
-    if (!storageData.GAME_UPDATER.latestVersion) {
-      storageData.GAME_UPDATER.latestVersion = "0";
+
+    // Step 10: Update latestVersion in storage
+    if (remoteVersion !== "0" && storageData.GAME_UPDATER.latestVersion !== remoteVersion) {
+      storageData.GAME_UPDATER.latestVersion = remoteVersion;
       needsUpdate = true;
+      log.info(chalk.cyan(`[startup] Updated latestVersion to ${remoteVersion}`));
     }
 
     if (needsUpdate) {
@@ -202,30 +239,12 @@ app.once('ready', async () => {
       log.info(chalk.cyan('[startup] Storage updated after state sync'));
     }
 
-    // Step 9: Fetch remote version and update check (only if extracted)
-    if (storageData.GAME_UPDATER.baseGame.extracted) {
-      try {
-        log.info(chalk.cyan('[startup] Fetching remote release and patch manifest...'));
-        const release = await getReleaseJson(RELEASE_JSON_URL);
-        const patchManifest = await getPatchManifest(release.patchManifestUrl);
-        const remoteVersion = patchManifest.latestVersion;
-
-        // Update latestVersion in storage
-        if (storageData.GAME_UPDATER.latestVersion !== remoteVersion) {
-          storageData.GAME_UPDATER.latestVersion = remoteVersion;
-          await writeStorage(storageData);
-          log.info(chalk.cyan(`[startup] Updated latestVersion to ${remoteVersion}`));
-        }
-
-        const currentVersion = storageData.GAME_UPDATER.currentVersion;
-        if (currentVersion !== remoteVersion) {
-          log.info(chalk.cyan(`[startup] Update available: ${currentVersion} → ${remoteVersion}`));
-        } else {
-          log.info(chalk.cyan('[startup] Game is up to date.'));
-        }
-      } catch (remoteErr) {
-        log.warn(chalk.yellow('[startup] Failed to fetch remote version:'), remoteErr);
-      }
+    // Step 11: Log update status
+    const currentVersion = storageData.GAME_UPDATER.currentVersion;
+    if (currentVersion !== remoteVersion && remoteVersion !== "0") {
+      log.info(chalk.cyan(`[startup] Update available: ${currentVersion} → ${remoteVersion}`));
+    } else if (currentVersion === remoteVersion) {
+      log.info(chalk.cyan('[startup] Game is up to date.'));
     }
 
     log.info(chalk.cyan('[startup] Initialization complete'));
@@ -915,18 +934,105 @@ async function launchGameWithBatch(installDir: string, launchScript: string) {
 
 // fetchJson is now imported from utils/io
 
+/**
+ * Validates that required ZIP files exist in the Downloads folder.
+ * If base game ZIP is missing, resets the entire state to missing.
+ * If patch ZIPs are missing, reverts version back to base version.
+ */
+async function validateZipFilesAndResetState(
+  release: any,
+  patchManifest: any,
+  downloadsDir: string,
+  currentVersion: string
+): Promise<{ currentVersion: string; baseDownloaded: boolean; baseExtracted: boolean }> {
+  const baseZipName = release.game.fullUrl.split('/').pop();
+  const baseZipPath = baseZipName ? path.join(downloadsDir, baseZipName) : '';
+
+  log.info(chalk.cyan(`[validateZipFiles] Checking for base game ZIP: ${baseZipPath}`));
+
+  // Check if base game ZIP exists
+  const baseZipExists = baseZipPath && fs.existsSync(baseZipPath);
+
+  if (!baseZipExists) {
+    log.warn(chalk.yellow('[validateZipFiles] Base game ZIP is missing! Resetting state to missing.'));
+    // Reset entire state
+    await updateStorage((data) => {
+      data.GAME_UPDATER.currentVersion = "0.0.0";
+      data.GAME_UPDATER.baseGame.downloaded = false;
+      data.GAME_UPDATER.baseGame.extracted = false;
+      data.GAME_UPDATER.updater.downloaded = "";
+      data.GAME_UPDATER.updater.extracted = "";
+    });
+    return { currentVersion: "0.0.0", baseDownloaded: false, baseExtracted: false };
+  }
+
+  log.info(chalk.green('[validateZipFiles] Base game ZIP found'));
+
+  // If we have patches and current version is above base version, verify patch ZIPs
+  const baseVersion = release.game.baseVersion;
+  if (currentVersion !== baseVersion && currentVersion !== "0" && currentVersion !== "0.0.0") {
+    log.info(chalk.cyan(`[validateZipFiles] Current version (${currentVersion}) is above base version (${baseVersion}), checking patch ZIPs...`));
+
+    const patches = patchManifest.patches || [];
+    let versionToRevertTo = baseVersion;
+    let allPatchZipsExist = true;
+
+    // Build the patch chain from base version to current version
+    let checkVersion = baseVersion;
+    while (checkVersion !== currentVersion) {
+      const patch = patches.find((p: any) => p.from === checkVersion);
+      if (!patch) {
+        log.warn(chalk.yellow(`[validateZipFiles] No patch found from ${checkVersion}, cannot verify further`));
+        break;
+      }
+
+      const patchZipName = patch.fullUrl.split('/').pop();
+      const patchZipPath = patchZipName ? path.join(downloadsDir, patchZipName) : '';
+
+      if (!patchZipPath || !fs.existsSync(patchZipPath)) {
+        log.warn(chalk.yellow(`[validateZipFiles] Patch ZIP missing: ${patchZipName} (${checkVersion} → ${patch.to})`));
+        allPatchZipsExist = false;
+        break;
+      }
+
+      log.info(chalk.green(`[validateZipFiles] Patch ZIP found: ${patchZipName}`));
+      versionToRevertTo = patch.to;
+      checkVersion = patch.to;
+    }
+
+    if (!allPatchZipsExist) {
+      log.warn(chalk.yellow(`[validateZipFiles] Some patch ZIPs are missing. Reverting version from ${currentVersion} to ${versionToRevertTo}`));
+      await updateStorage((data) => {
+        data.GAME_UPDATER.currentVersion = versionToRevertTo;
+      });
+      return { currentVersion: versionToRevertTo, baseDownloaded: true, baseExtracted: true };
+    }
+
+    log.info(chalk.green('[validateZipFiles] All patch ZIPs verified'));
+  }
+
+  return { currentVersion, baseDownloaded: true, baseExtracted: true };
+}
 
 ipcMain.handle('game:check', async () => {
   try {
     const PATCH_MANIFEST_URL = 'https://raw.githubusercontent.com/bananapretzel/eventide-patch-manifest/refs/heads/main/patch-manifest.json';
     const paths = getEventidePaths();
     const installDir = paths.gameRoot;
+    const downloadsDir = paths.dlRoot;
+
+    // Fetch release and patch manifest
+    const release = await getReleaseJson(RELEASE_JSON_URL);
+    const fetchJson = require('./utils/io').fetchJson;
+    const patchManifest = await fetchJson(PATCH_MANIFEST_URL);
+    const latestVersion = String(patchManifest.latestVersion ?? "0");
+
     // Use storage.json for version/status
     let currentVersion = "0";
-    let latestVersion = "0";
     let baseDownloaded = false;
     let baseExtracted = false;
     let storage;
+
     try {
       storage = await readStorage();
       if (storage && storage.GAME_UPDATER) {
@@ -938,18 +1044,100 @@ ipcMain.handle('game:check', async () => {
       log.warn(chalk.yellow('[game:check] Could not read storage.json:'), e);
     }
 
+    // Check if game folder is empty - if so, assume base game hasn't been extracted
+    try {
+      const gameFiles = await fs.readdir(installDir);
+      const hasFiles = gameFiles.length > 0;
+
+      if (!hasFiles && (baseDownloaded || baseExtracted)) {
+        log.warn(chalk.yellow('[game:check] Game folder is empty but storage indicates game was downloaded/extracted'));
+        log.warn(chalk.yellow('[game:check] Checking for base game ZIP in Downloads...'));
+
+        const baseZipName = release.game.fullUrl.split('/').pop();
+        const baseZipPath = baseZipName ? path.join(downloadsDir, baseZipName) : '';
+        const baseZipExists = baseZipPath && fs.existsSync(baseZipPath);
+
+        if (!baseZipExists) {
+          log.warn(chalk.yellow('[game:check] Base game ZIP not found. Resetting to missing state.'));
+          await updateStorage((data) => {
+            data.GAME_UPDATER.currentVersion = "0.0.0";
+            data.GAME_UPDATER.baseGame.downloaded = false;
+            data.GAME_UPDATER.baseGame.extracted = false;
+            data.GAME_UPDATER.updater.downloaded = "";
+            data.GAME_UPDATER.updater.extracted = "";
+          });
+          currentVersion = "0.0.0";
+          baseDownloaded = false;
+          baseExtracted = false;
+        } else {
+          log.info(chalk.cyan('[game:check] Base game ZIP found. Marking as downloaded but not extracted.'));
+          await updateStorage((data) => {
+            data.GAME_UPDATER.baseGame.downloaded = true;
+            data.GAME_UPDATER.baseGame.extracted = false;
+            data.GAME_UPDATER.currentVersion = "0.0.0";
+          });
+          currentVersion = "0.0.0";
+          baseDownloaded = true;
+          baseExtracted = false;
+        }
+      }
+    } catch (e) {
+      log.warn(chalk.yellow('[game:check] Could not check game folder:'), e);
+    }
+
+    // Validate ZIP files and reset state if necessary
+    if (baseDownloaded || baseExtracted) {
+      const validated = await validateZipFilesAndResetState(release, patchManifest, downloadsDir, currentVersion);
+      currentVersion = validated.currentVersion;
+      baseDownloaded = validated.baseDownloaded;
+      baseExtracted = validated.baseExtracted;
+    }
+
     // If downloaded but not extracted, extract now
     if (baseDownloaded && !baseExtracted) {
       await extractBaseGameIfNeeded(storage, paths.dlRoot, installDir);
       // Update local state after extraction
-      if (storage && storage.GAME_UPDATER) {
-        baseExtracted = !!storage.GAME_UPDATER.baseGame.extracted;
+      const updatedStorage = await readStorage();
+      if (updatedStorage && updatedStorage.GAME_UPDATER) {
+        baseExtracted = !!updatedStorage.GAME_UPDATER.baseGame.extracted;
+        currentVersion = String(updatedStorage.GAME_UPDATER.currentVersion ?? "0");
       }
     }
-    // Fetch remote patch manifest
-    const fetchJson = require('./utils/io').fetchJson;
-    const patchManifest = await fetchJson(PATCH_MANIFEST_URL);
-    latestVersion = String(patchManifest.latestVersion ?? "0");
+
+    // If base game is extracted but version is below latest, check if patches need to be reapplied
+    const baseVersion = release.game.baseVersion;
+    if (baseExtracted && currentVersion !== latestVersion && currentVersion !== "0" && currentVersion !== "0.0.0") {
+      log.info(chalk.cyan(`[game:check] Current version (${currentVersion}) is below latest (${latestVersion})`));
+
+      // Check if we need to reapply patches (version is below what it should be based on available ZIPs)
+      const patches = patchManifest.patches || [];
+      let expectedVersion = baseVersion;
+
+      // Walk through available patches to determine what version we should be at
+      let checkVersion = baseVersion;
+      while (checkVersion !== latestVersion) {
+        const patch = patches.find((p: any) => p.from === checkVersion);
+        if (!patch) break;
+
+        const patchZipName = patch.fullUrl.split('/').pop();
+        const patchZipPath = patchZipName ? path.join(downloadsDir, patchZipName) : '';
+
+        if (patchZipPath && fs.existsSync(patchZipPath)) {
+          expectedVersion = patch.to;
+          checkVersion = patch.to;
+        } else {
+          break; // No more patches available
+        }
+      }
+
+      // If current version is below the expected version based on available patches, trigger reapplication
+      if (currentVersion !== expectedVersion) {
+        log.warn(chalk.yellow(`[game:check] Version mismatch detected. Current: ${currentVersion}, Expected based on available patches: ${expectedVersion}`));
+        log.warn(chalk.yellow(`[game:check] Patches may have been deleted or version was rolled back. Setting state to update-available.`));
+        // Don't auto-apply here, just report that updates are available
+      }
+    }
+
     // Determine launcherState per requirements
     let launcherState: 'missing' | 'ready' | 'update-available';
     if (!baseDownloaded) {
@@ -961,13 +1149,16 @@ ipcMain.handle('game:check', async () => {
     } else {
       launcherState = 'missing'; // fallback
     }
+
     log.info(chalk.cyan('[game:check] currentVersion:'), currentVersion);
     log.info(chalk.cyan('[game:check] latestVersion:'), latestVersion);
     log.info(chalk.cyan('[game:check] The results of patch-manifest.json downloaded from GitHub:'), JSON.stringify(patchManifest, null, 2));
     log.info(chalk.cyan('[game:check] launcherState:'), launcherState);
+
     // For existence, check for a main executable (e.g., ashita-cli.exe) in gameRoot
     const mainExe = path.join(installDir, 'ashita-cli.exe');
     const exists = fs.existsSync(mainExe);
+
     return { exists, launcherState, latestVersion, installedVersion: currentVersion, baseDownloaded, baseExtracted };
   } catch (err) {
     log.error(chalk.red('[game:check] error:'), err);

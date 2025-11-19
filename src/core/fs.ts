@@ -82,6 +82,70 @@ export async function extractZip(
   log.info(chalk.green('[extractZip] ✓ Extraction complete'));
 }
 
+/**
+ * Extracts a ZIP file and merges its contents with the destination directory.
+ * If the ZIP contains a single root folder, its contents are extracted directly to the destination
+ * instead of creating a nested folder structure.
+ *
+ * This is useful for patches that contain a "ROM" folder - instead of creating ROM/ROM,
+ * the contents are merged into the existing ROM folder.
+ */
+export async function extractAndMergeZip(
+  zipPath: string,
+  dest: string,
+  onProgress?: (current: number, total: number) => void
+): Promise<void> {
+  log.info(chalk.cyan(`[extractAndMergeZip] Extracting and merging archive: ${zipPath}`));
+  log.info(chalk.cyan(`[extractAndMergeZip] Destination: ${dest}`));
+
+  // Create a temporary extraction directory
+  const tempDir = join(tmpdir(), `eventide-extract-${Date.now()}`);
+  await fs.mkdir(tempDir, { recursive: true });
+
+  try {
+    // First, extract to temp directory
+    await extractZip(zipPath, tempDir, onProgress);
+
+    // Check if there's a single root directory
+    const entries = await fs.readdir(tempDir, { withFileTypes: true });
+
+    let sourceDir = tempDir;
+    if (entries.length === 1 && entries[0].isDirectory()) {
+      // Single root folder detected - use its contents instead
+      const rootFolderName = entries[0].name;
+      sourceDir = join(tempDir, rootFolderName);
+      log.info(chalk.cyan(`[extractAndMergeZip] Single root folder detected: ${rootFolderName}`));
+      log.info(chalk.cyan(`[extractAndMergeZip] Will merge contents instead of creating nested structure`));
+    }
+
+    // Ensure destination exists
+    await fs.mkdir(dest, { recursive: true });
+
+    // Copy each item from sourceDir to dest (merge contents, not the directory itself)
+    log.info(chalk.cyan(`[extractAndMergeZip] Merging contents from ${sourceDir} to ${dest}`));
+    const sourceEntries = await fs.readdir(sourceDir, { withFileTypes: true });
+
+    for (const entry of sourceEntries) {
+      const sourcePath = join(sourceDir, entry.name);
+      const destPath = join(dest, entry.name);
+
+      // Use fs.cp to recursively copy each item, overwriting existing files
+      await fs.cp(sourcePath, destPath, { recursive: true, force: true });
+      log.info(chalk.gray(`[extractAndMergeZip] Merged: ${entry.name}`));
+    }
+
+    log.info(chalk.green('[extractAndMergeZip] ✓ Extraction and merge complete'));
+  } finally {
+    // Clean up temp directory
+    try {
+      await fs.rm(tempDir, { recursive: true, force: true });
+      log.info(chalk.cyan('[extractAndMergeZip] Cleaned up temporary directory'));
+    } catch (e) {
+      log.warn(chalk.yellow('[extractAndMergeZip] Failed to clean up temp directory:'), e);
+    }
+  }
+}
+
 // Add file count verification function
 export async function verifyExtractedFiles(destDir: string, expectedMinFiles?: number): Promise<{ success: boolean; fileCount: number }> {
   try {
