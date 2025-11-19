@@ -38,19 +38,36 @@ export default function HomePage(props: HomePageProps) {
         total?: number;
       }
     | {
+        status: 'extracting';
+        progress: number;
+        current?: number;
+        total?: number;
+      }
+    | {
         status: 'update-available';
         remoteVersion?: string;
         installedVersion?: string;
       }
     | { status: 'ready' }
     | { status: 'launching' }
-    | { status: 'error'; message: string };
+    | {
+        status: 'error';
+        message: string;
+        isRetryable?: boolean;
+        lastOperation?: 'download' | 'update' | 'check';
+      };
 
   type Action =
     | { type: 'CHECK' }
     | { type: 'SET'; state: State }
     | { type: 'PROGRESS'; p: number; downloaded?: number; total?: number }
-    | { type: 'ERROR'; msg: string };
+    | { type: 'EXTRACT_PROGRESS'; p: number; current?: number; total?: number }
+    | {
+        type: 'ERROR';
+        msg: string;
+        isRetryable?: boolean;
+        lastOperation?: 'download' | 'update' | 'check';
+      };
 
   function reducer(_: State, action: Action): State {
     try {
@@ -66,8 +83,20 @@ export default function HomePage(props: HomePageProps) {
             downloaded: action.downloaded,
             total: action.total,
           };
+        case 'EXTRACT_PROGRESS':
+          return {
+            status: 'extracting',
+            progress: action.p,
+            current: action.current,
+            total: action.total,
+          };
         case 'ERROR':
-          return { status: 'error', message: action.msg };
+          return {
+            status: 'error',
+            message: action.msg,
+            isRetryable: action.isRetryable,
+            lastOperation: action.lastOperation,
+          };
         default:
           return { status: 'checking' };
       }
@@ -150,8 +179,12 @@ export default function HomePage(props: HomePageProps) {
   };
 
   // Safely read progress from union-typed state
-  const getProgress = (s: State): number | undefined =>
-    s.status === 'downloading' ? s.progress : undefined;
+  const getProgress = (s: State): number | undefined => {
+    if (s.status === 'downloading' || s.status === 'extracting') {
+      return s.progress;
+    }
+    return undefined;
+  };
 
   const getDownloaded = (s: State): number | undefined =>
     s.status === 'downloading' ? s.downloaded : undefined;
@@ -174,6 +207,8 @@ export default function HomePage(props: HomePageProps) {
   useEffect(() => {
     let unsubProgress: (() => void) | undefined;
     let unsubStatus: (() => void) | undefined;
+    let unsubExtract: (() => void) | undefined;
+
     try {
       const doCheck = async () => {
         dispatch({ type: 'CHECK' });
@@ -233,6 +268,31 @@ export default function HomePage(props: HomePageProps) {
             },
           );
 
+          // Add extraction progress listener
+          unsubExtract = ipc.on(
+            'extract:progress',
+            (_ev: any, payload: any) => {
+              try {
+                // eslint-disable-next-line no-console
+                console.log('[renderer] received extract:progress', payload);
+                const { current, total } = payload ?? {};
+                const percent = total ? Math.round((current / total) * 100) : 0;
+                dispatch({
+                  type: 'EXTRACT_PROGRESS',
+                  p: percent,
+                  current,
+                  total,
+                });
+              } catch (err) {
+                // eslint-disable-next-line no-console
+                console.error(
+                  '[HomePage useEffect] extract:progress handler error:',
+                  err,
+                );
+              }
+            },
+          );
+
           unsubStatus = ipc.on('game:status', (_ev: any, payload: any) => {
             try {
               const { status, remoteVersion, installedVersion, message } =
@@ -241,7 +301,11 @@ export default function HomePage(props: HomePageProps) {
               if (status === 'downloaded' || status === 'ready') {
                 dispatch({ type: 'SET', state: { status: 'ready' } });
               } else if (status === 'error') {
-                dispatch({ type: 'ERROR', msg: message ?? 'Unknown error' });
+                dispatch({
+                  type: 'ERROR',
+                  msg: message ?? 'Unknown error',
+                  isRetryable: true,
+                });
               } else if (status === 'update-available') {
                 dispatch({
                   type: 'SET',
@@ -278,6 +342,14 @@ export default function HomePage(props: HomePageProps) {
           console.error('[HomePage useEffect] unsubProgress error:', err);
         }
         try {
+          if (typeof unsubExtract === 'function') {
+            unsubExtract();
+          }
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error('[HomePage useEffect] unsubExtract error:', err);
+        }
+        try {
           if (typeof unsubStatus === 'function') {
             unsubStatus();
           }
@@ -302,16 +374,34 @@ export default function HomePage(props: HomePageProps) {
           type: 'SET',
           state: { status: 'downloading', progress: 0 },
         });
-        await safeInvoke('game:download');
-        // main should emit game:status 'downloaded' -> ready
+        try {
+          await safeInvoke('game:download');
+          // main should emit game:status 'downloaded' -> ready
+        } catch (err) {
+          dispatch({
+            type: 'ERROR',
+            msg: String(err),
+            isRetryable: true,
+            lastOperation: 'download',
+          });
+        }
       } else if (state.status === 'update-available') {
         dispatch({
           type: 'SET',
           state: { status: 'downloading', progress: 0 },
         });
-        await safeInvoke('game:update');
-        // Fallback: if main does not emit game:status 'ready', set it here
-        dispatch({ type: 'SET', state: { status: 'ready' } });
+        try {
+          await safeInvoke('game:update');
+          // Fallback: if main does not emit game:status 'ready', set it here
+          dispatch({ type: 'SET', state: { status: 'ready' } });
+        } catch (err) {
+          dispatch({
+            type: 'ERROR',
+            msg: String(err),
+            isRetryable: true,
+            lastOperation: 'update',
+          });
+        }
       } else if (state.status === 'ready') {
         // save credentials and update INI before launching
         const writeResult = await (window as any).electron.writeConfig({
@@ -325,6 +415,7 @@ export default function HomePage(props: HomePageProps) {
             msg:
               writeResult?.error ||
               'Failed to save credentials. Please check your system keychain and try again.',
+            isRetryable: false,
           });
           return;
         }
@@ -336,20 +427,103 @@ export default function HomePage(props: HomePageProps) {
           dispatch({
             type: 'ERROR',
             msg: updateResult?.error ?? 'Failed to update INI',
+            isRetryable: false,
           });
           return;
         }
 
+        // Write default.txt script with enabled addons and plugins
+        try {
+          const scriptResult = await (
+            window as any
+          ).electron.writeDefaultScript();
+          if (!scriptResult?.success) {
+            // eslint-disable-next-line no-console
+            console.warn(
+              '[HomePage] Failed to write default.txt:',
+              scriptResult?.error,
+            );
+            // Don't block launch on script write failure
+          } else {
+            // eslint-disable-next-line no-console
+            console.log('[HomePage] Successfully wrote default.txt');
+          }
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.warn('[HomePage] Error writing default.txt:', err);
+          // Don't block launch on script write failure
+        }
+
         dispatch({ type: 'SET', state: { status: 'launching' } });
-        await safeInvoke('game:launch');
+
+        // Check if we should close launcher on game run
+        try {
+          const settingsResult = await (window as any).electron.readSettings();
+          if (
+            settingsResult?.success &&
+            settingsResult?.data?.launcher?.closeOnRun
+          ) {
+            // Launch game and close launcher after a brief delay
+            await safeInvoke('game:launch');
+            setTimeout(() => {
+              (window as any).electron?.windowControls?.close?.();
+            }, 1000);
+          } else {
+            // Just launch without closing
+            await safeInvoke('game:launch');
+          }
+        } catch {
+          // If settings read fails, just launch normally
+          await safeInvoke('game:launch');
+        }
         // main can emit status if needed
       } else if (state.status === 'error') {
-        // on error, re-check when user clicks retry
-        dispatch({ type: 'CHECK' });
-        await safeInvoke('game:check');
+        // Retry the last failed operation
+        if (state.lastOperation === 'download') {
+          dispatch({
+            type: 'SET',
+            state: { status: 'downloading', progress: 0 },
+          });
+          try {
+            await safeInvoke('game:download');
+          } catch (err) {
+            dispatch({
+              type: 'ERROR',
+              msg: String(err),
+              isRetryable: true,
+              lastOperation: 'download',
+            });
+          }
+        } else if (state.lastOperation === 'update') {
+          dispatch({
+            type: 'SET',
+            state: { status: 'downloading', progress: 0 },
+          });
+          try {
+            await safeInvoke('game:update');
+            dispatch({ type: 'SET', state: { status: 'ready' } });
+          } catch (err) {
+            dispatch({
+              type: 'ERROR',
+              msg: String(err),
+              isRetryable: true,
+              lastOperation: 'update',
+            });
+          }
+        } else {
+          // Default: re-check status
+          dispatch({ type: 'CHECK' });
+          await safeInvoke('game:check');
+        }
       }
-    } catch (err) {
-      dispatch({ type: 'ERROR', msg: String(err) });
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error('[handleActionClick] Error:', error);
+      dispatch({
+        type: 'ERROR',
+        msg: String(error),
+        isRetryable: true,
+      });
     }
   };
 
@@ -361,6 +535,8 @@ export default function HomePage(props: HomePageProps) {
         return 'Download';
       case 'downloading':
         return `Downloading ${getProgress(state) ?? 0}%`;
+      case 'extracting':
+        return `Extracting ${getProgress(state) ?? 0}%`;
       case 'update-available':
         return 'Update';
       case 'ready':

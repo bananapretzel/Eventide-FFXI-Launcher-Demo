@@ -16,6 +16,7 @@
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
     "allowJs": true,
+    "isolatedModules": true,
     "outDir": ".erb/dll"
   },
   "exclude": [

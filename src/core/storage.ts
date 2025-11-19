@@ -58,7 +58,8 @@ export async function readStorage(logReset?: (msg: string) => void): Promise<Sto
       return getDefaultStorage();
     }
   } catch (e) {
-    if (logReset) logReset(`[storage] Could not read storage.json (${e && e.message ? e.message : e}), resetting.`);
+    const errorMsg = e instanceof Error ? e.message : String(e);
+    if (logReset) logReset(`[storage] Could not read storage.json (${errorMsg}), resetting.`);
     await writeStorage(getDefaultStorage());
     return getDefaultStorage();
   }

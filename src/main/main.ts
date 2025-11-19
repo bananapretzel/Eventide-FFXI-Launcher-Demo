@@ -8,8 +8,6 @@ import crypto from 'crypto';
 import keytar from 'keytar';
 import { spawn } from 'child_process';
 import ini from 'ini';
-import { promisify } from 'util';
-import { pipeline } from 'stream';
 import { resolveHtmlPath } from './util';
 import { RELEASE_JSON_URL } from './config';
 import { getClientVersion } from '../core/versions';
@@ -48,34 +46,50 @@ app.setName('Eventide Launcherv2');
 
 // --- Ensure config.json exists with defaults on startup ---
 // ...existing code...
-// Consolidated extraction logic for base game zip
-async function extractBaseGameIfNeeded(storageData: any, dlRoot: string, gameRoot: string) {
+/**
+ * Consolidated extraction logic for base game zip with progress reporting
+ * @param storageData - Current storage data to update
+ * @param dlRoot - Download directory path
+ * @param gameRoot - Game installation directory path
+ * @returns true if extraction was performed, false if skipped
+ */
+async function extractBaseGameIfNeeded(storageData: any, dlRoot: string, gameRoot: string): Promise<boolean> {
   try {
     const { extractZip } = require('../core/fs');
     const baseGameZipName = 'Eventide-test.zip'; // TODO: make dynamic if needed
     const baseGameZipPath = path.join(dlRoot, baseGameZipName);
-    if (fs.existsSync(baseGameZipPath)) {
-      log.info(chalk.cyan('[startup] Game zip is downloaded but not extracted. Extracting now...'));
-      const g: any = global;
-      if (g.mainWindow && g.mainWindow.webContents) {
-        g.mainWindow.webContents.send('extract:start');
-      }
-      await extractZip(baseGameZipPath, gameRoot);
-      storageData.GAME_UPDATER.baseGame.extracted = true;
-      await writeStorage(storageData);
-      log.info(chalk.cyan('[startup] Extraction complete. Updated baseGame.extracted to true.'));
-      if (g.mainWindow && g.mainWindow.webContents) {
-        g.mainWindow.webContents.send('extract:done');
-      }
-    } else {
+
+    if (!fs.existsSync(baseGameZipPath)) {
       log.info(chalk.cyan('[startup] Expected base game zip not found at'), baseGameZipPath);
+      return false;
     }
+
+    log.info(chalk.cyan('[startup] Game zip is downloaded but not extracted. Extracting now...'));
+    const g: any = global;
+    if (g.mainWindow && g.mainWindow.webContents) {
+      g.mainWindow.webContents.send('extract:start');
+    }
+
+    await extractZip(baseGameZipPath, gameRoot);
+
+    // Update storage atomically
+    storageData.GAME_UPDATER.baseGame.extracted = true;
+    await writeStorage(storageData);
+
+    log.info(chalk.cyan('[startup] Extraction complete. Updated baseGame.extracted to true.'));
+
+    if (g.mainWindow && g.mainWindow.webContents) {
+      g.mainWindow.webContents.send('extract:done');
+    }
+
+    return true;
   } catch (extractErr) {
     log.error(chalk.red('[startup] Error during auto-extraction:'), extractErr);
     const g: any = global;
     if (g.mainWindow && g.mainWindow.webContents) {
-      g.mainWindow.webContents.send('extract:done');
+      g.mainWindow.webContents.send('extract:error', { error: String(extractErr) });
     }
+    throw extractErr; // Re-throw to let caller handle
   }
 }
 
@@ -85,7 +99,8 @@ app.once('ready', async () => {
     ensureDirs(); // Centralized directory creation
     const paths = getEventidePaths();
     const { gameRoot, dlRoot } = paths;
-    // Read storage.json with validation and log resets
+
+    // Step 1: Read or initialize storage.json
     let storageData = await readStorage((msg) => log.warn(chalk.yellow(msg)));
     if (!storageData) {
       storageData = getDefaultStorage();
@@ -93,13 +108,26 @@ app.once('ready', async () => {
       log.warn(chalk.yellow('[startup] storage.json was missing or invalid, created default.'));
     }
 
-    // If the game is downloaded but not extracted, extract now (consolidated logic)
-    if (storageData.GAME_UPDATER.baseGame.downloaded && !storageData.GAME_UPDATER.baseGame.extracted) {
-      await extractBaseGameIfNeeded(storageData, dlRoot, gameRoot);
+    // Step 2: Ensure paths are set in storage
+    let changed = false;
+    if (!storageData.paths.installPath) {
+      storageData.paths.installPath = gameRoot;
+      changed = true;
     }
+    if (!storageData.paths.downloadPath) {
+      storageData.paths.downloadPath = dlRoot;
+      changed = true;
+    }
+    if (changed) {
+      await writeStorage(storageData);
+      log.info(chalk.cyan('[startup] Updated storage.json with paths.'));
+    }
+
     const version = app.getVersion ? app.getVersion() : 'unknown';
     const env = process.env.NODE_ENV || 'production';
     log.info(chalk.cyan(`[startup] Launcher version: ${version}, environment: ${env}`));
+
+    // Step 3: Create default config.json if needed
     const configPath = paths.config;
     if (!fs.existsSync(configPath)) {
       const defaultConfig = {
@@ -113,115 +141,96 @@ app.once('ready', async () => {
       log.info(chalk.cyan('[startup] First run detected. Created default config.json at'), configPath);
     }
 
-    // Always check for required files in Game folder and update baseGame.extracted accordingly
-    try {
-      const actuallyExtracted = hasRequiredGameFiles(gameRoot);
-      if (storageData.GAME_UPDATER.baseGame.extracted !== actuallyExtracted) {
-        storageData.GAME_UPDATER.baseGame.extracted = actuallyExtracted;
-        await writeStorage(storageData);
-        log.info(chalk.cyan(`[startup] Synced baseGame.extracted to ${actuallyExtracted} based on required files in Game folder.`));
-      }
-    } catch (e) {
-      log.error(chalk.red('[startup] Error checking Game folder for extraction state:'), e);
-      storageData.GAME_UPDATER.baseGame.extracted = false;
-      await writeStorage(storageData);
-    }
-
-    // If the game is downloaded but not extracted, extract now
-    if (storageData.GAME_UPDATER.baseGame.downloaded && !storageData.GAME_UPDATER.baseGame.extracted) {
-      log.info(chalk.cyan('[debug] Extraction block entered: downloaded=true, extracted=false'));
-      await extractBaseGameIfNeeded(storageData, dlRoot, gameRoot);
-    }
-
-    // Robust state detection if currentVersion is 0 (treat '0', '0.0.0', etc. as zero)
-    const baseGameZipName = 'Eventide-test.zip'; // TODO: make dynamic if needed
+    // Step 4: Verify game state from file system
+    const baseGameZipName = 'Eventide-test.zip';
     const baseGameZipPath = path.join(dlRoot, baseGameZipName);
-    let baseGameDownloaded = false;
-    let baseGameExtracted = false;
-    if (isZeroVersion(storageData.GAME_UPDATER.currentVersion)) {
-      // Check for base game zip in downloads
-      if (fs.existsSync(baseGameZipPath)) {
-        baseGameDownloaded = true;
-        log.info(chalk.cyan(`[startup] Found base game zip: ${baseGameZipPath}`));
-      } else {
-        baseGameDownloaded = false;
-        log.info(chalk.cyan('[startup] Base game zip not found in downloads. Download required.'));
-      }
-      // Check for required files in installPath (Game folder)
-      let extracted = false;
-      if (baseGameDownloaded) {
-        try {
-          if (hasRequiredGameFiles(gameRoot)) {
-            extracted = true;
-            log.info(chalk.cyan('[startup] Required files found in Game folder. Extraction not required.'));
-          } else {
-            extracted = false;
-            log.info(chalk.cyan('[startup] Required files missing. Extraction required.'));
-            // Extract the zip into installPath
-            const { extractZip } = require('../core/fs');
-            await extractZip(baseGameZipPath, gameRoot);
-            log.info(chalk.cyan('[startup] Extracted base game zip to installPath.'));
-            extracted = hasRequiredGameFiles(gameRoot);
-          }
-        } catch (extractErr) {
-          log.error(chalk.red('[startup] Error during extraction check/extract:'), extractErr);
-          extracted = false;
-        }
-      }
-      baseGameExtracted = extracted;
-      // Set currentVersion to 1.0.0 if both downloaded and extracted are true
-      if (baseGameDownloaded && baseGameExtracted) {
-        storageData.GAME_UPDATER.currentVersion = '1.0.0';
-      }
-      storageData.GAME_UPDATER.baseGame.downloaded = baseGameDownloaded;
-      storageData.GAME_UPDATER.baseGame.extracted = baseGameExtracted;
-      // Always coerce updater fields and latestVersion to "0" if null/undefined
-      if (storageData.GAME_UPDATER.updater.downloaded == null) storageData.GAME_UPDATER.updater.downloaded = "0";
-      if (storageData.GAME_UPDATER.updater.extracted == null) storageData.GAME_UPDATER.updater.extracted = "0";
-      if (storageData.GAME_UPDATER.latestVersion == null) storageData.GAME_UPDATER.latestVersion = "0";
-      await writeStorage(storageData);
-      log.info(chalk.cyan(`[startup] State after detection: downloaded=${baseGameDownloaded}, extracted=${baseGameExtracted}, version=${storageData.GAME_UPDATER.currentVersion}`));
-    } else {
-      baseGameDownloaded = storageData.GAME_UPDATER.baseGame.downloaded;
-      baseGameExtracted = storageData.GAME_UPDATER.baseGame.extracted;
-      let changed = false;
-      if (!storageData.paths.installPath) {
-        storageData.paths.installPath = gameRoot;
-        changed = true;
-      }
-      if (!storageData.paths.downloadPath) {
-        storageData.paths.downloadPath = dlRoot;
-        changed = true;
-      }
-      if (changed) {
-        await writeStorage(storageData);
-        log.info(chalk.cyan('[startup] Updated storage.json with missing paths.'));
+    const zipExists = fs.existsSync(baseGameZipPath);
+    const filesExist = hasRequiredGameFiles(gameRoot);
+
+    // Step 5: Sync storage with actual file system state
+    let needsUpdate = false;
+    if (storageData.GAME_UPDATER.baseGame.downloaded !== zipExists) {
+      storageData.GAME_UPDATER.baseGame.downloaded = zipExists;
+      needsUpdate = true;
+      log.info(chalk.cyan(`[startup] Synced baseGame.downloaded to ${zipExists}`));
+    }
+
+    if (storageData.GAME_UPDATER.baseGame.extracted !== filesExist) {
+      storageData.GAME_UPDATER.baseGame.extracted = filesExist;
+      needsUpdate = true;
+      log.info(chalk.cyan(`[startup] Synced baseGame.extracted to ${filesExist}`));
+    }
+
+    // Step 6: Auto-extract if downloaded but not extracted
+    if (zipExists && !filesExist) {
+      try {
+        log.info(chalk.cyan('[startup] Game zip exists but not extracted. Extracting now...'));
+        await extractBaseGameIfNeeded(storageData, dlRoot, gameRoot);
+        // Re-check after extraction
+        storageData.GAME_UPDATER.baseGame.extracted = hasRequiredGameFiles(gameRoot);
+        needsUpdate = true;
+      } catch (extractErr) {
+        log.error(chalk.red('[startup] Auto-extraction failed:'), extractErr);
+        storageData.GAME_UPDATER.baseGame.extracted = false;
+        needsUpdate = true;
       }
     }
 
-    // --- Fetch remote version and patch manifest if base game is extracted ---
-    if (baseGameExtracted) {
+    // Step 7: Initialize version if this is first extraction
+    if (isZeroVersion(storageData.GAME_UPDATER.currentVersion) && storageData.GAME_UPDATER.baseGame.extracted) {
+      storageData.GAME_UPDATER.currentVersion = '1.0.0'; // Base game version
+      needsUpdate = true;
+      log.info(chalk.cyan('[startup] Initialized version to 1.0.0 after base game extraction'));
+    }
+
+    // Step 8: Ensure updater fields are initialized
+    if (!storageData.GAME_UPDATER.updater.downloaded) {
+      storageData.GAME_UPDATER.updater.downloaded = "0";
+      needsUpdate = true;
+    }
+    if (!storageData.GAME_UPDATER.updater.extracted) {
+      storageData.GAME_UPDATER.updater.extracted = "0";
+      needsUpdate = true;
+    }
+    if (!storageData.GAME_UPDATER.latestVersion) {
+      storageData.GAME_UPDATER.latestVersion = "0";
+      needsUpdate = true;
+    }
+
+    if (needsUpdate) {
+      await writeStorage(storageData);
+      log.info(chalk.cyan('[startup] Storage updated after state sync'));
+    }
+
+    // Step 9: Fetch remote version and update check (only if extracted)
+    if (storageData.GAME_UPDATER.baseGame.extracted) {
       try {
-        log.info(chalk.cyan('[startup] Base game extracted, fetching remote release and patch manifest...'));
+        log.info(chalk.cyan('[startup] Fetching remote release and patch manifest...'));
         const release = await getReleaseJson(RELEASE_JSON_URL);
         const patchManifest = await getPatchManifest(release.patchManifestUrl);
         const remoteVersion = patchManifest.latestVersion;
-        // Only update latestVersion, do not overwrite currentVersion
-        storageData.GAME_UPDATER.latestVersion = remoteVersion;
-        await writeStorage(storageData);
-        log.info(chalk.cyan(`[startup] Updated storage.json: currentVersion=${storageData.GAME_UPDATER.currentVersion}, latestVersion=${remoteVersion}`));
-        if (storageData.GAME_UPDATER.currentVersion !== remoteVersion) {
-          log.info(chalk.cyan(`[startup] Update available: currentVersion=${storageData.GAME_UPDATER.currentVersion}, latestVersion=${remoteVersion}`));
-          // Optionally, trigger patch logic here or notify renderer
+
+        // Update latestVersion in storage
+        if (storageData.GAME_UPDATER.latestVersion !== remoteVersion) {
+          storageData.GAME_UPDATER.latestVersion = remoteVersion;
+          await writeStorage(storageData);
+          log.info(chalk.cyan(`[startup] Updated latestVersion to ${remoteVersion}`));
+        }
+
+        const currentVersion = storageData.GAME_UPDATER.currentVersion;
+        if (currentVersion !== remoteVersion) {
+          log.info(chalk.cyan(`[startup] Update available: ${currentVersion} → ${remoteVersion}`));
         } else {
           log.info(chalk.cyan('[startup] Game is up to date.'));
         }
       } catch (remoteErr) {
-        log.warn(chalk.yellow('[startup] Failed to fetch remote version or patch manifest:'), remoteErr);
+        log.warn(chalk.yellow('[startup] Failed to fetch remote version:'), remoteErr);
       }
     }
+
+    log.info(chalk.cyan('[startup] Initialization complete'));
   } catch (err) {
-    log.error(chalk.red('[startup] Failed to create default config.json:'), err);
+    log.error(chalk.red('[startup] Startup error:'), err);
   }
 });
 import { autoUpdater } from 'electron-updater';
@@ -241,6 +250,8 @@ ipcMain.handle('eventide:get-paths', async () => {
 
 
 const SERVICE_NAME = 'EventideLauncher';
+const KEYTAR_ACCOUNT_USERNAME = 'eventide-username';
+const KEYTAR_ACCOUNT_PASSWORD = 'eventide-password';
 
 // IPC handler to read config.json (settings)
 
@@ -256,18 +267,20 @@ async function readConfigHandler() {
     log.info(chalk.cyan('[config] Reading config file at'), configPath);
     const configContent = fs.readFileSync(configPath, 'utf-8');
     const config = JSON.parse(configContent);
-    // Retrieve password from keytar if rememberCredentials is true and username is set
+    // Retrieve both username and password from keytar if rememberCredentials is true
+    let username = '';
     let password = '';
-    if (config.rememberCredentials && config.username) {
+    if (config.rememberCredentials) {
       try {
-        log.info(chalk.cyan(`[keytar] Attempting to get password for user: ${config.username}`));
-        password = (await keytar.getPassword(SERVICE_NAME, config.username)) || '';
-        log.info(chalk.cyan(`[keytar] Got password for user: ${config.username}?`), !!password);
+        log.info(chalk.cyan('[keytar] Attempting to get credentials'));
+        username = (await keytar.getPassword(SERVICE_NAME, KEYTAR_ACCOUNT_USERNAME)) || '';
+        password = (await keytar.getPassword(SERVICE_NAME, KEYTAR_ACCOUNT_PASSWORD)) || '';
+        log.info(chalk.cyan('[keytar] Got credentials?'), { username: !!username, password: !!password });
       } catch (e) {
-        log.warn(chalk.yellow('[keytar] Failed to get password:'), e);
+        log.warn(chalk.yellow('[keytar] Failed to get credentials:'), e);
       }
     }
-    return { success: true, data: { ...config, password } };
+    return { success: true, data: { ...config, username, password } };
   } catch (error) {
     log.error(chalk.red('Error reading config file:'), error);
     return {
@@ -324,17 +337,119 @@ ipcMain.handle('write-settings', async (_event, data: any) => {
   }
 });
 
-ipcMain.handle('launcher:downloadGame', async (_event, fullUrl: string, sha256: string, installDir: string, baseVersion: string) => {
+// IPC handler to write default.txt script for Ashita auto-load
+ipcMain.handle('write-default-script', async () => {
+  try {
+    const paths = getEventidePaths();
+    const configPath = paths.config;
+
+    // Read config to get enabled addons and plugins
+    if (!fs.existsSync(configPath)) {
+      log.warn(chalk.yellow('[write-default-script] Config file not found'));
+      return { success: false, error: 'Config file not found' };
+    }
+
+    const configContent = fs.readFileSync(configPath, 'utf-8');
+    const config = JSON.parse(configContent);
+
+    // Get enabled plugins
+    const enabledPlugins: string[] = [];
+    if (config.plugins) {
+      Object.entries(config.plugins).forEach(([key, value]: [string, any]) => {
+        if (value.enabled === true) {
+          enabledPlugins.push(key);
+        }
+      });
+    }
+
+    // Get enabled addons
+    const enabledAddons: string[] = [];
+    if (config.addons) {
+      Object.entries(config.addons).forEach(([key, value]: [string, any]) => {
+        if (value.enabled === true) {
+          enabledAddons.push(key);
+        }
+      });
+    }
+
+    // Build script content
+    const lines: string[] = [];
+    lines.push('### START DO NOT MODIFY AREA ###');
+    lines.push('');
+
+    // Add plugins first
+    enabledPlugins.forEach(plugin => {
+      lines.push(`/load ${plugin}`);
+    });
+
+    // Blank line between plugins and addons
+    if (enabledPlugins.length > 0 && enabledAddons.length > 0) {
+      lines.push('');
+    }
+
+    // Add addons
+    enabledAddons.forEach(addon => {
+      lines.push(`/addon load ${addon}`);
+    });
+
+    lines.push('');
+    lines.push('### END DO NOT MODIFY AREA ###');
+
+    const scriptContent = lines.join('\n');
+
+    // Write to scripts/default.txt
+    const scriptsDir = path.join(paths.gameRoot, 'scripts');
+    const defaultScriptPath = path.join(scriptsDir, 'default.txt');
+
+    // Ensure scripts directory exists
+    fs.mkdirSync(scriptsDir, { recursive: true });
+
+    // Write the file
+    fs.writeFileSync(defaultScriptPath, scriptContent, 'utf-8');
+
+    log.info(chalk.cyan('[write-default-script] Written default.txt:'), defaultScriptPath);
+    log.info(chalk.cyan('[write-default-script] Enabled plugins:'), enabledPlugins.length);
+    log.info(chalk.cyan('[write-default-script] Enabled addons:'), enabledAddons.length);
+
+    return { success: true, path: defaultScriptPath };
+  } catch (error) {
+    log.error(chalk.red('[write-default-script] Error:'), error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
+  }
+});
+
+ipcMain.handle('launcher:downloadGame', async (_event, fullUrl: string, sha256: string, installDir: string, baseVersion: string, expectedSize?: number) => {
   try {
     const paths = getEventidePaths();
     log.info(chalk.cyan(`[download] Starting download: ${fullUrl} to ${paths.gameRoot}`));
-    await downloadGame(fullUrl, sha256, paths.gameRoot, paths.dlRoot, baseVersion, (dl, total) => {
+
+    const onDownloadProgress = (dl: number, total: number) => {
       log.info(chalk.cyan(`[download] Progress: ${dl} / ${total}`));
       if (mainWindow) {
         log.info(chalk.cyan(`[ipc] Sending to renderer: download:progress`), { dl, total });
         mainWindow.webContents.send('download:progress', { dl, total });
       }
-    });
+    };
+
+    const onExtractProgress = (current: number, total: number) => {
+      if (mainWindow) {
+        mainWindow.webContents.send('extract:progress', { current, total });
+      }
+    };
+
+    await downloadGame(
+      fullUrl,
+      sha256,
+      paths.gameRoot,
+      paths.dlRoot,
+      baseVersion,
+      expectedSize,
+      onDownloadProgress,
+      onExtractProgress
+    );
     log.info(chalk.cyan('[download] Download completed successfully'));
     return { success: true };
   } catch (err) {
@@ -372,9 +487,9 @@ ipcMain.handle('write-extensions', async (_event, data) => {
   }
 });
 
-ipcMain.handle('launcher:applyPatches', async (_event, patchManifest: any, clientVersion: string, installDir: string) => {
+ipcMain.handle('launcher:applyPatches', async (_event, patchManifest: any, installDir: string) => {
   try {
-    await applyPatches(patchManifest, clientVersion, installDir);
+    await applyPatches(patchManifest, installDir);
     return { success: true };
   } catch (err) {
     log.error(chalk.red('[patch] Error applying patches:'), err);
@@ -566,6 +681,7 @@ ipcMain.handle('update-ini-auth-and-run', async (_event, username: string, passw
           'ffxi.menuHeight': { section: 'ffxi.registry', keys: '0038', transform: (v) => String(v) },
           'ffxi.graphicsStabilization': { section: 'ffxi.registry', keys: '0040', transform: (v) => (v ? '1' : '0') },
           'ffxi.savePath': { section: 'ffxi.registry', keys: '0042', transform: (v) => String(v) },
+          'ffxi.aspectRatio': { section: 'ffxi.registry', keys: '0044', transform: (v) => (v ? '1' : '0') },
         };
 
         // Helper to set nested section/key creating objects as needed
@@ -651,26 +767,28 @@ ipcMain.handle('write-config', async (_event, data: { username: string, password
         log.warn(chalk.yellow('[config] Could not parse existing config.json, starting fresh.'));
       }
     }
-    // Remove password if present in the old config
-    if (existingConfig && typeof existingConfig === 'object' && 'password' in existingConfig) {
-      delete existingConfig.password;
+    // Remove password and username if present in the old config
+    if (existingConfig && typeof existingConfig === 'object') {
+      if ('password' in existingConfig) delete existingConfig.password;
+      if ('username' in existingConfig) delete existingConfig.username;
     }
-    // Only store non-sensitive fields and preserve other settings (except password)
+    // Only store non-sensitive fields and preserve other settings (except credentials)
     const configData = {
       ...existingConfig,
-      username: data.username || '',
       rememberCredentials: data.rememberCredentials,
       launcherVersion: app.getVersion()
     };
-    // Handle password in keytar only
+    // Handle both username and password in keytar only
     if (data.rememberCredentials && data.username && data.password) {
-      log.info(chalk.cyan(`[keytar] Saving password to keytar for user: ${data.username}`));
-      await keytar.setPassword(SERVICE_NAME, data.username, data.password);
-      log.info(chalk.cyan(`[keytar] Password saved for user: ${data.username}`));
-    } else if (data.username) {
-      log.info(chalk.cyan(`[keytar] Deleting password from keytar for user: ${data.username}`));
-      await keytar.deletePassword(SERVICE_NAME, data.username);
-      log.info(chalk.cyan(`[keytar] Password deleted for user: ${data.username}`));
+      log.info(chalk.cyan('[keytar] Saving credentials to keytar'));
+      await keytar.setPassword(SERVICE_NAME, KEYTAR_ACCOUNT_USERNAME, data.username);
+      await keytar.setPassword(SERVICE_NAME, KEYTAR_ACCOUNT_PASSWORD, data.password);
+      log.info(chalk.cyan('[keytar] Credentials saved'));
+    } else {
+      log.info(chalk.cyan('[keytar] Deleting credentials from keytar'));
+      await keytar.deletePassword(SERVICE_NAME, KEYTAR_ACCOUNT_USERNAME);
+      await keytar.deletePassword(SERVICE_NAME, KEYTAR_ACCOUNT_PASSWORD);
+      log.info(chalk.cyan('[keytar] Credentials deleted'));
     }
     log.info(chalk.cyan('[config] Writing config file at'), configPath);
     await writeJson(configPath, configData);
@@ -685,8 +803,52 @@ ipcMain.handle('write-config', async (_event, data: { username: string, password
   }
 });
 
+// IPC handlers for opening folders and log files
+ipcMain.handle('open-config-folder', async () => {
+  try {
+    const paths = getEventidePaths();
+    const configFolder = paths.userData; // config.json is in userData root
+    await shell.openPath(configFolder);
+    return { success: true };
+  } catch (error) {
+    log.error(chalk.red('[open-config-folder] Error:'), error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('open-log-file', async () => {
+  try {
+    const paths = getEventidePaths();
+    const logFile = path.join(paths.logsRoot, 'main.log');
+    // Check if log file exists, if not use launcher-invoke-output.log
+    const fileToOpen = fs.existsSync(logFile) ? logFile : path.join(paths.logsRoot, 'launcher-invoke-output.log');
+    await shell.openPath(fileToOpen);
+    return { success: true };
+  } catch (error) {
+    log.error(chalk.red('[open-log-file] Error:'), error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('open-extension-folder', async (_event, folderType: 'addons' | 'plugins') => {
+  try {
+    const paths = getEventidePaths();
+    const extensionFolder = path.join(paths.gameRoot, 'config', folderType);
+
+    // Ensure folder exists
+    if (!fs.existsSync(extensionFolder)) {
+      fs.mkdirSync(extensionFolder, { recursive: true });
+    }
+
+    await shell.openPath(extensionFolder);
+    return { success: true };
+  } catch (error) {
+    log.error(chalk.red(`[open-extension-folder] Error opening ${folderType}:`), error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
 // ---- Game install / update helpers and IPC handlers ----
-const streamPipeline = promisify(pipeline);
 
 // Debug startup marker to help confirm main process is running the current source.
 try {
@@ -849,7 +1011,30 @@ ipcMain.handle('game:download', async () => {
     const installDir = paths.gameRoot;
     const downloadsDir = paths.dlRoot;
     const release = await getReleaseJson(RELEASE_JSON_URL);
-    await downloadGame(release.game.fullUrl, release.game.sha256, installDir, downloadsDir, release.game.baseVersion);
+
+    // Progress callbacks
+    const onDownloadProgress = (dl: number, total: number) => {
+      if (mainWindow) {
+        mainWindow.webContents.send('download:progress', { dl, total });
+      }
+    };
+
+    const onExtractProgress = (current: number, total: number) => {
+      if (mainWindow) {
+        mainWindow.webContents.send('extract:progress', { current, total });
+      }
+    };
+
+    await downloadGame(
+      release.game.fullUrl,
+      release.game.sha256,
+      installDir,
+      downloadsDir,
+      release.game.baseVersion,
+      release.game.zipSizeBytes,
+      onDownloadProgress,
+      onExtractProgress
+    );
     return { success: true };
   } catch (err) {
     log.error(chalk.red('Download failed:'), err);
@@ -929,8 +1114,21 @@ ipcMain.handle('game:update', async () => {
     const projectRoot = path.resolve(__dirname, '../../');
     const release = await getReleaseJson(RELEASE_JSON_URL);
     const patchManifest = await getPatchManifest(release.patchManifestUrl);
-    const clientVersion = await getClientVersion(projectRoot);
-    await applyPatches(patchManifest, clientVersion || '', installDir);
+
+    // Progress callbacks
+    const onPatchProgress = (patch: string, dl: number, total: number) => {
+      if (mainWindow) {
+        mainWindow.webContents.send('download:progress', { dl, total, patch });
+      }
+    };
+
+    const onExtractProgress = (current: number, total: number) => {
+      if (mainWindow) {
+        mainWindow.webContents.send('extract:progress', { current, total });
+      }
+    };
+
+    await applyPatches(patchManifest, installDir, onPatchProgress, onExtractProgress);
     return { success: true };
   } catch (err) {
     log.error(chalk.red('Update failed:'), err);

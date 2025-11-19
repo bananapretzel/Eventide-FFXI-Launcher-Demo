@@ -6,7 +6,10 @@ import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
 try {
   // eslint-disable-next-line no-console
   console.log('[preload] loaded');
-} catch (e) {}
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+} catch (e) {
+  // Silently fail
+}
 
 export type Channels =
   | 'ipc-example'
@@ -65,8 +68,9 @@ const electronHandler = {
   writeSettings: (data: Record<string, any>) =>
     ipcRenderer.invoke('write-settings', data),
   readConfig: () => ipcRenderer.invoke('read-config'),
-  writeConfig: (data: { username: string, password: string, rememberCredentials: boolean }) =>
+  writeConfig: (data: Record<string, any>) =>
     ipcRenderer.invoke('write-config', data),
+  writeDefaultScript: () => ipcRenderer.invoke('write-default-script'),
 };
 
 contextBridge.exposeInMainWorld('electron', electronHandler);

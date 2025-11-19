@@ -1,69 +1,107 @@
 import { downloadFile } from '../core/net';
 import { verifySha256 } from '../core/hash';
-import { extractZip } from '../core/fs';
-import { setClientVersion, getClientVersion, compareVersions } from '../core/versions';
-import path from 'path';
-import { PatchManifest } from '../core/manifest';
+import { extractZip, verifyExtractedFiles } from '../core/fs';
+import { setClientVersion, getClientVersion } from '../core/versions';
 import { join } from 'path';
+import { PatchManifest } from '../core/manifest';
 import { updateStorage } from '../core/storage';
+import log from 'electron-log';
+import chalk from 'chalk';
 
 export async function applyPatches(
   manifest: PatchManifest,
-  _clientVersion: string,
   installDir: string,
-  onProgress?: (patch: string, dl: number, total: number) => void
+  onProgress?: (patch: string, dl: number, total: number) => void,
+  onExtractProgress?: (current: number, total: number) => void
 ): Promise<void> {
   const latestVersion = manifest.latestVersion;
   const patches = manifest.patches || [];
 
-  // Always use the project root for versioning
-  const devRoot = path.resolve(__dirname, '../../');
+  log.info(chalk.cyan('[applyPatches] Starting patch application...'));
+  log.info(chalk.cyan(`[applyPatches] Latest version: ${latestVersion}`));
+  log.info(chalk.cyan(`[applyPatches] Available patches: ${patches.length}`));
 
-  let currentVersion = await getClientVersion(devRoot);
+  // Get version from AppData storage.json (installDir parameter is ignored by getClientVersion)
+  let currentVersion = await getClientVersion(installDir);
   if (!currentVersion) {
-    // eslint-disable-next-line no-console
-    console.warn('No client version found in game-version.json. Aborting update.');
-    return;
+    log.error(chalk.red('[applyPatches] No client version found in storage.json. Aborting update.'));
+    throw new Error('No client version found. Cannot apply patches.');
   }
 
-  const downloadsDir = path.join(installDir, '..', 'Downloads');
+  log.info(chalk.cyan(`[applyPatches] Current version: ${currentVersion}`));
+
+  const downloadsDir = join(installDir, '..', 'Downloads');
+  log.info(chalk.cyan(`[applyPatches] Downloads directory: ${downloadsDir}`));
+
   while (currentVersion !== latestVersion) {
     const patch = patches.find(p => p.from === currentVersion);
     if (!patch) {
-      // eslint-disable-next-line no-console
-      console.warn(`No patch found from version ${currentVersion} to update toward ${latestVersion}. Aborting update loop.`);
+      log.warn(chalk.yellow(`[applyPatches] No patch found from version ${currentVersion} to ${latestVersion}. Aborting.`));
       break;
     }
+
+    log.info(chalk.cyan(`[applyPatches] Applying patch: ${patch.from} → ${patch.to}`));
+
     const patchZipName = patch.fullUrl.split('/').pop();
-    const patchZipPath = patchZipName ? path.join(downloadsDir, patchZipName) : '';
+    const patchZipPath = patchZipName ? join(downloadsDir, patchZipName) : '';
+
     // Check if patch zip exists in downloads
     let zipExists = false;
     if (patchZipPath && require('fs').existsSync(patchZipPath)) {
       zipExists = true;
+      log.info(chalk.green(`[applyPatches] Patch already downloaded: ${patchZipName}`));
       await updateStorage(s => { s.GAME_UPDATER.updater.downloaded = patch.to; });
     } else {
-      // Download if not present
-      await downloadFile(patch.fullUrl, patchZipPath, (dl, total) => onProgress?.(patch.to, dl, total));
+      // Download if not present, with size verification if available
+      log.info(chalk.cyan(`[applyPatches] Downloading patch from: ${patch.fullUrl}`));
+      await downloadFile(
+        patch.fullUrl,
+        patchZipPath,
+        (dl, total) => onProgress?.(patch.to, dl, total),
+        0,
+        0,
+        patch.sizeBytes
+      );
       await updateStorage(s => { s.GAME_UPDATER.updater.downloaded = patch.to; });
+      log.info(chalk.green(`[applyPatches] Download complete: ${patchZipName}`));
     }
-    if (!(await verifySha256(patchZipPath, patch.sha256))) throw new Error(`SHA256 mismatch for patch ${patch.to}`);
-    await extractZip(patchZipPath, path.join(installDir, 'polplugins/DATs/Eventide/'));
+
+    log.info(chalk.cyan('[applyPatches] Verifying checksum...'));
+    if (!(await verifySha256(patchZipPath, patch.sha256))) {
+      log.error(chalk.red(`[applyPatches] SHA256 mismatch for patch ${patch.to}`));
+      throw new Error(`SHA256 mismatch for patch ${patch.to}`);
+    }
+    log.info(chalk.green('[applyPatches] Checksum verified'));
+
+    const extractPath = join(installDir, 'polplugins/DATs/Eventide/');
+    log.info(chalk.cyan(`[applyPatches] Extracting to: ${extractPath}`));
+    await extractZip(patchZipPath, extractPath, onExtractProgress);
+    log.info(chalk.green('[applyPatches] Extraction complete'));
+
+    // Verify extracted files (patches should have at least 1 file)
+    const verification = await verifyExtractedFiles(extractPath, 1);
+    if (!verification.success) {
+      log.error(chalk.red(`[applyPatches] Extraction verification failed for patch ${patch.to}!`));
+      throw new Error(`Extraction verification failed for patch ${patch.to}`);
+    }
+    log.info(chalk.green(`[applyPatches] Verification passed: ${verification.fileCount} files extracted`));
+
     await updateStorage(s => { s.GAME_UPDATER.updater.extracted = patch.to; });
-    await setClientVersion(devRoot, patch.to);
-    await updateStorage(s => { s.GAME_UPDATER.currentVersion = patch.to; });
-    currentVersion = await getClientVersion(devRoot);
-    // eslint-disable-next-line no-console
-    console.log(`Patched from ${patch.from} to ${patch.to}`);
+
+    // Update version in storage (installDir is ignored by setClientVersion)
+    await setClientVersion(installDir, patch.to);
+
+    // Get updated version to continue loop
+    currentVersion = await getClientVersion(installDir);
+    log.info(chalk.green(`[applyPatches] Successfully patched from ${patch.from} to ${patch.to}`));
   }
 
   // Always set latestVersion from manifest
   await updateStorage(s => { s.GAME_UPDATER.latestVersion = latestVersion; });
 
   if (currentVersion === latestVersion) {
-    // eslint-disable-next-line no-console
-    console.log('Client is now up to date:', currentVersion);
+    log.info(chalk.green(`[applyPatches] ✓ Client is now up to date: ${currentVersion}`));
   } else {
-    // eslint-disable-next-line no-console
-    console.warn('Client could not be fully updated. Final version:', currentVersion);
+    log.warn(chalk.yellow(`[applyPatches] Client could not be fully updated. Current: ${currentVersion}, Latest: ${latestVersion}`));
   }
 }

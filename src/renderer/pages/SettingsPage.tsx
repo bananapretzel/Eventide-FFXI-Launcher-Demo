@@ -18,6 +18,7 @@ interface Settings {
     envAnimations?: number;
     mipMapping?: number;
     bumpMapping?: boolean;
+    aspectRatio?: boolean;
     savePath?: string;
     enableSounds?: boolean;
     bgSounds?: boolean;
@@ -100,10 +101,7 @@ const CATEGORY_DEFS: Record<
   },
   ashita: {
     label: 'ASHITA',
-    subTabs: [
-      { id: 'script', label: 'SCRIPT' },
-      { id: 'initialization', label: 'INITIALIZATION' },
-    ],
+    subTabs: [{ id: 'script', label: 'SCRIPT' }],
   },
   pivot: {
     label: 'PIVOT',
@@ -202,7 +200,7 @@ function FFXIGeneralPanel({
           <Field label="Window Mode" htmlFor="window-mode">
             <select
               id="window-mode"
-              value={settings.ffxi?.windowMode ?? 3}
+              value={settings.ffxi?.windowMode ?? 1}
               onChange={(e) =>
                 updateSetting('ffxi.windowMode', Number(e.target.value))
               }
@@ -355,7 +353,7 @@ function FFXIGraphicsPanel({
                 type="number"
                 className="input"
                 placeholder="Width"
-                value={settings.ffxi?.bgWidth ?? 3840}
+                value={settings.ffxi?.bgWidth ?? 2880}
                 onChange={(e) =>
                   updateSetting('ffxi.bgWidth', Number(e.target.value))
                 }
@@ -365,7 +363,7 @@ function FFXIGraphicsPanel({
                 type="number"
                 className="input"
                 placeholder="Height"
-                value={settings.ffxi?.bgHeight ?? 2160}
+                value={settings.ffxi?.bgHeight ?? 1620}
                 onChange={(e) =>
                   updateSetting('ffxi.bgHeight', Number(e.target.value))
                 }
@@ -379,9 +377,9 @@ function FFXIGraphicsPanel({
               <input
                 id="maintain-ar"
                 type="checkbox"
-                checked={settings.ffxi?.maintainAspectRatio ?? true}
+                checked={settings.ffxi?.aspectRatio ?? true}
                 onChange={(e) =>
-                  updateSetting('ffxi.maintainAspectRatio', e.target.checked)
+                  updateSetting('ffxi.aspectRatio', e.target.checked)
                 }
               />
               <span aria-hidden />
@@ -411,7 +409,7 @@ function FFXIGraphicsPanel({
           <Field label="Map Compression" htmlFor="map-comp">
             <select
               id="map-comp"
-              value={settings.ffxi?.mapCompression ?? 0}
+              value={settings.ffxi?.mapCompression ?? 1}
               onChange={(e) =>
                 updateSetting('ffxi.mapCompression', Number(e.target.value))
               }
@@ -543,7 +541,7 @@ function FFXIOtherPanel({
   settings: Settings;
   updateSetting: (path: string, value: any) => void;
 }) {
-  const [numSounds, setNumSounds] = useState(settings.ffxi?.numSounds ?? 16);
+  const [numSounds, setNumSounds] = useState(settings.ffxi?.numSounds ?? 20);
   const openGamepad = () => {
     // TODO: wire to IPC when ready
     // eslint-disable-next-line no-alert
@@ -552,11 +550,11 @@ function FFXIOtherPanel({
   return (
     <>
       <Card title="Gamepad">
-        <Row>
+        <div className="settings-row centered">
           <button type="button" className="btn" onClick={openGamepad}>
             OPEN GAMEPAD CONFIG
           </button>
-        </Row>
+        </div>
       </Card>
 
       <Card title="Sounds">
@@ -1022,7 +1020,9 @@ export default function SettingsPage() {
             updateSetting={updateSetting}
           />
         )}
-        {category === 'ashita' && subTab === 'initialization' && (
+
+        {/* Ashita initialization section removed */}
+        {false && category === 'ashita' && (
           <>
             <Card title="Boot">
               <Row>
@@ -1459,7 +1459,14 @@ export default function SettingsPage() {
                     className="toggle"
                     aria-label="Close Launcher on Game Run"
                   >
-                    <input id="close-on-run" type="checkbox" />
+                    <input
+                      id="close-on-run"
+                      type="checkbox"
+                      checked={settings.launcher?.closeOnRun ?? false}
+                      onChange={(e) =>
+                        updateSetting('launcher.closeOnRun', e.target.checked)
+                      }
+                    />
                     <span aria-hidden />
                   </div>
                 </Field>
@@ -1469,15 +1476,35 @@ export default function SettingsPage() {
               <div className="settings-row centered">
                 <button
                   type="button"
-                  className="btn"
-                  onClick={() => handleShowToast('TODO')}
+                  className="btn btn-secondary"
+                  onClick={async () => {
+                    try {
+                      const result =
+                        await window.electron.invoke('open-config-folder');
+                      if (!result.success) {
+                        handleShowToast('Failed to open folder');
+                      }
+                    } catch {
+                      handleShowToast('Failed to open folder');
+                    }
+                  }}
                 >
                   OPEN LAUNCHER CONFIGURATION FOLDER
                 </button>
                 <button
                   type="button"
                   className="btn btn-secondary"
-                  onClick={() => handleShowToast('TODO')}
+                  onClick={async () => {
+                    try {
+                      const result =
+                        await window.electron.invoke('open-log-file');
+                      if (!result.success) {
+                        handleShowToast('Failed to open log file');
+                      }
+                    } catch {
+                      handleShowToast('Failed to open log file');
+                    }
+                  }}
                 >
                   OPEN LOG FILE
                 </button>

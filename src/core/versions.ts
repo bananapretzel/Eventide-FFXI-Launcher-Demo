@@ -1,26 +1,48 @@
 import { readJson, writeJson, fileExists } from './fs';
 import { join } from 'path';
+import { readStorage, updateStorage } from './storage';
+import log from 'electron-log';
+import chalk from 'chalk';
 
-
-
+/**
+ * Gets the current client version from storage.json in AppData
+ * @param installDir - Ignored, kept for API compatibility. Version is in AppData storage.json
+ * @returns The current version or null if not found
+ */
 export async function getClientVersion(installDir: string): Promise<string | null> {
-  const path = join(installDir, 'storage.json');
   try {
-    // eslint-disable-next-line no-console
-    console.log('[getClientVersion] Reading:', path);
-    const data = await readJson<any>(path);
-    // eslint-disable-next-line no-console
-    console.log('[getClientVersion] Parsed data:', data);
-    return data?.GAME_UPDATER?.currentVersion || null;
+    log.info(chalk.cyan('[getClientVersion] Reading version from AppData storage.json'));
+    const storage = await readStorage();
+    if (!storage) {
+      log.warn(chalk.yellow('[getClientVersion] No storage.json found in AppData'));
+      return null;
+    }
+    const version = storage.GAME_UPDATER?.currentVersion || null;
+    log.info(chalk.cyan(`[getClientVersion] Current version: ${version}`));
+    return version;
   } catch (err) {
-    // eslint-disable-next-line no-console
-    console.warn('[getClientVersion] Failed to read or parse:', path, err);
+    log.error(chalk.red('[getClientVersion] Failed to read version:'), err);
     return null;
   }
 }
 
-
-// Optionally update setClientVersion to update storage.json if needed
+/**
+ * Sets the client version in storage.json in AppData
+ * @param installDir - Ignored, kept for API compatibility. Version is stored in AppData storage.json
+ * @param version - The version to set
+ */
+export async function setClientVersion(installDir: string, version: string): Promise<void> {
+  try {
+    log.info(chalk.cyan(`[setClientVersion] Setting version to: ${version}`));
+    await updateStorage((data) => {
+      data.GAME_UPDATER.currentVersion = version;
+    });
+    log.info(chalk.green(`[setClientVersion] Version updated successfully to ${version}`));
+  } catch (err) {
+    log.error(chalk.red('[setClientVersion] Failed to set version:'), err);
+    throw err;
+  }
+}
 
 export function compareVersions(a?: string, b?: string): number {
   if (!a && !b) return 0;

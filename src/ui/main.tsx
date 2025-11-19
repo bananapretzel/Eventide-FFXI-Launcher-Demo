@@ -4,7 +4,7 @@ import { getLauncherState, LauncherState } from '../logic/state';
 
 const RELEASE_URL =
   'https://pub-9064140a8f58435fb0d04461223da0f2.r2.dev/release.json';
-const INSTALL_DIR = 'asdf';
+// INSTALL_DIR is retrieved from IPC (eventide:get-paths) at runtime
 
 function Main() {
   const [state, setState] = useState<LauncherState>('NOT_INSTALLED');
@@ -19,8 +19,17 @@ function Main() {
       setState('DOWNLOAD_FAILED');
       return;
     }
+
+    // Get install directory from IPC first
     window.electron
-      .bootstrap(RELEASE_URL, INSTALL_DIR)
+      .invoke('eventide:get-paths')
+      .then((pathsResult: any) => {
+        if (!pathsResult?.success || !pathsResult?.data?.gameRoot) {
+          throw new Error('Failed to get install paths from main process');
+        }
+        const installDir = pathsResult.data.gameRoot;
+        return window.electron.bootstrap(RELEASE_URL, installDir);
+      })
       .then((result): void => {
         if (!result || typeof result !== 'object') {
           const msg = `[ERROR] bootstrap returned null or non-object: ${String(result)}`;
@@ -90,10 +99,20 @@ function Main() {
           setState('DOWNLOAD_FAILED');
           return;
         }
+
+        // Get install dir from IPC
+        const pathsResult = await window.electron.invoke('eventide:get-paths');
+        if (!pathsResult?.success || !pathsResult?.data?.gameRoot) {
+          setErrorMsg('Failed to get install directory from main process.');
+          setState('DOWNLOAD_FAILED');
+          return;
+        }
+        const installDir = pathsResult.data.gameRoot;
+
         await window.electron.downloadGame(
           ctx.release.game.fullUrl,
           ctx.release.game.sha256,
-          INSTALL_DIR,
+          installDir,
           ctx.release.game.baseVersion,
         );
         setState('DOWNLOADED');
@@ -113,10 +132,20 @@ function Main() {
           setState('PATCH_FAILED');
           return;
         }
+
+        // Get install dir from IPC
+        const pathsResult = await window.electron.invoke('eventide:get-paths');
+        if (!pathsResult?.success || !pathsResult?.data?.gameRoot) {
+          setErrorMsg('Failed to get install directory from main process.');
+          setState('PATCH_FAILED');
+          return;
+        }
+        const installDir = pathsResult.data.gameRoot;
+
         await window.electron.applyPatches(
           ctx.patchManifest,
           ctx.clientVersion,
-          INSTALL_DIR,
+          installDir,
         );
         setState('READY_TO_PLAY');
       } catch (err: any) {
@@ -128,7 +157,16 @@ function Main() {
     } else if (state === 'READY_TO_PLAY') {
       // No PLAYING state in the new enum, just set to READY_TO_PLAY after launch
       try {
-        await window.electron.launchGame(INSTALL_DIR);
+        // Get install dir from IPC
+        const pathsResult = await window.electron.invoke('eventide:get-paths');
+        if (!pathsResult?.success || !pathsResult?.data?.gameRoot) {
+          setErrorMsg('Failed to get install directory from main process.');
+          setState('PATCH_FAILED');
+          return;
+        }
+        const installDir = pathsResult.data.gameRoot;
+
+        await window.electron.launchGame(installDir);
         setState('READY_TO_PLAY');
       } catch (err: any) {
         setErrorMsg(
