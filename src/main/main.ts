@@ -32,32 +32,16 @@ ipcMain.handle('launcher:bootstrap', async (_event, releaseUrl: string, installD
         baseGameExtracted = storage.GAME_UPDATER.baseGame.extracted;
       }
     } catch (e) {
-      logBoth.warn('[launcher:bootstrap] Could not read storage.json:', e);
+      log.warn('[launcher:bootstrap] Could not read storage.json:', e);
     }
     return { release, patchManifest, clientVersion, baseGameDownloaded, baseGameExtracted };
   } catch (err) {
-    logBoth.error('[launcher:bootstrap] error:', err);
+    log.error('[launcher:bootstrap] error:', err);
     return { error: String(err) };
   }
 });
 
-// Helper to log to both terminal and electron-log, with color by severity
-const logBoth = Object.assign(
-  (msg: string, ...args: any[]) => {
-    console.log(chalk.cyan(msg), ...args);
-    log.info(msg, ...args);
-  },
-  {
-    error: (msg: string, ...args: any[]) => {
-      console.error(chalk.red(msg), ...args);
-      log.error(msg, ...args);
-    },
-    warn: (msg: string, ...args: any[]) => {
-      console.warn(chalk.yellow(msg), ...args);
-      log.warn(msg, ...args);
-    }
-  }
-);
+
 
 // Set the app name to 'Eventide Launcherv2' so userData points to %APPDATA%\Eventide Launcherv2
 app.setName('Eventide Launcherv2');
@@ -71,7 +55,7 @@ async function extractBaseGameIfNeeded(storageData: any, dlRoot: string, gameRoo
     const baseGameZipName = 'Eventide-test.zip'; // TODO: make dynamic if needed
     const baseGameZipPath = path.join(dlRoot, baseGameZipName);
     if (fs.existsSync(baseGameZipPath)) {
-      logBoth('[startup] Game zip is downloaded but not extracted. Extracting now...');
+      log.info(chalk.cyan('[startup] Game zip is downloaded but not extracted. Extracting now...'));
       const g: any = global;
       if (g.mainWindow && g.mainWindow.webContents) {
         g.mainWindow.webContents.send('extract:start');
@@ -79,15 +63,15 @@ async function extractBaseGameIfNeeded(storageData: any, dlRoot: string, gameRoo
       await extractZip(baseGameZipPath, gameRoot);
       storageData.GAME_UPDATER.baseGame.extracted = true;
       await writeStorage(storageData);
-      logBoth('[startup] Extraction complete. Updated baseGame.extracted to true.');
+      log.info(chalk.cyan('[startup] Extraction complete. Updated baseGame.extracted to true.'));
       if (g.mainWindow && g.mainWindow.webContents) {
         g.mainWindow.webContents.send('extract:done');
       }
     } else {
-      logBoth('[startup] Expected base game zip not found at', baseGameZipPath);
+      log.info(chalk.cyan('[startup] Expected base game zip not found at'), baseGameZipPath);
     }
   } catch (extractErr) {
-    logBoth.error('[startup] Error during auto-extraction:', extractErr);
+    log.error(chalk.red('[startup] Error during auto-extraction:'), extractErr);
     const g: any = global;
     if (g.mainWindow && g.mainWindow.webContents) {
       g.mainWindow.webContents.send('extract:done');
@@ -102,11 +86,11 @@ app.once('ready', async () => {
     const paths = getEventidePaths();
     const { gameRoot, dlRoot } = paths;
     // Read storage.json with validation and log resets
-    let storageData = await readStorage((msg) => logBoth.warn(msg));
+    let storageData = await readStorage((msg) => log.warn(chalk.yellow(msg)));
     if (!storageData) {
       storageData = getDefaultStorage();
       await writeStorage(storageData);
-      logBoth.warn('[startup] storage.json was missing or invalid, created default.');
+      log.warn(chalk.yellow('[startup] storage.json was missing or invalid, created default.'));
     }
 
     // If the game is downloaded but not extracted, extract now (consolidated logic)
@@ -115,7 +99,7 @@ app.once('ready', async () => {
     }
     const version = app.getVersion ? app.getVersion() : 'unknown';
     const env = process.env.NODE_ENV || 'production';
-    logBoth(`[startup] Launcher version: ${version}, environment: ${env}`);
+    log.info(chalk.cyan(`[startup] Launcher version: ${version}, environment: ${env}`));
     const configPath = paths.config;
     if (!fs.existsSync(configPath)) {
       const defaultConfig = {
@@ -126,7 +110,7 @@ app.once('ready', async () => {
         installDir: ''
       };
       await writeJson(configPath, defaultConfig);
-      logBoth('[startup] First run detected. Created default config.json at', configPath);
+      log.info(chalk.cyan('[startup] First run detected. Created default config.json at'), configPath);
     }
 
     // Always check for required files in Game folder and update baseGame.extracted accordingly
@@ -135,17 +119,17 @@ app.once('ready', async () => {
       if (storageData.GAME_UPDATER.baseGame.extracted !== actuallyExtracted) {
         storageData.GAME_UPDATER.baseGame.extracted = actuallyExtracted;
         await writeStorage(storageData);
-        logBoth(`[startup] Synced baseGame.extracted to ${actuallyExtracted} based on required files in Game folder.`);
+        log.info(chalk.cyan(`[startup] Synced baseGame.extracted to ${actuallyExtracted} based on required files in Game folder.`));
       }
     } catch (e) {
-      logBoth.error('[startup] Error checking Game folder for extraction state:', e);
+      log.error(chalk.red('[startup] Error checking Game folder for extraction state:'), e);
       storageData.GAME_UPDATER.baseGame.extracted = false;
       await writeStorage(storageData);
     }
 
     // If the game is downloaded but not extracted, extract now
     if (storageData.GAME_UPDATER.baseGame.downloaded && !storageData.GAME_UPDATER.baseGame.extracted) {
-      logBoth('[debug] Extraction block entered: downloaded=true, extracted=false');
+      log.info(chalk.cyan('[debug] Extraction block entered: downloaded=true, extracted=false'));
       await extractBaseGameIfNeeded(storageData, dlRoot, gameRoot);
     }
 
@@ -158,10 +142,10 @@ app.once('ready', async () => {
       // Check for base game zip in downloads
       if (fs.existsSync(baseGameZipPath)) {
         baseGameDownloaded = true;
-        logBoth(`[startup] Found base game zip: ${baseGameZipPath}`);
+        log.info(chalk.cyan(`[startup] Found base game zip: ${baseGameZipPath}`));
       } else {
         baseGameDownloaded = false;
-        logBoth('[startup] Base game zip not found in downloads. Download required.');
+        log.info(chalk.cyan('[startup] Base game zip not found in downloads. Download required.'));
       }
       // Check for required files in installPath (Game folder)
       let extracted = false;
@@ -169,18 +153,18 @@ app.once('ready', async () => {
         try {
           if (hasRequiredGameFiles(gameRoot)) {
             extracted = true;
-            logBoth('[startup] Required files found in Game folder. Extraction not required.');
+            log.info(chalk.cyan('[startup] Required files found in Game folder. Extraction not required.'));
           } else {
             extracted = false;
-            logBoth('[startup] Required files missing. Extraction required.');
+            log.info(chalk.cyan('[startup] Required files missing. Extraction required.'));
             // Extract the zip into installPath
             const { extractZip } = require('../core/fs');
             await extractZip(baseGameZipPath, gameRoot);
-            logBoth('[startup] Extracted base game zip to installPath.');
+            log.info(chalk.cyan('[startup] Extracted base game zip to installPath.'));
             extracted = hasRequiredGameFiles(gameRoot);
           }
         } catch (extractErr) {
-          logBoth.error('[startup] Error during extraction check/extract:', extractErr);
+          log.error(chalk.red('[startup] Error during extraction check/extract:'), extractErr);
           extracted = false;
         }
       }
@@ -196,7 +180,7 @@ app.once('ready', async () => {
       if (storageData.GAME_UPDATER.updater.extracted == null) storageData.GAME_UPDATER.updater.extracted = "0";
       if (storageData.GAME_UPDATER.latestVersion == null) storageData.GAME_UPDATER.latestVersion = "0";
       await writeStorage(storageData);
-      logBoth(`[startup] State after detection: downloaded=${baseGameDownloaded}, extracted=${baseGameExtracted}, version=${storageData.GAME_UPDATER.currentVersion}`);
+      log.info(chalk.cyan(`[startup] State after detection: downloaded=${baseGameDownloaded}, extracted=${baseGameExtracted}, version=${storageData.GAME_UPDATER.currentVersion}`));
     } else {
       baseGameDownloaded = storageData.GAME_UPDATER.baseGame.downloaded;
       baseGameExtracted = storageData.GAME_UPDATER.baseGame.extracted;
@@ -211,33 +195,33 @@ app.once('ready', async () => {
       }
       if (changed) {
         await writeStorage(storageData);
-        logBoth('[startup] Updated storage.json with missing paths.');
+        log.info(chalk.cyan('[startup] Updated storage.json with missing paths.'));
       }
     }
 
     // --- Fetch remote version and patch manifest if base game is extracted ---
     if (baseGameExtracted) {
       try {
-        logBoth('[startup] Base game extracted, fetching remote release and patch manifest...');
+        log.info(chalk.cyan('[startup] Base game extracted, fetching remote release and patch manifest...'));
         const release = await getReleaseJson(RELEASE_JSON_URL);
         const patchManifest = await getPatchManifest(release.patchManifestUrl);
         const remoteVersion = patchManifest.latestVersion;
         // Only update latestVersion, do not overwrite currentVersion
         storageData.GAME_UPDATER.latestVersion = remoteVersion;
         await writeStorage(storageData);
-        logBoth(`[startup] Updated storage.json: currentVersion=${storageData.GAME_UPDATER.currentVersion}, latestVersion=${remoteVersion}`);
+        log.info(chalk.cyan(`[startup] Updated storage.json: currentVersion=${storageData.GAME_UPDATER.currentVersion}, latestVersion=${remoteVersion}`));
         if (storageData.GAME_UPDATER.currentVersion !== remoteVersion) {
-          logBoth(`[startup] Update available: currentVersion=${storageData.GAME_UPDATER.currentVersion}, latestVersion=${remoteVersion}`);
+          log.info(chalk.cyan(`[startup] Update available: currentVersion=${storageData.GAME_UPDATER.currentVersion}, latestVersion=${remoteVersion}`));
           // Optionally, trigger patch logic here or notify renderer
         } else {
-          logBoth('[startup] Game is up to date.');
+          log.info(chalk.cyan('[startup] Game is up to date.'));
         }
       } catch (remoteErr) {
-        logBoth.warn('[startup] Failed to fetch remote version or patch manifest:', remoteErr);
+        log.warn(chalk.yellow('[startup] Failed to fetch remote version or patch manifest:'), remoteErr);
       }
     }
   } catch (err) {
-    logBoth.error('[startup] Failed to create default config.json:', err);
+    log.error(chalk.red('[startup] Failed to create default config.json:'), err);
   }
 });
 import { autoUpdater } from 'electron-updater';
@@ -264,26 +248,28 @@ async function readConfigHandler() {
   try {
     const paths = getEventidePaths();
     const configPath = paths.config;
-    logBoth('Reading config from:', configPath);
+    log.info(chalk.cyan('Reading config from:'), configPath);
     if (!fs.existsSync(configPath)) {
-      logBoth.warn('[config] Config file not found at', configPath);
+      log.warn(chalk.yellow('[config] Config file not found at'), configPath);
       return { success: false, error: 'Config file not found' };
     }
-    logBoth('[config] Reading config file at', configPath);
+    log.info(chalk.cyan('[config] Reading config file at'), configPath);
     const configContent = fs.readFileSync(configPath, 'utf-8');
     const config = JSON.parse(configContent);
     // Retrieve password from keytar if rememberCredentials is true and username is set
     let password = '';
     if (config.rememberCredentials && config.username) {
       try {
+        log.info(chalk.cyan(`[keytar] Attempting to get password for user: ${config.username}`));
         password = (await keytar.getPassword(SERVICE_NAME, config.username)) || '';
+        log.info(chalk.cyan(`[keytar] Got password for user: ${config.username}?`), !!password);
       } catch (e) {
-        logBoth.warn('[keytar] Failed to get password:', e);
+        log.warn(chalk.yellow('[keytar] Failed to get password:'), e);
       }
     }
     return { success: true, data: { ...config, password } };
   } catch (error) {
-    logBoth.error('Error reading config file:', error);
+    log.error(chalk.red('Error reading config file:'), error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'
@@ -292,6 +278,7 @@ async function readConfigHandler() {
 }
 
 ipcMain.handle('read-settings', readConfigHandler);
+ipcMain.handle('read-config', readConfigHandler);
 
 // Version normalization utility
 function isZeroVersion(v: string): boolean {
@@ -311,17 +298,17 @@ ipcMain.handle('write-settings', async (_event, data: any) => {
     try {
       const json = JSON.stringify(data);
       if (json.length > 1000000) { // 1MB limit for sanity
-        logBoth.error('[write-settings] Refusing to write config: data too large');
+        log.error(chalk.red('[write-settings] Refusing to write config: data too large'));
         return {
           success: false,
           error: 'Config data too large to write.'
         };
       }
-      logBoth('[write-settings] Writing config data:', json.slice(0, 500) + (json.length > 500 ? '...truncated' : ''));
-      logBoth('[config] Writing config file at', configPath);
+      log.info(chalk.cyan('[write-settings] Writing config data:'), json.slice(0, 500) + (json.length > 500 ? '...truncated' : ''));
+      log.info(chalk.cyan('[config] Writing config file at'), configPath);
       await writeJson(configPath, data);
     } catch (writeErr) {
-      logBoth.error('[write-settings] writeJson failed:', writeErr);
+      log.error(chalk.red('[write-settings] writeJson failed:'), writeErr);
       return {
         success: false,
         error: writeErr instanceof Error ? writeErr.stack || writeErr.message : String(writeErr)
@@ -329,7 +316,7 @@ ipcMain.handle('write-settings', async (_event, data: any) => {
     }
     return { success: true };
   } catch (error) {
-    logBoth.error('[write-settings] outer error:', error);
+    log.error(chalk.red('[write-settings] outer error:'), error);
     return {
       success: false,
       error: error instanceof Error ? error.stack || error.message : 'Unknown error'
@@ -340,19 +327,48 @@ ipcMain.handle('write-settings', async (_event, data: any) => {
 ipcMain.handle('launcher:downloadGame', async (_event, fullUrl: string, sha256: string, installDir: string, baseVersion: string) => {
   try {
     const paths = getEventidePaths();
-    logBoth(`[download] Starting download: ${fullUrl} to ${paths.gameRoot}`);
+    log.info(chalk.cyan(`[download] Starting download: ${fullUrl} to ${paths.gameRoot}`));
     await downloadGame(fullUrl, sha256, paths.gameRoot, paths.dlRoot, baseVersion, (dl, total) => {
-      logBoth(`[download] Progress: ${dl} / ${total}`);
+      log.info(chalk.cyan(`[download] Progress: ${dl} / ${total}`));
       if (mainWindow) {
-        logBoth(`[ipc] Sending to renderer: download:progress`, { dl, total });
+        log.info(chalk.cyan(`[ipc] Sending to renderer: download:progress`), { dl, total });
         mainWindow.webContents.send('download:progress', { dl, total });
       }
     });
-    logBoth('[download] Download completed successfully');
+    log.info(chalk.cyan('[download] Download completed successfully'));
     return { success: true };
   } catch (err) {
-    logBoth.error(`[download] Download failed: ${String(err)}`);
+    log.error(chalk.red(`[download] Download failed: ${String(err)}`));
     return { success: false, error: String(err) };
+  }
+});
+
+// IPC handlers for extensions.json (addons/plugins)
+ipcMain.handle('read-extensions', async () => {
+  try {
+    const extensionsPath = path.join(process.cwd(), 'extensions.json');
+    if (!fs.existsSync(extensionsPath)) {
+      // Create default if missing
+      const defaultData = { addons: {}, plugins: {} };
+      await fs.writeJson(extensionsPath, defaultData);
+      return { success: true, data: defaultData };
+    }
+    const data = await fs.readJson(extensionsPath);
+    return { success: true, data };
+  } catch (error) {
+    log.error(chalk.red('[read-extensions] Error:'), error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('write-extensions', async (_event, data) => {
+  try {
+    const extensionsPath = path.join(process.cwd(), 'extensions.json');
+    await fs.writeJson(extensionsPath, data);
+    return { success: true };
+  } catch (error) {
+    log.error(chalk.red('[write-extensions] Error:'), error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 });
 
@@ -361,7 +377,7 @@ ipcMain.handle('launcher:applyPatches', async (_event, patchManifest: any, clien
     await applyPatches(patchManifest, clientVersion, installDir);
     return { success: true };
   } catch (err) {
-    logBoth.error('[patch] Error applying patches:', err);
+    log.error(chalk.red('[patch] Error applying patches:'), err);
     return { success: false, error: String(err) };
   }
 });
@@ -374,16 +390,16 @@ ipcMain.handle('launcher:launchGame', async (_event, installDir: string) => {
     } else {
       launchScript = path.join(installDir, 'Launch_Eventide.sh');
     }
-    logBoth(`[launch] Attempting to launch game using: ${launchScript}`);
+    log.info(chalk.cyan(`[launch] Attempting to launch game using: ${launchScript}`));
     const result = await launchGameWithBatch(installDir, launchScript);
     if (result.success) {
-      logBoth('[launch] Game launched successfully');
+      log.info(chalk.cyan('[launch] Game launched successfully'));
     } else {
-      logBoth.error(`[launch] Failed to launch game: ${result.error}`);
+      log.error(chalk.red(`[launch] Failed to launch game: ${result.error}`));
     }
     return result;
   } catch (err) {
-    logBoth.error(`[launch] Exception during game launch: ${err}`);
+    log.error(chalk.red(`[launch] Exception during game launch: ${err}`));
     return { success: false, error: String(err) };
   }
 });
@@ -428,7 +444,7 @@ app.on('ready', () => {
 
 ipcMain.on('ipc-example', async (event, arg) => {
   const msgTemplate = (pingPong: string) => `IPC test: ${pingPong}`;
-  logBoth(msgTemplate(arg));
+  log.info(chalk.cyan(msgTemplate(arg)));
   event.reply('ipc-example', msgTemplate('pong'));
 });
 
@@ -444,18 +460,25 @@ ipcMain.on('window:close', () => {
   }
 });
 
+// IPC handler to return platform info
+ipcMain.handle('get-platform', async () => {
+  return { platform: process.platform, arch: process.arch };
+});
+
+
+
 ipcMain.handle('read-ini-file', async () => {
   try {
     const paths = getEventidePaths();
     const iniPath = path.join(paths.gameRoot, 'config', 'boot', 'Eventide.ini');
-    logBoth(`[INI] Reading INI from: ${iniPath}`);
-    logBoth('[INI] Reading INI file at', iniPath);
+    log.info(chalk.cyan(`[INI] Reading INI from: ${iniPath}`));
+    log.info(chalk.cyan('[INI] Reading INI file at'), iniPath);
     const iniContent = fs.readFileSync(iniPath, 'utf-8');
     const config = ini.parse(iniContent);
-    logBoth('[INI] INI file read successfully');
+    log.info(chalk.cyan('[INI] INI file read successfully'));
     return { success: true, data: config, error: null };
   } catch (error) {
-    logBoth.error(`[INI] Error reading INI file: ${String(error)}`);
+    log.error(chalk.red(`[INI] Error reading INI file: ${String(error)}`));
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'
@@ -464,7 +487,7 @@ ipcMain.handle('read-ini-file', async () => {
 });
 
 ipcMain.handle('update-ini-auth-and-run', async (_event, username: string, password: string, installDir?: string) => {
-    logBoth(`[INI] update-ini-auth-and-run called with username='${username}', password='${password}'`);
+    log.info(chalk.cyan(`[INI] update-ini-auth-and-run called with username='${username}', password='${password}'`));
   try {
     const paths = getEventidePaths();
     const targetDir = installDir || paths.gameRoot;
@@ -474,12 +497,12 @@ ipcMain.handle('update-ini-auth-and-run', async (_event, username: string, passw
     if (!fs.existsSync(iniPath)) {
       throw new Error(`INI file not found at: ${iniPath}`);
     }
-    logBoth('Updating INI at:', iniPath);
-    logBoth('[INI] Reading INI file at', iniPath);
+    log.info(chalk.cyan('Updating INI at:'), iniPath);
+    log.info(chalk.cyan('[INI] Reading INI file at'), iniPath);
     const iniContent = fs.readFileSync(iniPath, 'utf-8');
     const config = ini.parse(iniContent);
 
-    logBoth('Original config:', config['ashita.boot']);
+    log.info(chalk.cyan('Original config:'), config['ashita.boot']);
 
     // Update or add --user and --pass in the command, but only if both are non-empty
     if (config?.ashita?.boot?.command) {
@@ -497,20 +520,20 @@ ipcMain.handle('update-ini-auth-and-run', async (_event, username: string, passw
       });
       // Only append --user and --pass if both are non-empty
       if (username && password) {
-        logBoth(`[INI] Appending --user and --pass to command: --user ${username} --pass ${password}`);
+        log.info(chalk.cyan(`[INI] Appending --user and --pass to command: --user ${username} --pass ${password}`));
         commandParts.push('--user', username, '--pass', password);
       } else {
-        logBoth('[INI] Username or password empty, not appending --user/--pass');
+        log.info(chalk.cyan('[INI] Username or password empty, not appending --user/--pass'));
       }
       config.ashita.boot.command = commandParts.join(' ');
-      logBoth('[INI] Final INI command:', config.ashita.boot.command);
+      log.info(chalk.cyan('[INI] Final INI command:'), config.ashita.boot.command);
     }
 
     // Also attempt to read settings.json and apply mapped settings to the INI
     try {
       const settingsPath = paths.config;
       if (fs.existsSync(settingsPath)) {
-        logBoth('Applying settings from:', settingsPath);
+        log.info(chalk.cyan('Applying settings from:'), settingsPath);
         const settings = (await readJson<Record<string, any>>(settingsPath)) || {};
 
         // Keep original INI snapshot to detect if anything changed
@@ -587,25 +610,25 @@ ipcMain.handle('update-ini-auth-and-run', async (_event, username: string, passw
         try {
           const bakPath = `${iniPath}.bak`;
           fs.copyFileSync(iniPath, bakPath);
-          logBoth('[INI] Created INI backup at', bakPath);
+          log.info(chalk.cyan('[INI] Created INI backup at'), bakPath);
         } catch (bkErr) {
-          logBoth.warn('Failed to create INI backup:', bkErr);
+          log.warn(chalk.yellow('Failed to create INI backup:'), bkErr);
         }
-        logBoth('[INI] Writing updated INI file at', iniPath);
+        log.info(chalk.cyan('[INI] Writing updated INI file at'), iniPath);
         fs.writeFileSync(iniPath, newIni, 'utf-8');
-        logBoth('INI file updated successfully');
+        log.info(chalk.cyan('INI file updated successfully'));
       } else {
-        logBoth('No settings.json found at', settingsPath, '- skipping extra INI mappings');
+        log.info(chalk.cyan('No settings.json found at'), settingsPath, '- skipping extra INI mappings');
       }
     } catch (err) {
-      logBoth.error('Failed to apply settings.json to INI:', err);
+      log.error(chalk.red('Failed to apply settings.json to INI:'), err);
     }
 
     // Do not launch the game here — only update INI. The renderer or user
     // should call `game:launch` when ready. Return the updated config to the caller.
     return { success: true, data: config, error: null };
   } catch (error) {
-    logBoth.error('Error updating INI file:', error);
+    log.error(chalk.red('Error updating INI file:'), error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'
@@ -619,35 +642,42 @@ ipcMain.handle('write-config', async (_event, data: { username: string, password
     const paths = getEventidePaths();
     ensureDirs();
     const configPath = paths.config;
-    logBoth(`[config] Writing config to: ${configPath}`);
+    // Read the existing config, but do NOT spread or copy any password field
     let existingConfig = {};
     if (fs.existsSync(configPath)) {
       try {
         existingConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
       } catch (e) {
-        logBoth.warn('[config] Could not parse existing config.json, starting fresh.');
+        log.warn(chalk.yellow('[config] Could not parse existing config.json, starting fresh.'));
       }
     }
-    if (data.rememberCredentials && data.username && data.password) {
-      logBoth(`[config] Saving password to keytar for user: ${data.username}`);
-      await keytar.setPassword(SERVICE_NAME, data.username, data.password);
-    } else if (data.username) {
-      logBoth(`[config] Deleting password from keytar for user: ${data.username}`);
-      await keytar.deletePassword(SERVICE_NAME, data.username);
+    // Remove password if present in the old config
+    if (existingConfig && typeof existingConfig === 'object' && 'password' in existingConfig) {
+      delete existingConfig.password;
     }
+    // Only store non-sensitive fields and preserve other settings (except password)
     const configData = {
       ...existingConfig,
-      username: data.username,
-      password: '',
+      username: data.username || '',
       rememberCredentials: data.rememberCredentials,
       launcherVersion: app.getVersion()
     };
-    logBoth('[config] Writing config file at', configPath);
+    // Handle password in keytar only
+    if (data.rememberCredentials && data.username && data.password) {
+      log.info(chalk.cyan(`[keytar] Saving password to keytar for user: ${data.username}`));
+      await keytar.setPassword(SERVICE_NAME, data.username, data.password);
+      log.info(chalk.cyan(`[keytar] Password saved for user: ${data.username}`));
+    } else if (data.username) {
+      log.info(chalk.cyan(`[keytar] Deleting password from keytar for user: ${data.username}`));
+      await keytar.deletePassword(SERVICE_NAME, data.username);
+      log.info(chalk.cyan(`[keytar] Password deleted for user: ${data.username}`));
+    }
+    log.info(chalk.cyan('[config] Writing config file at'), configPath);
     await writeJson(configPath, configData);
-    logBoth('[config] Config file written successfully');
+    log.info(chalk.cyan('[config] Config file written successfully'));
     return { success: true };
   } catch (error) {
-    logBoth.error(`[config] Error writing config file: ${error}`);
+    log.error(chalk.red(`[config] Error writing config file: ${error}`));
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'
@@ -660,7 +690,7 @@ const streamPipeline = promisify(pipeline);
 
 // Debug startup marker to help confirm main process is running the current source.
 try {
-  logBoth('Launcher main boot:', { __dirname, NODE_ENV: process.env.NODE_ENV });
+  log.info(chalk.cyan('Launcher main boot:'), { __dirname, NODE_ENV: process.env.NODE_ENV });
 } catch (e) {}
 
 // Centralized launcher helper: prefer the batch wrapper and capture output
@@ -743,7 +773,7 @@ ipcMain.handle('game:check', async () => {
         baseExtracted = !!storage.GAME_UPDATER.baseGame.extracted;
       }
     } catch (e) {
-      logBoth.warn('[game:check] Could not read storage.json:', e);
+      log.warn(chalk.yellow('[game:check] Could not read storage.json:'), e);
     }
 
     // If downloaded but not extracted, extract now
@@ -769,16 +799,16 @@ ipcMain.handle('game:check', async () => {
     } else {
       launcherState = 'missing'; // fallback
     }
-    logBoth('[game:check] currentVersion:', currentVersion);
-    logBoth('[game:check] latestVersion:', latestVersion);
-    logBoth('[game:check] patchManifest:', JSON.stringify(patchManifest, null, 2));
-    logBoth('[game:check] launcherState:', launcherState);
+    log.info(chalk.cyan('[game:check] currentVersion:'), currentVersion);
+    log.info(chalk.cyan('[game:check] latestVersion:'), latestVersion);
+    log.info(chalk.cyan('[game:check] The results of patch-manifest.json downloaded from GitHub:'), JSON.stringify(patchManifest, null, 2));
+    log.info(chalk.cyan('[game:check] launcherState:'), launcherState);
     // For existence, check for a main executable (e.g., ashita-cli.exe) in gameRoot
     const mainExe = path.join(installDir, 'ashita-cli.exe');
     const exists = fs.existsSync(mainExe);
     return { exists, launcherState, latestVersion, installedVersion: currentVersion, baseDownloaded, baseExtracted };
   } catch (err) {
-    logBoth.error('[game:check] error:', err);
+    log.error(chalk.red('[game:check] error:'), err);
     return { exists: false, updateAvailable: false, error: String(err) };
   }
 });
@@ -822,9 +852,9 @@ ipcMain.handle('game:download', async () => {
     await downloadGame(release.game.fullUrl, release.game.sha256, installDir, downloadsDir, release.game.baseVersion);
     return { success: true };
   } catch (err) {
-    logBoth.error('Download failed:', err);
+    log.error(chalk.red('Download failed:'), err);
     if (mainWindow) {
-      logBoth(`[ipc] Sending to renderer: game:status`, { status: 'error', message: String(err) });
+      log.info(chalk.cyan(`[ipc] Sending to renderer: game:status`), { status: 'error', message: String(err) });
       mainWindow.webContents.send('game:status', { status: 'error', message: String(err) });
     }
     return { success: false, error: String(err) };
@@ -840,14 +870,14 @@ ipcMain.handle('game:import-existing', async () => {
     const installDir = paths.gameRoot;
 
     if (!fs.existsSync(installDir)) {
-      logBoth.error('[import] Install directory not found:', installDir);
+      log.error(chalk.red('[import] Install directory not found:'), installDir);
       return { success: false, error: `Install directory not found: ${installDir}` };
     }
 
     // quick check for main executable
     const mainExe = path.join(installDir, 'ashita-cli.exe');
     if (!fs.existsSync(mainExe)) {
-      logBoth.error('[import] Main executable not found in install directory:', mainExe);
+      log.error(chalk.red('[import] Main executable not found in install directory:'), mainExe);
       return { success: false, error: 'Main executable not found in install directory' };
     }
 
@@ -870,7 +900,7 @@ ipcMain.handle('game:import-existing', async () => {
       // if (remote?.game) manifest = { ...(remote.game), version: remote.game.baseVersion ?? remote.latestVersion ?? remote.game.version };
       // else manifest = remote;
     } catch (e) {
-      logBoth.warn('[import] Error fetching remote manifest:', e);
+      log.warn(chalk.yellow('[import] Error fetching remote manifest:'), e);
       // ignore; manifest info is optional for import
     }
 
@@ -882,12 +912,12 @@ ipcMain.handle('game:import-existing', async () => {
     };
 
     const localVersionPath = path.join(installDir, 'game-version.json');
-    logBoth('[import] Writing game-version.json at', localVersionPath);
+    log.info(chalk.cyan('[import] Writing game-version.json at'), localVersionPath);
     await writeJson(localVersionPath, versionData);
 
     return { success: true, installedFiles: fileEntries.length, snapshot: snapshotHash };
   } catch (err) {
-    logBoth.error('[import] Error during import-existing:', err);
+    log.error(chalk.red('[import] Error during import-existing:'), err);
     return { success: false, error: String(err) };
   }
 });
@@ -903,9 +933,9 @@ ipcMain.handle('game:update', async () => {
     await applyPatches(patchManifest, clientVersion || '', installDir);
     return { success: true };
   } catch (err) {
-    logBoth.error('Update failed:', err);
+    log.error(chalk.red('Update failed:'), err);
     if (mainWindow) {
-      logBoth(`[ipc] Sending to renderer: game:status`, { status: 'error', message: String(err) });
+      log.info(chalk.cyan(`[ipc] Sending to renderer: game:status`), { status: 'error', message: String(err) });
       mainWindow.webContents.send('game:status', { status: 'error', message: String(err) });
     }
     return { success: false, error: String(err) };
@@ -919,7 +949,7 @@ ipcMain.handle('game:launch', async () => {
     const launchBat = path.join(installDir, 'Launch_Eventide.bat');
 
     if (mainWindow) {
-      logBoth(`[ipc] Sending to renderer: game:status`, { status: 'launching' });
+      log.info(chalk.cyan(`[ipc] Sending to renderer: game:status`), { status: 'launching' });
       mainWindow.webContents.send('game:status', { status: 'launching' });
     }
 
@@ -927,20 +957,20 @@ ipcMain.handle('game:launch', async () => {
     // launching the executable. Return a clear error if the wrapper is missing.
     if (!fs.existsSync(launchBat)) {
       const msg = `Launch batch not found: ${launchBat}`;
-      logBoth.error(msg);
+      log.error(chalk.red(msg));
       if (mainWindow) {
-        logBoth(`[ipc] Sending to renderer: game:status`, { status: 'error', message: msg });
+        log.info(chalk.cyan(`[ipc] Sending to renderer: game:status`), { status: 'error', message: msg });
         mainWindow.webContents.send('game:status', { status: 'error', message: msg });
       }
       return { success: false, error: msg };
     }
 
-    logBoth('Launching via batch:', launchBat);
+    log.info(chalk.cyan('Launching via batch:'), launchBat);
     const launchResult = await launchGameWithBatch(installDir, launchBat);
     if (!launchResult.success) {
-      logBoth.error('Failed to launch game:', launchResult.error);
+      log.error(chalk.red('Failed to launch game:'), launchResult.error);
       if (mainWindow) {
-        logBoth(`[ipc] Sending to renderer: game:status`, { status: 'error', message: String(launchResult.error) });
+        log.info(chalk.cyan(`[ipc] Sending to renderer: game:status`), { status: 'error', message: String(launchResult.error) });
         mainWindow.webContents.send('game:status', { status: 'error', message: String(launchResult.error) });
       }
       return { success: false, error: launchResult.error };

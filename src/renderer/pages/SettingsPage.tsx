@@ -282,7 +282,9 @@ function FFXIGeneralPanel({
               onChange={(e) => {
                 const val = Number(e.target.value);
                 setBrightness(val);
-                updateSetting('ffxi.brightness', val);
+                // Convert slider value (0-100) to -1 to 1 in 0.1 increments
+                const normalized = Math.round(((val - 50) / 50) * 10) / 10;
+                updateSetting('ffxi.brightness', normalized);
               }}
               onMouseDown={() => setIsDragging(true)}
               onTouchStart={() => setIsDragging(true)}
@@ -875,17 +877,17 @@ export default function SettingsPage() {
       // Deep clone to avoid mutating state
       const safeSettings: Settings = JSON.parse(JSON.stringify(newSettings));
 
-      // Sanitize password field if present and looks like a hash or is too long
-      let passwordSanitized = false;
-      if (safeSettings && (safeSettings as any).password) {
-        const pwd = (safeSettings as any).password;
-        // If password is suspiciously long or looks like a hash, sanitize
+      // Always remove password field before saving to disk
+      if (safeSettings && typeof safeSettings === 'object') {
+        if ('password' in safeSettings) {
+          delete (safeSettings as any).password;
+        }
         if (
-          typeof pwd === 'string' &&
-          (pwd.length > 128 || /[A-Fa-f0-9]{32,}/.test(pwd))
+          safeSettings.ffxi &&
+          typeof safeSettings.ffxi === 'object' &&
+          'password' in safeSettings.ffxi
         ) {
-          (safeSettings as any).password = '';
-          passwordSanitized = true;
+          delete (safeSettings.ffxi as any).password;
         }
       }
 
@@ -910,11 +912,7 @@ export default function SettingsPage() {
       const result = await window.electron.writeSettings(safeSettings);
       if (result.success) {
         setSettings(safeSettings);
-        handleShowToast(
-          passwordSanitized
-            ? 'Settings saved (password sanitized)'
-            : 'Settings saved',
-        );
+        handleShowToast('Settings saved');
       } else {
         handleShowToast('Error saving settings');
       }

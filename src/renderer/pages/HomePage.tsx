@@ -314,11 +314,20 @@ export default function HomePage(props: HomePageProps) {
         dispatch({ type: 'SET', state: { status: 'ready' } });
       } else if (state.status === 'ready') {
         // save credentials and update INI before launching
-        await (window as any).electron.writeConfig({
+        const writeResult = await (window as any).electron.writeConfig({
           username: remember ? username : '',
           password: remember ? password : '',
           rememberCredentials: remember,
         });
+        if (!writeResult?.success) {
+          dispatch({
+            type: 'ERROR',
+            msg:
+              writeResult?.error ||
+              'Failed to save credentials. Please check your system keychain and try again.',
+          });
+          return;
+        }
 
         const updateResult = await (
           window as any
@@ -377,7 +386,7 @@ export default function HomePage(props: HomePageProps) {
             <input
               id="username"
               placeholder="Username"
-              value={username}
+              value={username ?? ''}
               onChange={(e) => setUsername(e.target.value)}
               autoComplete="username"
             />
@@ -388,7 +397,7 @@ export default function HomePage(props: HomePageProps) {
               id="password"
               type="password"
               placeholder="Password"
-              value={password}
+              value={password ?? ''}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
             />
@@ -398,7 +407,7 @@ export default function HomePage(props: HomePageProps) {
             <input
               id="remember-checkbox"
               type="checkbox"
-              checked={remember}
+              checked={!!remember}
               onChange={(e) => setRemember(e.target.checked)}
             />
             <span>Remember credentials</span>

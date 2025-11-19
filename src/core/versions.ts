@@ -1,17 +1,17 @@
 import { readJson, writeJson, fileExists } from './fs';
 import { join } from 'path';
 
-const VERSION_FILE = 'game-version.json';
+
 
 export async function getClientVersion(installDir: string): Promise<string | null> {
-  const path = join(installDir, VERSION_FILE);
+  const path = join(installDir, 'storage.json');
   try {
     // eslint-disable-next-line no-console
     console.log('[getClientVersion] Reading:', path);
-    const data = await readJson<{ version: string }>(path);
+    const data = await readJson<any>(path);
     // eslint-disable-next-line no-console
     console.log('[getClientVersion] Parsed data:', data);
-    return data?.version || null;
+    return data?.GAME_UPDATER?.currentVersion || null;
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn('[getClientVersion] Failed to read or parse:', path, err);
@@ -19,10 +19,8 @@ export async function getClientVersion(installDir: string): Promise<string | nul
   }
 }
 
-export async function setClientVersion(installDir: string, version: string): Promise<void> {
-  const path = join(installDir, VERSION_FILE);
-  await writeJson(path, { version });
-}
+
+// Optionally update setClientVersion to update storage.json if needed
 
 export function compareVersions(a?: string, b?: string): number {
   if (!a && !b) return 0;

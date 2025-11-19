@@ -107,7 +107,7 @@ function Toggle({
       <input
         id={id}
         type="checkbox"
-        checked={checked}
+        checked={!!checked}
         onChange={(e) => onChange(e.target.checked)}
       />
       <span aria-hidden />

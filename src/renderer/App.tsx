@@ -55,11 +55,14 @@ export default function App() {
             rememberCredentials,
             installDir: savedInstallDir,
           } = result.data;
-          if (rememberCredentials) {
+          setRemember(!!rememberCredentials);
+          if (rememberCredentials && savedUsername) {
             setUsername(savedUsername || '');
             setPassword(savedPassword || '');
+          } else {
+            setUsername(savedUsername || '');
+            setPassword('');
           }
-          setRemember(rememberCredentials);
           // Use savedInstallDir if present, else default from IPC
           if (savedInstallDir && typeof savedInstallDir === 'string') {
             setInstallDir(savedInstallDir);
@@ -83,9 +86,9 @@ export default function App() {
           setError('Electron preload API not available.');
           return;
         }
-        // Only save password if remember is true
+        // Always save username, and save password if remember is true
         await window.electron.writeConfig({
-          username: remember ? username : '',
+          username: username,
           password: remember ? password : '',
           rememberCredentials: remember,
         });

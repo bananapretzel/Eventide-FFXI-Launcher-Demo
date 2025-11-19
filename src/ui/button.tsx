@@ -13,7 +13,12 @@ function LauncherButton({ state, onClick, disabled = false }: Props) {
     <button
       type="button"
       onClick={onClick}
-      disabled={disabled || state === 'downloading' || state === 'updating'}
+      disabled={
+        disabled ||
+        state === 'DOWNLOADING' ||
+        state === 'CHECKING_FOR_UPDATES' ||
+        state === 'PATCHING'
+      }
     >
       {getButtonLabel(state)}
     </button>
