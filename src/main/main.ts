@@ -1035,6 +1035,34 @@ ipcMain.handle('game:download', async () => {
       onDownloadProgress,
       onExtractProgress
     );
+
+    // After successful download and extraction, check if patches are needed
+    log.info(chalk.green('[game:download] Download and extraction complete, checking for patches...'));
+
+    // Fetch patch manifest to check if updates are needed
+    const PATCH_MANIFEST_URL = 'https://raw.githubusercontent.com/bananapretzel/eventide-patch-manifest/refs/heads/main/patch-manifest.json';
+    const fetchJson = require('./utils/io').fetchJson;
+    const patchManifest = await fetchJson(PATCH_MANIFEST_URL);
+    const latestVersion = String(patchManifest.latestVersion ?? "0");
+    const currentVersion = release.game.baseVersion;
+
+    log.info(chalk.cyan(`[game:download] Current version: ${currentVersion}, Latest version: ${latestVersion}`));
+
+    // Send status update to renderer
+    if (mainWindow) {
+      if (currentVersion !== latestVersion) {
+        log.info(chalk.cyan(`[game:download] Update available, notifying renderer`));
+        mainWindow.webContents.send('game:status', {
+          status: 'update-available',
+          installedVersion: currentVersion,
+          remoteVersion: latestVersion
+        });
+      } else {
+        log.info(chalk.cyan(`[game:download] Game is up to date, notifying renderer`));
+        mainWindow.webContents.send('game:status', { status: 'ready' });
+      }
+    }
+
     return { success: true };
   } catch (err) {
     log.error(chalk.red('Download failed:'), err);
@@ -1129,6 +1157,13 @@ ipcMain.handle('game:update', async () => {
     };
 
     await applyPatches(patchManifest, installDir, onPatchProgress, onExtractProgress);
+
+    // After successful patching, notify renderer that game is ready
+    log.info(chalk.green('[game:update] Patching complete, game is ready'));
+    if (mainWindow) {
+      mainWindow.webContents.send('game:status', { status: 'ready' });
+    }
+
     return { success: true };
   } catch (err) {
     log.error(chalk.red('Update failed:'), err);
