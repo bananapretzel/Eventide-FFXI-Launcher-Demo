@@ -60,7 +60,7 @@ function Main() {
         setState(
           getLauncherState({
             clientVersion,
-            latestVersion: release.latestVersion,
+            latestVersion: patchManifest.latestVersion,
             baseGameDownloaded: !!baseGameDownloaded,
             baseGameExtracted: !!baseGameExtracted,
           }),

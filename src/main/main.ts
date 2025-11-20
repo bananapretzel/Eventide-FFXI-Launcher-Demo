@@ -718,7 +718,8 @@ ipcMain.handle('read-ini-file', async () => {
 });
 
 ipcMain.handle('update-ini-auth-and-run', async (_event, username: string, password: string, installDir?: string) => {
-    log.info(chalk.cyan(`[INI] update-ini-auth-and-run called with username='${username}', password='${password}'`));
+    // log.info(chalk.cyan(`[INI] update-ini-auth-and-run called with username='${username}', password='${password}'`));
+    log.info(chalk.cyan(`[INI] update-ini-auth-and-run called (credentials provided: ${!!username && !!password})`));
   try {
     const paths = getEventidePaths();
     const targetDir = installDir || paths.gameRoot;
@@ -751,7 +752,8 @@ ipcMain.handle('update-ini-auth-and-run', async (_event, username: string, passw
       });
       // Only append --user and --pass if both are non-empty
       if (username && password) {
-        log.info(chalk.cyan(`[INI] Appending --user and --pass to command: --user ${username} --pass ${password}`));
+        // log.info(chalk.cyan(`[INI] Appending --user and --pass to command: --user ${username} --pass ${password}`));
+        log.info(chalk.cyan(`[INI] Appending --user and --pass to command: [REDACTED]`));
         commandParts.push('--user', username, '--pass', password);
       } else {
         log.info(chalk.cyan('[INI] Username or password empty, not appending --user/--pass'));
@@ -1152,6 +1154,28 @@ async function validateZipFilesAndResetState(
   return { currentVersion, baseDownloaded: true, baseExtracted: true };
 }
 
+// IPC handler for fetching patch notes
+ipcMain.handle('game:fetch-patch-notes', async () => {
+  try {
+    const { release } = await getCachedManifests();
+
+    if (!release.patchNotesUrl) {
+      log.warn(chalk.yellow('[patch-notes] No patchNotesUrl in release.json'));
+      return { success: false, error: 'No patch notes URL configured' };
+    }
+
+    const { getPatchNotes } = await import('../core/manifest');
+    const patchNotes = await getPatchNotes(release.patchNotesUrl);
+
+    log.info(chalk.green(`[patch-notes] Fetched ${patchNotes.length} patch notes`));
+
+    return { success: true, data: patchNotes };
+  } catch (err) {
+    log.error(chalk.red('[patch-notes] Error fetching patch notes:'), err);
+    return { success: false, error: String(err) };
+  }
+});
+
 ipcMain.handle('game:check', async () => {
   try {
     const PATCH_MANIFEST_URL = 'https://raw.githubusercontent.com/bananapretzel/eventide-patch-manifest/refs/heads/main/patch-manifest.json';
@@ -1358,7 +1382,7 @@ ipcMain.handle('game:download', async () => {
       installDir,
       downloadsDir,
       release.game.baseVersion,
-      release.game.zipSizeBytes,
+      release.game.sizeBytes,
       onDownloadProgress,
       onExtractProgress
     );

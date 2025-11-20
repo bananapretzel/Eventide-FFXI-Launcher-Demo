@@ -15,10 +15,10 @@ export async function bootstrap(
   log.info(chalk.cyan(`[bootstrap] Release URL: ${releaseUrl}`));
 
   const release = await getReleaseJson(releaseUrl);
-  log.info(chalk.green(`[bootstrap] Fetched release info: latest=${release.latestVersion}`));
+  log.info(chalk.green(`[bootstrap] Fetched release info`));
 
   const patchManifest = await getPatchManifest(release.patchManifestUrl);
-  log.info(chalk.green(`[bootstrap] Fetched patch manifest: ${patchManifest.patches?.length || 0} patches available`));
+  log.info(chalk.green(`[bootstrap] Fetched patch manifest: ${patchManifest.patches?.length || 0} patches available, latest=${patchManifest.latestVersion}`));
 
   // Get version from AppData storage.json (installDir is ignored by getClientVersion)
   const clientVersion = await getClientVersion(installDir);

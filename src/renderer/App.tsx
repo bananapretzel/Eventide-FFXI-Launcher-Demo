@@ -78,31 +78,7 @@ export default function App() {
     loadConfigAndPaths();
   }, []);
 
-  // Save config when credentials or remember state changes
-  useEffect(() => {
-    const saveConfig = async () => {
-      try {
-        if (!window.electron?.writeConfig) {
-          setError('Electron preload API not available.');
-          return;
-        }
-        // Always save username, and save password if remember is true
-        await window.electron.writeConfig({
-          username: username,
-          password: remember ? password : '',
-          rememberCredentials: remember,
-        });
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.error('Error saving config:', err);
-      }
-    };
-
-    // Only save if we have some user interaction (not initial load)
-    if (username || password || !remember) {
-      saveConfig();
-    }
-  }, [username, password, remember]);
+  // ...existing code...
 
   const canPlay = true; // Allow play even if username/password are empty
   const onMinimize = () =>

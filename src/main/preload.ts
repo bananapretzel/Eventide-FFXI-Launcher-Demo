@@ -71,6 +71,7 @@ const electronHandler = {
   writeConfig: (data: Record<string, any>) =>
     ipcRenderer.invoke('write-config', data),
   writeDefaultScript: () => ipcRenderer.invoke('write-default-script'),
+  fetchPatchNotes: () => ipcRenderer.invoke('game:fetch-patch-notes'),
 };
 
 contextBridge.exposeInMainWorld('electron', electronHandler);

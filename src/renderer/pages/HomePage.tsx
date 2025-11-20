@@ -1,6 +1,7 @@
-import React, { useEffect, useReducer } from 'react';
+import React, { useEffect, useReducer, useState } from 'react';
 import { siDiscord } from 'simple-icons';
-import samplePosts from '../data/feed';
+import { fetchPatchNotes } from '../data/feed';
+import type { Post } from '../types/feed';
 
 // Check update status on mount
 // (moved below imports)
@@ -107,6 +108,21 @@ export default function HomePage(props: HomePageProps) {
     }
   }
   const [state, dispatch] = useReducer(reducer, { status: 'checking' });
+  const [posts, setPosts] = useState<Post[]>([]);
+
+  // Fetch patch notes on mount
+  useEffect(() => {
+    const loadPatchNotes = async () => {
+      try {
+        const patchNotes = await fetchPatchNotes();
+        setPosts(patchNotes);
+      } catch (error) {
+        console.error('[HomePage] Error loading patch notes:', error);
+        // Keep posts as empty array on error
+      }
+    };
+    loadPatchNotes();
+  }, []);
 
   // Debug: log state and button status
   useEffect(() => {
@@ -653,7 +669,7 @@ export default function HomePage(props: HomePageProps) {
 
       <section className="news-section">
         <div className="news-header">
-          <h2 className="section-title">LATEST NEWS</h2>
+          <h2 className="section-title">PATCH UPDATES</h2>
           <div className="social-links">
             <a
               href="https://discord.gg/vT4UQU8z"
@@ -677,12 +693,41 @@ export default function HomePage(props: HomePageProps) {
           </div>
         </div>
         <div className="feed">
-          {(samplePosts || []).map((p) => (
-            <article key={p.id} className="post">
-              <h3 className="post-title">{p.title}</h3>
-              <p className="post-body">{p.body}</p>
-            </article>
-          ))}
+          {(posts || []).map((p) => {
+            // Calculate days old if timestamp exists
+            let daysOld: number | null = null;
+            if (p.timestamp) {
+              const postDate = new Date(p.timestamp);
+              const now = new Date();
+              const diffMs = now.getTime() - postDate.getTime();
+              daysOld = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+            }
+
+            return (
+              <article key={p.id} className="post" style={{ position: 'relative' }}>
+                {daysOld !== null && daysOld <= 7 && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '8px',
+                    right: '12px',
+                    fontSize: '0.7em',
+                    color: '#10b981',
+                    fontWeight: 'bold',
+                    opacity: 0.8
+                  }}>
+                    {daysOld === 0 ? 'New!' : `${daysOld} day${daysOld === 1 ? '' : 's'} old!`}
+                  </div>
+                )}
+                <h3 className="post-title" style={{ fontSize: '0.95em' }}>
+                  {p.title}
+                  {p.author && (
+                    <span style={{ color: '#ef4444' }}> - {p.author}</span>
+                  )}
+                </h3>
+                <p className="post-body">{p.body}</p>
+              </article>
+            );
+          })}
         </div>
       </section>
     </main>

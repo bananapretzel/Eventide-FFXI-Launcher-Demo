@@ -6,7 +6,6 @@ const manifestSchema: JSONSchemaType<any> = {
   properties: {
     version: { type: 'string', nullable: true },
     baseVersion: { type: 'string', nullable: true },
-    latestVersion: { type: 'string', nullable: true },
     sha256: { type: 'string', nullable: true },
     fullUrl: { type: 'string', nullable: true },
     assetUrl: { type: 'string', nullable: true },
@@ -16,6 +15,7 @@ const manifestSchema: JSONSchemaType<any> = {
       nullable: true
     },
     patchManifestUrl: { type: 'string', nullable: true },
+    patchNotesUrl: { type: 'string', nullable: true },
     patchManifest: { type: 'string', nullable: true },
     patchManifestUrlV2: { type: 'string', nullable: true },
     assets: {

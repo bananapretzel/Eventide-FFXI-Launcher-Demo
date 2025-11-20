@@ -3,7 +3,6 @@ import { getEventidePaths } from '../main/paths';
 
 export interface GameUpdaterState {
   currentVersion: string;
-  latestVersion: string;
   baseGame: {
     downloaded: boolean;
     extracted: boolean;
@@ -35,7 +34,7 @@ export function validateStorageJson(data: any): data is StorageJson {
   if (!data.paths || typeof data.paths.installPath !== 'string' || typeof data.paths.downloadPath !== 'string') return false;
   if (!data.GAME_UPDATER) return false;
   const g = data.GAME_UPDATER;
-  if (typeof g.currentVersion !== 'string' || typeof g.latestVersion !== 'string') return false;
+  if (typeof g.currentVersion !== 'string') return false;
   if (!g.baseGame || typeof g.baseGame.downloaded !== 'boolean' || typeof g.baseGame.extracted !== 'boolean') return false;
   if (!g.updater || typeof g.updater.downloaded !== 'string' || typeof g.updater.extracted !== 'string') return false;
   return true;
@@ -87,7 +86,6 @@ export function getDefaultStorage(): StorageJson {
     paths: { installPath: '', downloadPath: '' },
     GAME_UPDATER: {
       currentVersion: "0.0.0",
-      latestVersion: "0.0.0",
       baseGame: { downloaded: false, extracted: false },
       updater: { downloaded: "", extracted: "" },
     },

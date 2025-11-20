@@ -1,15 +1,15 @@
 import { fetchJson } from './net';
 
 export interface ReleaseJson {
-  latestVersion: string;
   minimumLauncherVersion: string;
   game: {
     baseVersion: string;
     fullUrl: string;
     sha256: string;
-    zipSizeBytes: number;
+    sizeBytes: number;
   };
   patchManifestUrl: string;
+  patchNotesUrl: string;
 }
 
 export interface PatchManifest {
@@ -23,6 +23,12 @@ export interface PatchManifest {
   }>;
 }
 
+export interface PatchNote {
+  name: string;
+  timestamp: string;
+  message: string;
+}
+
 export async function getReleaseJson(url: string): Promise<ReleaseJson> {
   const data = await fetchJson<ReleaseJson>(url);
   // Validate structure here if needed
@@ -31,4 +37,8 @@ export async function getReleaseJson(url: string): Promise<ReleaseJson> {
 
 export async function getPatchManifest(url: string): Promise<PatchManifest> {
   return fetchJson<PatchManifest>(url);
+}
+
+export async function getPatchNotes(url: string): Promise<PatchNote[]> {
+  return fetchJson<PatchNote[]>(url);
 }
