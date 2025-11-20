@@ -1,6 +1,6 @@
 import { readJson, writeJson, fileExists } from './fs';
 import { join } from 'path';
-import { readStorage, updateStorage } from './storage';
+import { readStorage, updateStorage, StorageJson } from './storage';
 import log from 'electron-log';
 import chalk from 'chalk';
 
@@ -34,7 +34,7 @@ export async function getClientVersion(installDir: string): Promise<string | nul
 export async function setClientVersion(installDir: string, version: string): Promise<void> {
   try {
     log.info(chalk.cyan(`[setClientVersion] Setting version to: ${version}`));
-    await updateStorage((data) => {
+    await updateStorage((data: StorageJson) => {
       data.GAME_UPDATER.currentVersion = version;
     });
     log.info(chalk.green(`[setClientVersion] Version updated successfully to ${version}`));

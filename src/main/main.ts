@@ -13,8 +13,71 @@ import { RELEASE_JSON_URL } from './config';
 import { getClientVersion } from '../core/versions';
 import { getReleaseJson, getPatchManifest } from '../core/manifest';
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
-import { readStorage, writeStorage, hasRequiredGameFiles, getDefaultStorage, validateStorageJson } from '../core/storage';
+import { readStorage, writeStorage, updateStorage, hasRequiredGameFiles, getDefaultStorage, validateStorageJson, StorageJson } from '../core/storage';
 import { bootstrap as logicBootstrap } from '../logic/bootstrap';
+import { writeJson, readJson } from '../core/fs';
+import { autoUpdater } from 'electron-updater';
+import { downloadGame } from '../logic/download';
+import { applyPatches } from '../logic/patch';
+import { getDefaultAddonsObject, getDefaultPluginsObject } from './defaultExtensions';
+
+// Cache for manifest data to avoid redundant network calls
+interface ManifestCache {
+  release: any | null;
+  patchManifest: any | null;
+  timestamp: number | null;
+}
+
+const manifestCache: ManifestCache = {
+  release: null,
+  patchManifest: null,
+  timestamp: null,
+};
+
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Fetches release and patch manifest, using cache if available and fresh
+ */
+async function getCachedManifests(): Promise<{ release: any; patchManifest: any }> {
+  const now = Date.now();
+
+  // Check if cache is valid
+  if (
+    manifestCache.release &&
+    manifestCache.patchManifest &&
+    manifestCache.timestamp &&
+    (now - manifestCache.timestamp) < CACHE_TTL_MS
+  ) {
+    log.info(chalk.cyan('[getCachedManifests] Using cached manifest data'));
+    return {
+      release: manifestCache.release,
+      patchManifest: manifestCache.patchManifest,
+    };
+  }
+
+  // Cache is stale or empty, fetch fresh data
+  log.info(chalk.cyan('[getCachedManifests] Fetching fresh manifest data...'));
+  const release = await getReleaseJson(RELEASE_JSON_URL);
+  const patchManifest = await getPatchManifest(release.patchManifestUrl);
+
+  // Update cache
+  manifestCache.release = release;
+  manifestCache.patchManifest = patchManifest;
+  manifestCache.timestamp = now;
+
+  return { release, patchManifest };
+}
+
+/**
+ * Invalidates the manifest cache, forcing a fresh fetch on next request
+ */
+function invalidateManifestCache(): void {
+  log.info(chalk.yellow('[invalidateManifestCache] Cache invalidated'));
+  manifestCache.release = null;
+  manifestCache.patchManifest = null;
+  manifestCache.timestamp = null;
+}
 // IPC handler for bootstrap (used by renderer to get initial state)
 ipcMain.handle('launcher:bootstrap', async (_event, releaseUrl: string, installDir: string) => {
   try {
@@ -135,7 +198,9 @@ app.once('ready', async () => {
         password: '',
         rememberCredentials: false,
         launcherVersion: version,
-        installDir: ''
+        installDir: '',
+        addons: getDefaultAddonsObject(),
+        plugins: getDefaultPluginsObject()
       };
       await writeJson(configPath, defaultConfig);
       log.info(chalk.cyan('[startup] First run detected. Created default config.json at'), configPath);
@@ -169,8 +234,9 @@ app.once('ready', async () => {
 
     try {
       log.info(chalk.cyan('[startup] Fetching remote release and patch manifest...'));
-      release = await getReleaseJson(RELEASE_JSON_URL);
-      patchManifest = await getPatchManifest(release.patchManifestUrl);
+      const manifests = await getCachedManifests();
+      release = manifests.release;
+      patchManifest = manifests.patchManifest;
       remoteVersion = patchManifest.latestVersion;
       baseVersion = release.game.baseVersion || "1.0.0";
       log.info(chalk.cyan(`[startup] Remote versions - base: ${baseVersion}, latest: ${remoteVersion}`));
@@ -252,10 +318,6 @@ app.once('ready', async () => {
     log.error(chalk.red('[startup] Startup error:'), err);
   }
 });
-import { autoUpdater } from 'electron-updater';
-import { writeJson, readJson } from '../core/fs';
-import { downloadGame } from '../logic/download';
-import { applyPatches } from '../logic/patch';
 
 // IPC handler to expose all EventideXI paths to the renderer
 ipcMain.handle('eventide:get-paths', async () => {
@@ -286,6 +348,41 @@ async function readConfigHandler() {
     log.info(chalk.cyan('[config] Reading config file at'), configPath);
     const configContent = fs.readFileSync(configPath, 'utf-8');
     const config = JSON.parse(configContent);
+
+    // Migration: Handle old structure with extensions.addons/plugins arrays
+    if (config.extensions && !config.addons && !config.plugins) {
+      log.info(chalk.cyan('[config] Migrating old extensions structure to new format'));
+
+      // Convert addons array to object
+      if (Array.isArray(config.extensions.addons)) {
+        config.addons = {};
+        config.extensions.addons.forEach((addon: any) => {
+          const { name, ...rest } = addon;
+          config.addons[name] = rest;
+        });
+      }
+
+      // Convert plugins array to object
+      if (Array.isArray(config.extensions.plugins)) {
+        config.plugins = {};
+        config.extensions.plugins.forEach((plugin: any) => {
+          const { name, ...rest } = plugin;
+          config.plugins[name] = rest;
+        });
+      }
+
+      // Remove old extensions wrapper
+      delete config.extensions;
+
+      // Save migrated config
+      try {
+        await writeJson(configPath, config);
+        log.info(chalk.cyan('[config] Migration completed and saved'));
+      } catch (err) {
+        log.warn(chalk.yellow('[config] Failed to save migrated config:'), err);
+      }
+    }
+
     // Retrieve both username and password from keytar if rememberCredentials is true
     let username = '';
     let password = '';
@@ -867,6 +964,47 @@ ipcMain.handle('open-extension-folder', async (_event, folderType: 'addons' | 'p
   }
 });
 
+// IPC handler to open gamepad config executable
+ipcMain.handle('open-gamepad-config', async () => {
+  try {
+    const paths = getEventidePaths();
+    const installDir = paths.gameRoot;
+    const gamepadConfigPath = path.join(installDir, 'SquareEnix', 'FINAL FANTASY XI', 'ToolsUS', 'FFXiPadConfig.exe');
+
+    if (!fs.existsSync(gamepadConfigPath)) {
+      log.error(chalk.red('[open-gamepad-config] FFXiPadConfig.exe not found at:'), gamepadConfigPath);
+      return { success: false, error: 'Gamepad config executable not found. Please ensure the game is installed.' };
+    }
+
+    log.info(chalk.cyan('[open-gamepad-config] Opening gamepad config at:'), gamepadConfigPath);
+    await shell.openPath(gamepadConfigPath);
+    return { success: true };
+  } catch (error) {
+    log.error(chalk.red('[open-gamepad-config] Error opening gamepad config:'), error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+// IPC handler to reapply patches by resetting version to 1.0.0
+ipcMain.handle('reapply-patches', async () => {
+  try {
+    log.info(chalk.cyan('[reapply-patches] Resetting version to 1.0.0 to trigger patch reapplication'));
+
+    // Update storage to reset version
+    await updateStorage((data: StorageJson) => {
+      data.GAME_UPDATER.currentVersion = '1.0.0';
+      data.GAME_UPDATER.updater.downloaded = '1.0.0';
+      data.GAME_UPDATER.updater.extracted = '1.0.0';
+    });
+
+    log.info(chalk.green('[reapply-patches] Version reset successfully'));
+    return { success: true };
+  } catch (error) {
+    log.error(chalk.red('[reapply-patches] Error resetting version:'), error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
 // ---- Game install / update helpers and IPC handlers ----
 
 // Debug startup marker to help confirm main process is running the current source.
@@ -956,7 +1094,7 @@ async function validateZipFilesAndResetState(
   if (!baseZipExists) {
     log.warn(chalk.yellow('[validateZipFiles] Base game ZIP is missing! Resetting state to missing.'));
     // Reset entire state
-    await updateStorage((data) => {
+    await updateStorage((data: StorageJson) => {
       data.GAME_UPDATER.currentVersion = "0.0.0";
       data.GAME_UPDATER.baseGame.downloaded = false;
       data.GAME_UPDATER.baseGame.extracted = false;
@@ -1002,7 +1140,7 @@ async function validateZipFilesAndResetState(
 
     if (!allPatchZipsExist) {
       log.warn(chalk.yellow(`[validateZipFiles] Some patch ZIPs are missing. Reverting version from ${currentVersion} to ${versionToRevertTo}`));
-      await updateStorage((data) => {
+      await updateStorage((data: StorageJson) => {
         data.GAME_UPDATER.currentVersion = versionToRevertTo;
       });
       return { currentVersion: versionToRevertTo, baseDownloaded: true, baseExtracted: true };
@@ -1021,10 +1159,8 @@ ipcMain.handle('game:check', async () => {
     const installDir = paths.gameRoot;
     const downloadsDir = paths.dlRoot;
 
-    // Fetch release and patch manifest
-    const release = await getReleaseJson(RELEASE_JSON_URL);
-    const fetchJson = require('./utils/io').fetchJson;
-    const patchManifest = await fetchJson(PATCH_MANIFEST_URL);
+    // Fetch release and patch manifest using cache
+    const { release, patchManifest } = await getCachedManifests();
     const latestVersion = String(patchManifest.latestVersion ?? "0");
 
     // Use storage.json for version/status
@@ -1059,7 +1195,7 @@ ipcMain.handle('game:check', async () => {
 
         if (!baseZipExists) {
           log.warn(chalk.yellow('[game:check] Base game ZIP not found. Resetting to missing state.'));
-          await updateStorage((data) => {
+          await updateStorage((data: StorageJson) => {
             data.GAME_UPDATER.currentVersion = "0.0.0";
             data.GAME_UPDATER.baseGame.downloaded = false;
             data.GAME_UPDATER.baseGame.extracted = false;
@@ -1071,7 +1207,7 @@ ipcMain.handle('game:check', async () => {
           baseExtracted = false;
         } else {
           log.info(chalk.cyan('[game:check] Base game ZIP found. Marking as downloaded but not extracted.'));
-          await updateStorage((data) => {
+          await updateStorage((data: StorageJson) => {
             data.GAME_UPDATER.baseGame.downloaded = true;
             data.GAME_UPDATER.baseGame.extracted = false;
             data.GAME_UPDATER.currentVersion = "0.0.0";
@@ -1201,7 +1337,7 @@ ipcMain.handle('game:download', async () => {
     const paths = getEventidePaths();
     const installDir = paths.gameRoot;
     const downloadsDir = paths.dlRoot;
-    const release = await getReleaseJson(RELEASE_JSON_URL);
+    const { release } = await getCachedManifests();
 
     // Progress callbacks
     const onDownloadProgress = (dl: number, total: number) => {
@@ -1227,14 +1363,13 @@ ipcMain.handle('game:download', async () => {
       onExtractProgress
     );
 
-    // After successful download and extraction, check if patches are needed
+    // After successful download and extraction, invalidate cache and fetch fresh data
     log.info(chalk.green('[game:download] Download and extraction complete, checking for patches...'));
 
-    // Fetch patch manifest to check if updates are needed
-    const PATCH_MANIFEST_URL = 'https://raw.githubusercontent.com/bananapretzel/eventide-patch-manifest/refs/heads/main/patch-manifest.json';
-    const fetchJson = require('./utils/io').fetchJson;
-    const patchManifest = await fetchJson(PATCH_MANIFEST_URL);
-    const latestVersion = String(patchManifest.latestVersion ?? "0");
+    // Invalidate cache to ensure we get fresh version info
+    invalidateManifestCache();
+    const { patchManifest: freshPatchManifest } = await getCachedManifests();
+    const latestVersion = String(freshPatchManifest.latestVersion ?? "0");
     const currentVersion = release.game.baseVersion;
 
     log.info(chalk.cyan(`[game:download] Current version: ${currentVersion}, Latest version: ${latestVersion}`));
@@ -1331,8 +1466,7 @@ ipcMain.handle('game:update', async () => {
     const paths = getEventidePaths();
     const installDir = paths.gameRoot;
     const projectRoot = path.resolve(__dirname, '../../');
-    const release = await getReleaseJson(RELEASE_JSON_URL);
-    const patchManifest = await getPatchManifest(release.patchManifestUrl);
+    const { release, patchManifest } = await getCachedManifests();
 
     // Progress callbacks
     const onPatchProgress = (patch: string, dl: number, total: number) => {
@@ -1349,7 +1483,8 @@ ipcMain.handle('game:update', async () => {
 
     await applyPatches(patchManifest, installDir, onPatchProgress, onExtractProgress);
 
-    // After successful patching, notify renderer that game is ready
+    // After successful patching, invalidate cache and notify renderer that game is ready
+    invalidateManifestCache();
     log.info(chalk.green('[game:update] Patching complete, game is ready'));
     if (mainWindow) {
       mainWindow.webContents.send('game:status', { status: 'ready' });
@@ -1362,6 +1497,23 @@ ipcMain.handle('game:update', async () => {
       log.info(chalk.cyan(`[ipc] Sending to renderer: game:status`), { status: 'error', message: String(err) });
       mainWindow.webContents.send('game:status', { status: 'error', message: String(err) });
     }
+    return { success: false, error: String(err) };
+  }
+});
+
+// Manual cache refresh handler
+ipcMain.handle('game:refresh-cache', async () => {
+  try {
+    log.info(chalk.cyan('[game:refresh-cache] Manual cache refresh requested'));
+    invalidateManifestCache();
+    const { release, patchManifest } = await getCachedManifests();
+    return {
+      success: true,
+      baseVersion: release.game.baseVersion,
+      latestVersion: patchManifest.latestVersion
+    };
+  } catch (err) {
+    log.error(chalk.red('[game:refresh-cache] Failed to refresh cache:'), err);
     return { success: false, error: String(err) };
   }
 });

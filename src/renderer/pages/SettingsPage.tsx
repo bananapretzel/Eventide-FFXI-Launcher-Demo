@@ -542,10 +542,17 @@ function FFXIOtherPanel({
   updateSetting: (path: string, value: any) => void;
 }) {
   const [numSounds, setNumSounds] = useState(settings.ffxi?.numSounds ?? 20);
-  const openGamepad = () => {
-    // TODO: wire to IPC when ready
-    // eslint-disable-next-line no-alert
-    alert('Open Gamepad Config (not wired)');
+  const openGamepad = async () => {
+    try {
+      const result = await window.electron.invoke('open-gamepad-config');
+      if (!result.success) {
+        // eslint-disable-next-line no-alert
+        alert(result.error || 'Failed to open gamepad config');
+      }
+    } catch {
+      // eslint-disable-next-line no-alert
+      alert('Failed to open gamepad config');
+    }
   };
   return (
     <>
@@ -1473,10 +1480,17 @@ export default function SettingsPage() {
               </Row>
             </Card>
             <Card title="Paths and Logs">
-              <div className="settings-row centered">
+              <div
+                className="settings-row"
+                style={{
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '12px',
+                }}
+              >
                 <button
                   type="button"
-                  className="btn btn-secondary"
+                  className="btn"
                   onClick={async () => {
                     try {
                       const result =
@@ -1493,7 +1507,7 @@ export default function SettingsPage() {
                 </button>
                 <button
                   type="button"
-                  className="btn btn-secondary"
+                  className="btn"
                   onClick={async () => {
                     try {
                       const result =
@@ -1507,6 +1521,29 @@ export default function SettingsPage() {
                   }}
                 >
                   OPEN LOG FILE
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={async () => {
+                    try {
+                      const result =
+                        await window.electron.invoke('reapply-patches');
+                      if (result.success) {
+                        handleShowToast(
+                          'Version reset to 1.0.0. Please restart the launcher and return to the home page to reapply patches.',
+                        );
+                      } else {
+                        handleShowToast(
+                          `Failed to reset version: ${result.error || 'Unknown error'}`,
+                        );
+                      }
+                    } catch {
+                      handleShowToast('Failed to reset version');
+                    }
+                  }}
+                >
+                  REAPPLY PATCHES
                 </button>
               </div>
             </Card>

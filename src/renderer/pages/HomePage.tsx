@@ -649,7 +649,6 @@ export default function HomePage(props: HomePageProps) {
             </div>
           )}
         </div>
-        <div className="players-online">1234 PLAYERS ONLINE</div>
       </section>
 
       <section className="news-section">

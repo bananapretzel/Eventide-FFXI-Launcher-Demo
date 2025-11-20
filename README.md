@@ -359,10 +359,26 @@ Structure (abridged):
   "rememberCredentials": false,
   "launcherVersion": "<current>",
   "installDir": "",
-  "addons": { "example": { "enabled": true } },
-  "plugins": { "sdk": { "enabled": true } }
+  "addons": { 
+    "aspect": { 
+      "description": "Forces the games aspect ratio to match the windows resolution.",
+      "author": "atom0s",
+      "version": "1.0",
+      "link": "https://ashitaxi.com",
+      "enabled": false 
+    },
+    // ... 62 more addons with metadata
+  },
+  "plugins": { 
+    "Addons": { 
+      "description": "Enabled use of addons.",
+      "enabled": true 
+    },
+    // ... 9 more plugins with metadata
+  }
 }
 ```
+**Note:** On first run, `config.json` is automatically populated with 63 addons and 10 plugins, each with their metadata (description, author, version, link, enabled status). This provides a complete addon/plugin management system out of the box.
 
 ### `storage.json`
 Tracks game & patch state:
