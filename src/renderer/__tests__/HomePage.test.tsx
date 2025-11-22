@@ -452,7 +452,8 @@ describe('HomePage Component', () => {
       return Promise.resolve({ success: true });
     });
 
-    const retryButton = screen.getByRole('button', { name: /Retry/i });
+    // Click the main retry button (with emoji)
+    const retryButton = screen.getByRole('button', { name: /⚠️ Retry/i });
 
     await act(async () => {
       fireEvent.click(retryButton);
@@ -631,6 +632,228 @@ describe('HomePage Component', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/INI update failed/i)).toBeInTheDocument();
+    });
+  });
+
+  describe('New Error Handling Features', () => {
+    it('should show error card with icon and categorization', async () => {
+      mockElectron.invoke.mockImplementation((channel: string) => {
+        if (channel === 'game:check') {
+          return Promise.resolve({
+            launcherState: 'missing',
+            latestVersion: '1.0.0',
+            installedVersion: '0.0.0'
+          });
+        }
+        if (channel === 'game:download') {
+          return Promise.reject(new Error('Network error: ENOTFOUND'));
+        }
+        return Promise.resolve({ success: true });
+      });
+
+      render(<HomePage {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
+      });
+
+      const downloadButton = screen.getByRole('button', { name: /Download/i });
+      await act(async () => {
+        fireEvent.click(downloadButton);
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText(/Network Error/i)).toBeInTheDocument();
+        expect(screen.getByText(/🌐/)).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Retry Now/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Clear Downloads/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /View Log/i })).toBeInTheDocument();
+      });
+    });
+
+    it('should apply error styling to play button', async () => {
+      mockElectron.invoke.mockImplementation((channel: string) => {
+        if (channel === 'game:check') {
+          return Promise.resolve({
+            launcherState: 'missing',
+            latestVersion: '1.0.0',
+            installedVersion: '0.0.0'
+          });
+        }
+        if (channel === 'game:download') {
+          return Promise.reject(new Error('Download failed'));
+        }
+        return Promise.resolve({ success: true });
+      });
+
+      render(<HomePage {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
+      });
+
+      const downloadButton = screen.getByRole('button', { name: /Download/i });
+      await act(async () => {
+        fireEvent.click(downloadButton);
+      });
+
+      await waitFor(() => {
+        const errorButton = screen.getByRole('button', { name: /⚠️ Retry/i });
+        expect(errorButton).toBeInTheDocument();
+        expect(errorButton).toHaveClass('is-error');
+      });
+    });
+
+    it('should handle clear downloads action', async () => {
+      mockElectron.invoke.mockImplementation((channel: string) => {
+        if (channel === 'game:check') {
+          return Promise.resolve({
+            launcherState: 'missing',
+            latestVersion: '1.0.0',
+            installedVersion: '0.0.0'
+          });
+        }
+        if (channel === 'game:download') {
+          return Promise.reject(new Error('SHA256 mismatch'));
+        }
+        if (channel === 'clear-downloads') {
+          return Promise.resolve({ success: true });
+        }
+        return Promise.resolve({ success: true });
+      });
+
+      render(<HomePage {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
+      });
+
+      const downloadButton = screen.getByRole('button', { name: /Download/i });
+      await act(async () => {
+        fireEvent.click(downloadButton);
+      });
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Clear Downloads/i })).toBeInTheDocument();
+      });
+
+      const clearButton = screen.getByRole('button', { name: /Clear Downloads/i });
+      await act(async () => {
+        fireEvent.click(clearButton);
+      });
+
+      await waitFor(() => {
+        expect(mockElectron.invoke).toHaveBeenCalledWith('clear-downloads');
+      });
+    });
+
+    it('should show different error categories correctly', async () => {
+      const errorScenarios = [
+        { error: 'SHA256 mismatch', expectedTitle: 'Download Corrupted', expectedIcon: '🔍' },
+        { error: 'Extraction failed', expectedTitle: 'Extraction Failed', expectedIcon: '📦' },
+        { error: 'ENOSPC: no space', expectedTitle: 'Insufficient Disk Space', expectedIcon: '💾' },
+        { error: 'EACCES: permission denied', expectedTitle: 'Permission Denied', expectedIcon: '🔒' },
+      ];
+
+      for (const scenario of errorScenarios) {
+        jest.clearAllMocks();
+        mockElectron._listeners = {};
+
+        mockElectron.invoke.mockImplementation((channel: string) => {
+          if (channel === 'game:check') {
+            return Promise.resolve({
+              launcherState: 'missing',
+              latestVersion: '1.0.0',
+              installedVersion: '0.0.0'
+            });
+          }
+          if (channel === 'game:download') {
+            return Promise.reject(new Error(scenario.error));
+          }
+          return Promise.resolve({ success: true });
+        });
+
+        const { unmount } = render(<HomePage {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
+        });
+
+        const downloadButton = screen.getByRole('button', { name: /Download/i });
+        await act(async () => {
+          fireEvent.click(downloadButton);
+        });
+
+        await waitFor(() => {
+          expect(screen.getByText(new RegExp(scenario.expectedTitle, 'i'))).toBeInTheDocument();
+          expect(screen.getByText(scenario.expectedIcon)).toBeInTheDocument();
+        });
+
+        unmount();
+      }
+    });
+
+    it('should allow multiple retry attempts', async () => {
+      let attemptCount = 0;
+      mockElectron.invoke.mockImplementation((channel: string) => {
+        if (channel === 'game:check') {
+          return Promise.resolve({
+            launcherState: 'missing',
+            latestVersion: '1.0.0',
+            installedVersion: '0.0.0'
+          });
+        }
+        if (channel === 'game:download') {
+          attemptCount++;
+          if (attemptCount < 3) {
+            return Promise.reject(new Error('Network error'));
+          }
+          // Success on third attempt
+          setTimeout(() => {
+            mockElectron._emit('game:status', { status: 'ready' });
+          }, 100);
+          return Promise.resolve({ success: true });
+        }
+        return Promise.resolve({ success: true });
+      });
+
+      render(<HomePage {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
+      });
+
+      // Attempt 1
+      const downloadButton = screen.getByRole('button', { name: /Download/i });
+      await act(async () => {
+        fireEvent.click(downloadButton);
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText(/Network Error/i)).toBeInTheDocument();
+      });
+
+      // Attempt 2
+      let retryButton = screen.getByRole('button', { name: /Retry Now/i });
+      await act(async () => {
+        fireEvent.click(retryButton);
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText(/Network Error/i)).toBeInTheDocument();
+      });
+
+      // Attempt 3 - succeeds
+      retryButton = screen.getByRole('button', { name: /Retry Now/i });
+      await act(async () => {
+        fireEvent.click(retryButton);
+      });
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Play/i })).toBeInTheDocument();
+      });
+
+      expect(attemptCount).toBe(3);
     });
   });
 });

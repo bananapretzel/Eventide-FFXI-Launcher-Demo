@@ -48,36 +48,43 @@
 - 📦 **Game Bootstrap & Auto-Extraction** – Detects downloaded base game archive and extracts it automatically on first run
 - ⬇️ **Patch & Update System** – Remote release + patch manifest retrieval (`release.json` + patch manifest) with version comparison
 - 🔄 **Incremental Patching** – Applies patches sequentially via `logic/patch.ts` ensuring integrity
+- 🎨 **Pivot DAT Overlay Support** – Integrates with Pivot plugin for layered DAT file modifications at `polplugins/DATs/Eventide/ROM/`
 - 🌐 **Network + Manifest Layer** – Separate `core/net.ts`, `core/manifest.ts` for clean remote interactions
 - 🧪 **Storage Validation** – `core/storage.ts` schema validation and safe defaults (protects against corrupt `storage.json`)
 - 🔐 **Config Isolation** – Per-user `config.json` stored under Electron `userData` (not in repository) – replaces earlier root-level config approach
-- 🧩 **Addon & Plugin Auto-Script** – Generates `scripts/default.txt` dynamically from enabled addons/plugins
-- 🧬 **Integrity & Hash Utilities** – `core/hash.ts` for verifying downloaded artifacts
+- 🧩 **Addon & Plugin Auto-Script** – Generates `scripts/default.txt` dynamically from enabled 63 addons and 10 plugins
+- 🧬 **Integrity & Hash Utilities** – `core/hash.ts` for verifying downloaded artifacts (SHA256 validation)
 - 🪣 **Remote Asset Download** – S3 / R2 backed release and patch distribution (AWS SDK + axios)
 - 📁 **Centralized Paths API** – IPC exposes launcher path map for renderer consumption (`eventide:get-paths`)
 - 🧰 **Directory Self-Heal** – Ensures required folders (Downloads/Game/logs) on startup
 - 🧪 **Testing Harness** – Jest + Testing Library for unit and renderer tests
 - ⚡ **Hot Reload Dev Flow** – Concurrent main + renderer watch with fast iteration
 - 🖼️ **Modern UI** – React 19 + Tailwind utility styling, Lucide icons
+- 📝 **Manifest Caching** – Intelligent 5-minute TTL cache for release/patch manifests to reduce network calls
 
 > Older sections about root-level `settings.json`, `extensions.json`, and `Eventide.ini` have been superseded by unified `config.json` + dynamic script generation.
 
 ## 🆕 Recent Changes
 
-Date: 2025-11-20
+Date: 2025-11-23
 
+- **Pivot DAT Overlay Integration** – Patches now extract to `polplugins/DATs/Eventide/ROM/` for seamless overlay system support
+- **Manifest Caching** – Implemented 5-minute TTL cache for release and patch manifests to reduce redundant network calls
+- **Config Migration** – Automatic migration from old `extensions.addons/plugins` arrays to new object-based structure
+- **Patch Extraction Enhancement** – Smart ZIP extraction with automatic directory merging (prevents nested folder issues)
+- **Settings UI Expansion** – Added Pivot overlay configuration tab and launcher settings panel
 - Introduced layered architecture (`core`, `logic`) separating domain concerns from Electron main
 - Added automatic base game extraction and version initialization logic
 - Implemented remote release + patch manifest fetching with update notification logic
-- Added dynamic default script generation for Ashita (addons/plugins auto-load)
+- Added dynamic default script generation for Ashita (63 addons + 10 plugins auto-load)
 - Migrated config/storage handling to Electron `userData` directory (per user, cross-platform)
 - Added storage self-sync with filesystem (downloaded/extracted flags) and zero-version normalization
-- Introduced hash/integrity helpers and error abstraction modules
+- Introduced hash/integrity helpers and error abstraction modules with SHA256 verification
 - Added IPC bootstrap endpoint returning release, patchManifest, clientVersion & game state flags
-- Refined logging strategy with structured startup phases
+- Refined logging strategy with structured startup phases using electron-log + chalk
 - Added AWS S3/R2 integration for remote assets (release JSON + patch manifest)
-- Upgraded React to 19 and integrated updated dependency stack (electron 35, TypeScript 5.8)
-- Expanded test scaffolding under `src/__tests__` with setup environment
+- Upgraded React to 19 and integrated updated dependency stack (Electron 35, TypeScript 5.8)
+- Expanded test scaffolding under `src/__tests__` with setup environment and Jest configuration
 
 ## 📦 Prerequisites
 
@@ -183,7 +190,10 @@ IPC Endpoints (selected):
 Game Updating:
 - Download orchestrated via `logic/download.ts` (to `Downloads/`)
 - Patch application via `logic/patch.ts` with manifest guidance
-- Integrity & version tracking stored in `storage.json`
+- Patches extract to `polplugins/DATs/Eventide/ROM/` for Pivot overlay system
+- Smart ZIP extraction with automatic directory merging (avoids nested folders)
+- Integrity & version tracking stored in `storage.json` with SHA256 verification
+- Manifest caching (5-minute TTL) reduces redundant network requests
 
 ## 🔨 Building
 
@@ -378,7 +388,7 @@ Structure (abridged):
   }
 }
 ```
-**Note:** On first run, `config.json` is automatically populated with 63 addons and 10 plugins, each with their metadata (description, author, version, link, enabled status). This provides a complete addon/plugin management system out of the box.
+**Note:** On first run, `config.json` is automatically populated with 63 addons and 10 plugins, each with their metadata (description, author, version, link, enabled status). This provides a complete Ashita addon/plugin management system out of the box. The config automatically migrates from legacy array-based structure to the current object-based format if needed.
 
 ### `storage.json`
 Tracks game & patch state:
@@ -397,6 +407,25 @@ Tracks game & patch state:
 ### Default Script Generation
 `write-default-script` builds `scripts/default.txt` with auto-load commands based on enabled addons/plugins.
 
+### Pivot DAT Overlay System
+Eventide integrates with the Pivot plugin for layered DAT file modifications:
+```
+Game/
+  polplugins/
+    DATs/
+      Eventide/
+        ROM/           # Patch files extracted here
+  config/
+    pivot/
+      pivot.ini        # Overlay configuration
+```
+
+Pivot overlay structure:
+- Patches extract to `polplugins/DATs/Eventide/ROM/`
+- Pivot configuration at `config/pivot/pivot.ini` defines overlay order
+- Supports multiple overlay layers (e.g., Eventide, custom mods)
+- DAT files override base game files without modifying originals
+
 ### Security Notes
 - Credentials stored via OS keychain (`keytar`) – not in JSON files
 - Config and storage files validated & size-limited before writing
@@ -414,18 +443,21 @@ Add new tests under `src/__tests__/` or module-specific `__tests__` directories.
 
 ## 🛠️ Technology Stack
 
-- **Electron 35** – Desktop runtime
-- **React 19 / React DOM 19** – Modern concurrent-capable UI
-- **TypeScript 5.8** – Type-safe development
-- **Tailwind CSS** – Utility-first styling
+- **Electron 35** – Desktop runtime with native module support
+- **React 19 / React DOM 19** – Modern concurrent-capable UI with hooks
+- **TypeScript 5.8** – Type-safe development with strict mode
+- **Tailwind CSS 3** – Utility-first styling with custom theme
 - **Webpack 5** – Bundling (separate configs for main/preload/renderer)
-- **electron-builder** – Cross-platform packaging
-- **electron-updater** – Auto-update integration (release & patch coordination)
-- **Axios / AWS SDK S3** – Remote asset + manifest retrieval
-- **Ini / fs-extra / unzipper / extract-zip** – File system, INI parsing, archive extraction
-- **Keytar** – Secure credential storage
-- **Jest + Testing Library** – Automated testing
-- **Lucide React / simple-icons** – Iconography
+- **electron-builder** – Cross-platform packaging (Windows/macOS/Linux)
+- **electron-updater 6.6** – Auto-update integration (release & patch coordination)
+- **electron-log 5.4** – Structured logging with chalk for colored output
+- **Axios 1.13 / AWS SDK S3 v3** – Remote asset + manifest retrieval from S3/R2
+- **Ini 6.0 / fs-extra / extract-zip 2.0** – File system, INI parsing, archive extraction
+- **Keytar** – Secure OS keychain credential storage (macOS Keychain, Windows Credential Vault, Linux Secret Service)
+- **Jest 29 + Testing Library** – Automated testing with JSDOM environment
+- **React Router DOM 7.3** – Client-side routing for multi-page navigation
+- **Lucide React 0.548 / simple-icons 15.18** – Modern iconography
+- **AJV 8.17** – JSON schema validation for manifests and storage
 
 ## 📝 License
 

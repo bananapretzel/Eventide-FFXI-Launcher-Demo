@@ -1356,6 +1356,44 @@ ipcMain.handle('debug:get-last-checksum', async () => {
   }
 });
 
+// Handler to clear all downloads and reset state
+ipcMain.handle('clear-downloads', async () => {
+  try {
+    const paths = getEventidePaths();
+    const downloadsDir = paths.dlRoot;
+
+    log.info(chalk.cyan('[clear-downloads] Clearing downloads directory:', downloadsDir));
+
+    // Delete all files in downloads directory
+    if (fs.existsSync(downloadsDir)) {
+      const files = await fs.readdir(downloadsDir);
+      for (const file of files) {
+        const filePath = path.join(downloadsDir, file);
+        const stat = await fs.stat(filePath);
+        if (stat.isFile()) {
+          await fs.unlink(filePath);
+          log.info(chalk.cyan('[clear-downloads] Deleted:', file));
+        }
+      }
+    }
+
+    // Reset storage state
+    await updateStorage((data: StorageJson) => {
+      data.GAME_UPDATER.currentVersion = "0.0.0";
+      data.GAME_UPDATER.baseGame.downloaded = false;
+      data.GAME_UPDATER.baseGame.extracted = false;
+      data.GAME_UPDATER.updater.downloaded = "";
+      data.GAME_UPDATER.updater.extracted = "";
+    });
+
+    log.info(chalk.green('[clear-downloads] Downloads cleared and state reset'));
+    return { success: true };
+  } catch (err) {
+    log.error(chalk.red('[clear-downloads] Error:'), err);
+    return { success: false, error: String(err) };
+  }
+});
+
 ipcMain.handle('game:download', async () => {
   try {
     const paths = getEventidePaths();
@@ -1416,11 +1454,33 @@ ipcMain.handle('game:download', async () => {
     return { success: true };
   } catch (err) {
     log.error(chalk.red('Download failed:'), err);
-    if (mainWindow) {
-      log.info(chalk.cyan(`[ipc] Sending to renderer: game:status`), { status: 'error', message: String(err) });
-      mainWindow.webContents.send('game:status', { status: 'error', message: String(err) });
+
+    // Provide more specific error messages
+    let errorMessage = String(err);
+    if (err instanceof Error) {
+      errorMessage = err.message;
     }
-    return { success: false, error: String(err) };
+
+    // Categorize common errors for better user feedback
+    if (errorMessage.includes('ENOTFOUND') || errorMessage.includes('ECONNREFUSED')) {
+      errorMessage = 'Network error: Unable to connect to download server. Check your internet connection.';
+    } else if (errorMessage.includes('ENOSPC')) {
+      errorMessage = 'Insufficient disk space. Please free up space and try again.';
+    } else if (errorMessage.includes('EACCES') || errorMessage.includes('EPERM')) {
+      errorMessage = 'Permission denied. Try running the launcher as administrator.';
+    } else if (errorMessage.includes('SHA256 mismatch')) {
+      errorMessage = 'Download verification failed. The file may be corrupted. Please try again.';
+    } else if (errorMessage.includes('Size mismatch')) {
+      errorMessage = 'Download incomplete. File size does not match expected size. Please try again.';
+    } else if (errorMessage.includes('Extraction verification failed')) {
+      errorMessage = 'File extraction failed. The downloaded archive may be corrupted. Try clearing downloads.';
+    }
+
+    if (mainWindow) {
+      log.info(chalk.cyan(`[ipc] Sending to renderer: game:status`), { status: 'error', message: errorMessage });
+      mainWindow.webContents.send('game:status', { status: 'error', message: errorMessage });
+    }
+    return { success: false, error: errorMessage };
   }
 });
 
@@ -1517,11 +1577,31 @@ ipcMain.handle('game:update', async () => {
     return { success: true };
   } catch (err) {
     log.error(chalk.red('Update failed:'), err);
-    if (mainWindow) {
-      log.info(chalk.cyan(`[ipc] Sending to renderer: game:status`), { status: 'error', message: String(err) });
-      mainWindow.webContents.send('game:status', { status: 'error', message: String(err) });
+
+    // Provide more specific error messages for patching
+    let errorMessage = String(err);
+    if (err instanceof Error) {
+      errorMessage = err.message;
     }
-    return { success: false, error: String(err) };
+
+    // Categorize common patch errors
+    if (errorMessage.includes('ENOTFOUND') || errorMessage.includes('ECONNREFUSED')) {
+      errorMessage = 'Network error: Unable to download patch. Check your internet connection.';
+    } else if (errorMessage.includes('SHA256 mismatch')) {
+      errorMessage = 'Patch verification failed. The patch file may be corrupted. Try clearing downloads.';
+    } else if (errorMessage.includes('No patch found')) {
+      errorMessage = 'Patch sequence broken. Please use "Reapply Patches" in Settings.';
+    } else if (errorMessage.includes('Extraction verification failed')) {
+      errorMessage = 'Patch extraction failed. The patch archive may be corrupted. Try clearing downloads.';
+    } else if (errorMessage.includes('No client version found')) {
+      errorMessage = 'Game version information is missing. Try repairing the installation.';
+    }
+
+    if (mainWindow) {
+      log.info(chalk.cyan(`[ipc] Sending to renderer: game:status`), { status: 'error', message: errorMessage });
+      mainWindow.webContents.send('game:status', { status: 'error', message: errorMessage });
+    }
+    return { success: false, error: errorMessage };
   }
 });
 

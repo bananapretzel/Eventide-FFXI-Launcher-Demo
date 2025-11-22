@@ -560,9 +560,141 @@ export default function HomePage(props: HomePageProps) {
       case 'launching':
         return 'Launching…';
       case 'error':
-        return 'Retry';
+        return '⚠️ Retry';
       default:
         return 'Play';
+    }
+  };
+
+  // Helper to categorize error messages and provide suggestions
+  const categorizeError = (errorMsg: string) => {
+    const msg = errorMsg.toLowerCase();
+
+    // Network errors
+    if (msg.includes('network') || msg.includes('enotfound') || msg.includes('econnrefused') || msg.includes('timeout')) {
+      return {
+        title: 'Network Error',
+        message: 'Unable to connect to the download server.',
+        suggestions: [
+          'Check your internet connection',
+          'Verify your firewall is not blocking the launcher',
+          'Try again in a few moments',
+        ],
+        icon: '🌐',
+      };
+    }
+
+    // SHA256/Verification errors
+    if (msg.includes('sha256') || msg.includes('checksum') || msg.includes('verification') || msg.includes('size mismatch')) {
+      return {
+        title: 'Download Corrupted',
+        message: 'The downloaded file failed verification.',
+        suggestions: [
+          'The download may have been interrupted',
+          'Try clearing downloads and downloading again',
+          'Check available disk space',
+        ],
+        icon: '🔍',
+      };
+    }
+
+    // Extraction errors
+    if (msg.includes('extract') || msg.includes('unzip')) {
+      return {
+        title: 'Extraction Failed',
+        message: 'Failed to extract game files.',
+        suggestions: [
+          'The archive may be corrupted',
+          'Ensure you have enough disk space',
+          'Check that antivirus is not blocking extraction',
+          'Try clearing downloads and re-downloading',
+        ],
+        icon: '📦',
+      };
+    }
+
+    // Disk space errors
+    if (msg.includes('enospc') || msg.includes('disk') || msg.includes('space')) {
+      return {
+        title: 'Insufficient Disk Space',
+        message: 'Not enough free space on your drive.',
+        suggestions: [
+          'Free up at least 10 GB of disk space',
+          'Choose a different installation directory',
+        ],
+        icon: '💾',
+      };
+    }
+
+    // Permission errors
+    if (msg.includes('eacces') || msg.includes('eperm') || msg.includes('permission')) {
+      return {
+        title: 'Permission Denied',
+        message: 'The launcher does not have permission to write files.',
+        suggestions: [
+          'Run the launcher as administrator',
+          'Check folder permissions',
+          'Choose a different installation directory',
+        ],
+        icon: '🔒',
+      };
+    }
+
+    // Patch errors
+    if (msg.includes('patch')) {
+      return {
+        title: 'Patching Failed',
+        message: 'Failed to apply game patches.',
+        suggestions: [
+          'Try using "Reapply Patches" in Settings',
+          'Check your internet connection',
+          'Contact support if the issue persists',
+        ],
+        icon: '🔧',
+      };
+    }
+
+    // Default error
+    return {
+      title: 'Error',
+      message: errorMsg,
+      suggestions: [
+        'Try the operation again',
+        'Check the log file for details',
+        'Contact support if the issue persists',
+      ],
+      icon: '⚠️',
+    };
+  };
+
+  // Handler to clear downloads and reset state
+  const handleClearDownloads = async () => {
+    try {
+      const result = await (window as any).electron.invoke('clear-downloads');
+      if (result?.success) {
+        dispatch({ type: 'SET', state: { status: 'missing' } });
+      } else {
+        dispatch({
+          type: 'ERROR',
+          msg: result?.error || 'Failed to clear downloads',
+          isRetryable: true,
+        });
+      }
+    } catch (err) {
+      dispatch({
+        type: 'ERROR',
+        msg: String(err),
+        isRetryable: true,
+      });
+    }
+  };
+
+  // Handler to open log file
+  const handleOpenLog = async () => {
+    try {
+      await (window as any).electron.invoke('open-log-file');
+    } catch (err) {
+      console.error('Failed to open log file:', err);
     }
   };
 
@@ -607,7 +739,7 @@ export default function HomePage(props: HomePageProps) {
 
           <button
             type="button"
-            className="play-btn"
+            className={`play-btn ${state.status === 'error' ? 'is-error' : ''}`}
             disabled={
               state.status === 'checking' ||
               state.status === 'downloading' ||
@@ -660,8 +792,60 @@ export default function HomePage(props: HomePageProps) {
           )}
 
           {state.status === 'error' && (
-            <div style={{ color: 'var(--danger)', marginTop: 8 }}>
-              {(state as any).message}
+            <div className="error-card">
+              <div className="error-header">
+                <div className="error-icon">
+                  {(() => {
+                    const errorInfo = categorizeError((state as any).message || 'Unknown error');
+                    return errorInfo.icon;
+                  })()}
+                </div>
+                <div className="error-content">
+                  <h4 className="error-title">
+                    {(() => {
+                      const errorInfo = categorizeError((state as any).message || 'Unknown error');
+                      return errorInfo.title;
+                    })()}
+                  </h4>
+                  <p className="error-message">
+                    {(() => {
+                      const errorInfo = categorizeError((state as any).message || 'Unknown error');
+                      return errorInfo.message;
+                    })()}
+                  </p>
+                  <ul className="error-suggestions">
+                    {(() => {
+                      const errorInfo = categorizeError((state as any).message || 'Unknown error');
+                      return errorInfo.suggestions.map((suggestion, idx) => (
+                        <li key={idx}>{suggestion}</li>
+                      ));
+                    })()}
+                  </ul>
+                </div>
+              </div>
+              <div className="error-actions">
+                <button
+                  type="button"
+                  className="error-btn"
+                  onClick={handleActionClick}
+                >
+                  Retry Now
+                </button>
+                <button
+                  type="button"
+                  className="error-btn secondary"
+                  onClick={handleClearDownloads}
+                >
+                  Clear Downloads
+                </button>
+                <button
+                  type="button"
+                  className="error-btn secondary"
+                  onClick={handleOpenLog}
+                >
+                  View Log
+                </button>
+              </div>
             </div>
           )}
         </div>

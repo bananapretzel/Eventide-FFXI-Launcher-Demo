@@ -1560,6 +1560,37 @@ export default function SettingsPage() {
                   >
                     REAPPLY PATCHES
                   </button>
+                  <button
+                    type="button"
+                    className="btn"
+                    style={{ background: '#ef4444' }}
+                    onClick={async () => {
+                      // eslint-disable-next-line no-restricted-globals, no-alert
+                      const confirmed = window.confirm(
+                        'This will delete all downloaded files and reset the launcher. You will need to download the game again. Continue?',
+                      );
+                      if (!confirmed) {
+                        return;
+                      }
+                      try {
+                        const result =
+                          await window.electron.invoke('clear-downloads');
+                        if (result.success) {
+                          handleShowToast(
+                            'Downloads cleared successfully. Please return to the home page to start fresh.',
+                          );
+                        } else {
+                          handleShowToast(
+                            `Failed to clear downloads: ${result.error || 'Unknown error'}`,
+                          );
+                        }
+                      } catch {
+                        handleShowToast('Failed to clear downloads');
+                      }
+                    }}
+                  >
+                    CLEAR ALL DOWNLOADS
+                  </button>
                 </div>
               </Card>
             </div>

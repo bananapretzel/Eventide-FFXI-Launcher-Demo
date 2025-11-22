@@ -139,6 +139,8 @@ describe('IPC Handlers - config/settings/extensions', () => {
   });
 
   it('read-config returns decrypted password and launcherVersion', async () => {
+    const keytar = require('keytar');
+
     mockFsExtra.existsSync.mockReturnValue(true);
     mockFsExtra.readFileSync.mockReturnValue(JSON.stringify({
       username: 'u',
@@ -146,6 +148,13 @@ describe('IPC Handlers - config/settings/extensions', () => {
       rememberCredentials: true,
       launcherVersion: '1.2.3'
     }));
+
+    // Mock keytar to return username and password
+    keytar.getPassword.mockImplementation((service: string, account: string) => {
+      if (account === 'eventide-username') return Promise.resolve('u');
+      if (account === 'eventide-password') return Promise.resolve('');
+      return Promise.resolve('');
+    });
 
     const handler = handlers['read-config'];
     expect(handler).toBeInstanceOf(Function);
