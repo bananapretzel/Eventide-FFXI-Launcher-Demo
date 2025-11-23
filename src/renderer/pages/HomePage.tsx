@@ -109,6 +109,19 @@ export default function HomePage(props: HomePageProps) {
   }
   const [state, dispatch] = useReducer(reducer, { status: 'checking' });
   const [posts, setPosts] = useState<Post[]>([]);
+  const [showToast, setShowToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const [updateStatus, setUpdateStatus] = useState<string>('idle');
+  const [updateInfo, setUpdateInfo] = useState<any>(null);
+
+  // Toast helper function
+  const handleShowToast = (message: string) => {
+    setToastMessage(message);
+    setShowToast(true);
+    setTimeout(() => {
+      setShowToast(false);
+    }, 3000);
+  };
 
   // Fetch patch notes on mount
   useEffect(() => {
@@ -122,6 +135,45 @@ export default function HomePage(props: HomePageProps) {
       }
     };
     loadPatchNotes();
+  }, []);
+
+  // Listen for launcher update events
+  useEffect(() => {
+    if (!window.electron?.launcherUpdate?.onUpdateEvent) {
+      return () => {}; // Return empty cleanup function
+    }
+
+    const cleanup = window.electron.launcherUpdate.onUpdateEvent((_event, payload) => {
+      switch (payload.status) {
+        case 'checking':
+          setUpdateStatus('checking');
+          break;
+        case 'update-available':
+          setUpdateStatus('available');
+          setUpdateInfo(payload.info);
+          handleShowToast(`New launcher update available: ${payload.info?.version || 'Unknown'}`);
+          break;
+        case 'up-to-date':
+          setUpdateStatus('up-to-date');
+          handleShowToast('Launcher is up to date!');
+          break;
+        case 'downloading':
+          setUpdateStatus('downloading');
+          break;
+        case 'downloaded':
+          setUpdateStatus('downloaded');
+          handleShowToast('Update downloaded! Go to Settings to install.');
+          break;
+        case 'error':
+          setUpdateStatus('error');
+          handleShowToast(`Update error: ${payload.error}`);
+          break;
+        default:
+          break;
+      }
+    });
+
+    return cleanup;
   }, []);
 
   // Debug: log state and button status
@@ -914,6 +966,30 @@ export default function HomePage(props: HomePageProps) {
           })}
         </div>
       </section>
+
+      {/* Toast notification positioned at bottom right */}
+      {showToast && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: '20px',
+            right: '20px',
+            backgroundColor: 'rgba(0, 0, 0, 0.9)',
+            color: 'white',
+            padding: '12px 24px',
+            borderRadius: '8px',
+            zIndex: 10000,
+            maxWidth: '400px',
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            animation: 'fadeIn 0.3s ease-in',
+            fontSize: '14px',
+            lineHeight: '1.5',
+          }}
+        >
+          {toastMessage}
+        </div>
+      )}
     </main>
   );
 }

@@ -16,7 +16,8 @@ export type Channels =
   | 'window:minimize'
   | 'window:close'
   | 'download:progress'
-  | 'game:status';
+  | 'game:status'
+  | 'launcher:update-event';
 
 const electronHandler = {
   getPlatform: () => ipcRenderer.invoke('get-platform'),
@@ -72,6 +73,17 @@ const electronHandler = {
     ipcRenderer.invoke('write-config', data),
   writeDefaultScript: () => ipcRenderer.invoke('write-default-script'),
   fetchPatchNotes: () => ipcRenderer.invoke('game:fetch-patch-notes'),
+  // Launcher self-update API
+  launcherUpdate: {
+    checkForUpdates: () => ipcRenderer.invoke('launcher:checkForUpdates'),
+    downloadUpdate: () => ipcRenderer.invoke('launcher:downloadUpdate'),
+    installUpdate: () => ipcRenderer.invoke('launcher:installUpdate'),
+    onUpdateEvent: (handler: (event: IpcRendererEvent, payload: any) => void) => {
+      const subscription = (event: IpcRendererEvent, payload: any) => handler(event, payload);
+      ipcRenderer.on('launcher:update-event', subscription);
+      return () => ipcRenderer.removeListener('launcher:update-event', subscription);
+    },
+  },
 };
 
 contextBridge.exposeInMainWorld('electron', electronHandler);

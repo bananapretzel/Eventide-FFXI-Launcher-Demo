@@ -172,6 +172,159 @@ function brightnessToRange(brightness: number): number {
   );
 }
 
+function LauncherUpdatesCard({ handleShowToast }: { handleShowToast: (msg: string) => void }) {
+  const [updateStatus, setUpdateStatus] = useState<string>('idle');
+  const [updateInfo, setUpdateInfo] = useState<any>(null);
+  const [isChecking, setIsChecking] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+
+  useEffect(() => {
+    if (!window.electron?.launcherUpdate?.onUpdateEvent) {
+      return () => {}; // Return empty cleanup function
+    }
+
+    // Listen for update events from main process
+    const cleanup = window.electron.launcherUpdate.onUpdateEvent((_event, payload) => {
+      switch (payload.status) {
+        case 'checking':
+          setUpdateStatus('checking');
+          break;
+        case 'update-available':
+          setUpdateStatus('available');
+          setUpdateInfo(payload.info);
+          setIsChecking(false);
+          break;
+        case 'up-to-date':
+          setUpdateStatus('up-to-date');
+          setIsChecking(false);
+          handleShowToast('Launcher is up to date!');
+          break;
+        case 'downloading':
+          setUpdateStatus('downloading');
+          setDownloadProgress(payload.progress?.percent || 0);
+          break;
+        case 'downloaded':
+          setUpdateStatus('downloaded');
+          setIsDownloading(false);
+          handleShowToast('Update downloaded! Click "Install Update" to restart.');
+          break;
+        case 'error':
+          setUpdateStatus('error');
+          setIsChecking(false);
+          setIsDownloading(false);
+          handleShowToast(`Update error: ${payload.error}`);
+          break;
+        default:
+          break;
+      }
+    });
+
+    return cleanup;
+  }, [handleShowToast]);
+
+  const handleCheckForUpdates = async () => {
+    setIsChecking(true);
+    setUpdateStatus('checking');
+    try {
+      const result = await window.electron.launcherUpdate.checkForUpdates();
+      if (!result.success) {
+        handleShowToast(`Failed to check for updates: ${result.error}`);
+        setUpdateStatus('error');
+        setIsChecking(false);
+      }
+    } catch (err) {
+      handleShowToast(`Error checking for updates: ${err instanceof Error ? err.message : 'Unknown'}`);
+      setUpdateStatus('error');
+      setIsChecking(false);
+    }
+  };
+
+  const handleDownloadUpdate = async () => {
+    setIsDownloading(true);
+    try {
+      const result = await window.electron.launcherUpdate.downloadUpdate();
+      if (!result.success) {
+        handleShowToast(`Failed to download update: ${result.error}`);
+        setIsDownloading(false);
+      }
+    } catch (err) {
+      handleShowToast(`Error downloading update: ${err instanceof Error ? err.message : 'Unknown'}`);
+      setIsDownloading(false);
+    }
+  };
+
+  const handleInstallUpdate = async () => {
+    try {
+      await window.electron.launcherUpdate.installUpdate();
+    } catch (err) {
+      handleShowToast(`Error installing update: ${err instanceof Error ? err.message : 'Unknown'}`);
+    }
+  };
+
+  return (
+    <Card title="Launcher Updates">
+      <div
+        className="settings-row"
+        style={{
+          flexDirection: 'column',
+          alignItems: 'flex-start',
+          gap: '12px',
+        }}
+      >
+        <p
+          style={{
+            margin: '0 0 8px 0',
+            color: 'var(--ink-soft)',
+            fontSize: '14px',
+          }}
+        >
+          {updateStatus === 'checking' && 'Checking for updates...'}
+          {updateStatus === 'up-to-date' && 'Launcher is up to date.'}
+          {updateStatus === 'available' && updateInfo && (
+            <>New version available: {updateInfo.version}</>
+          )}
+          {updateStatus === 'downloading' && (
+            <>Downloading update: {downloadProgress.toFixed(1)}%</>
+          )}
+          {updateStatus === 'downloaded' && 'Update ready to install!'}
+          {updateStatus === 'error' && 'Error checking for updates.'}
+          {updateStatus === 'idle' && 'Check for launcher updates.'}
+        </p>
+        <button
+          type="button"
+          className="btn"
+          onClick={handleCheckForUpdates}
+          disabled={isChecking || isDownloading || updateStatus === 'downloading'}
+        >
+          {isChecking ? 'CHECKING...' : 'CHECK FOR UPDATES'}
+        </button>
+        {updateStatus === 'available' && (
+          <button
+            type="button"
+            className="btn"
+            onClick={handleDownloadUpdate}
+            disabled={isDownloading}
+            style={{ background: '#3b82f6' }}
+          >
+            {isDownloading ? 'DOWNLOADING...' : 'DOWNLOAD UPDATE'}
+          </button>
+        )}
+        {updateStatus === 'downloaded' && (
+          <button
+            type="button"
+            className="btn"
+            onClick={handleInstallUpdate}
+            style={{ background: '#10b981' }}
+          >
+            INSTALL UPDATE & RESTART
+          </button>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 function FFXIGeneralPanel({
   settings,
   updateSetting,
@@ -1494,6 +1647,7 @@ export default function SettingsPage() {
                   </Field>
                 </Row>
               </Card>
+              <LauncherUpdatesCard handleShowToast={handleShowToast} />
               <Card title="Paths and Logs">
                 <div
                   className="settings-row"

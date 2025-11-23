@@ -1,6 +1,6 @@
 {
-  "name": "electron-react-boilerplate",
-  "description": "A foundation for scalable desktop apps",
+  "name": "ffxi-eventide-launcher",
+  "description": "A launcher for the private FFXI private server called Eventide.",
   "version": "0.1.0",
   "keywords": [
     "electron",
@@ -13,25 +13,21 @@
     "hot",
     "reload"
   ],
-  "homepage": "https://github.com/electron-react-boilerplate/electron-react-boilerplate#readme",
-  "bugs": {
-    "url": "https://github.com/electron-react-boilerplate/electron-react-boilerplate/issues"
-  },
+  "homepage": "https://github.com/bananapretzel/Eventide-FFXI-Launcher-Demo",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/electron-react-boilerplate/electron-react-boilerplate.git"
+    "url": "git+https://github.com/bananapretzel/Eventide-FFXI-Launcher-Demo.git"
   },
-  "license": "MIT",
+  "license": "",
   "author": {
-    "name": "Electron React Boilerplate Maintainers",
-    "email": "electronreactboilerplate@gmail.com",
-    "url": "https://electron-react-boilerplate.js.org"
+    "name": "Eventide Dev Team"
   },
   "contributors": [
     {
-      "name": "Amila Welihinda",
-      "email": "amilajack@gmail.com",
-      "url": "https://github.com/amilajack"
+      "name": "bananapretzel"
+    },
+    {
+      "name": "mjkmike"
     }
   ],
   "main": "./.erb/dll/main.bundle.dev.js",
@@ -44,6 +40,7 @@
     "lint": "cross-env NODE_ENV=development eslint . --ext .js,.jsx,.ts,.tsx",
     "lint:fix": "cross-env NODE_ENV=development eslint . --ext .js,.jsx,.ts,.tsx --fix",
     "package": "ts-node ./.erb/scripts/clean.js dist && npm run build && electron-builder build --publish never && npm run build:dll",
+    "publish:win": "ts-node ./.erb/scripts/clean.js dist && npm run build && electron-builder --win nsis --publish always && npm run build:dll",
     "rebuild": "electron-rebuild --parallel --types prod,dev,optional --module-dir release/app",
     "prestart": "cross-env NODE_ENV=development TS_NODE_TRANSPILE_ONLY=true NODE_OPTIONS=\"-r ts-node/register --no-warnings\" webpack --config ./.erb/configs/webpack.config.main.dev.ts",
     "start": "ts-node ./.erb/scripts/check-port-in-use.js && npm run prestart && npm run start:renderer",
@@ -210,8 +207,8 @@
     "webpack-merge": "^6.0.1"
   },
   "build": {
-    "productName": "ElectronReact",
-    "appId": "org.erb.ElectronReact",
+    "productName": "Eventide FFXI Launcher",
+    "appId": "com.eventide.ffxi.launcher",
     "asar": true,
     "afterSign": ".erb/scripts/notarize.js",
     "asarUnpack": "**\\*.{node,dll}",
@@ -270,12 +267,9 @@
     ],
     "publish": {
       "provider": "github",
-      "owner": "electron-react-boilerplate",
-      "repo": "electron-react-boilerplate"
+      "owner": "bananapretzel",
+      "repo": "eventide-launcher-updates"
     }
-  },
-  "collective": {
-    "url": "https://opencollective.com/electron-react-boilerplate-594"
   },
   "devEngines": {
     "runtime": {

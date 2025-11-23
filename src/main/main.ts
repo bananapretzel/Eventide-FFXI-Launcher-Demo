@@ -11,8 +11,8 @@ import ini from 'ini';
 import { resolveHtmlPath } from './util';
 import { RELEASE_JSON_URL } from './config';
 import { getClientVersion } from '../core/versions';
-import { getReleaseJson, getPatchManifest } from '../core/manifest';
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { getReleaseJson, getPatchManifest, getPatchNotes } from '../core/manifest';
+import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron';
 import { readStorage, writeStorage, updateStorage, hasRequiredGameFiles, getDefaultStorage, validateStorageJson, StorageJson } from '../core/storage';
 import { bootstrap as logicBootstrap } from '../logic/bootstrap';
 import { writeJson, readJson } from '../core/fs';
@@ -190,6 +190,71 @@ app.once('ready', async () => {
     const env = process.env.NODE_ENV || 'production';
     log.info(chalk.cyan(`[startup] Launcher version: ${version}, environment: ${env}`));
 
+    // --- Configure launcher auto-updates ---
+    try {
+      autoUpdater.autoDownload = false;
+      autoUpdater.autoInstallOnAppQuit = true;
+
+      autoUpdater.on('checking-for-update', () => {
+        log.info(chalk.cyan('[autoUpdater] checking for update'));
+        const g: any = global;
+        g.mainWindow?.webContents.send('launcher:update-event', {
+          status: 'checking',
+        });
+      });
+
+      autoUpdater.on('update-available', (info) => {
+        log.info(chalk.cyan('[autoUpdater] update available'), info);
+        const g: any = global;
+        g.mainWindow?.webContents.send('launcher:update-event', {
+          status: 'update-available',
+          info,
+        });
+      });
+
+      autoUpdater.on('update-not-available', (info) => {
+        log.info(chalk.cyan('[autoUpdater] update not available'), info);
+        const g: any = global;
+        g.mainWindow?.webContents.send('launcher:update-event', {
+          status: 'up-to-date',
+          info,
+        });
+      });
+
+      autoUpdater.on('download-progress', (progress) => {
+        const { bytesPerSecond, percent, transferred, total } = progress;
+        log.info(
+          chalk.cyan('[autoUpdater] download progress'),
+          `${percent.toFixed(1)}% (${transferred}/${total}) @ ${bytesPerSecond} B/s`,
+        );
+        const g: any = global;
+        g.mainWindow?.webContents.send('launcher:update-event', {
+          status: 'downloading',
+          progress,
+        });
+      });
+
+      autoUpdater.on('update-downloaded', (info) => {
+        log.info(chalk.cyan('[autoUpdater] update downloaded'), info);
+        const g: any = global;
+        g.mainWindow?.webContents.send('launcher:update-event', {
+          status: 'downloaded',
+          info,
+        });
+      });
+
+      autoUpdater.on('error', (error) => {
+        log.error(chalk.red('[autoUpdater] error'), error);
+        const g: any = global;
+        g.mainWindow?.webContents.send('launcher:update-event', {
+          status: 'error',
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    } catch (updateErr) {
+      log.error(chalk.red('[startup] Failed to configure autoUpdater'), updateErr);
+    }
+
     // Step 3: Create default config.json if needed
     const configPath = paths.config;
     if (!fs.existsSync(configPath)) {
@@ -316,6 +381,48 @@ app.once('ready', async () => {
     log.info(chalk.cyan('[startup] Initialization complete'));
   } catch (err) {
     log.error(chalk.red('[startup] Startup error:'), err);
+  }
+});
+
+// IPC handlers for launcher self-updates
+ipcMain.handle('launcher:checkForUpdates', async () => {
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    return { success: true, result };
+  } catch (error) {
+    log.error(chalk.red('[launcher:checkForUpdates] error'), error);
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+ipcMain.handle('launcher:downloadUpdate', async () => {
+  try {
+    await autoUpdater.downloadUpdate();
+    return { success: true };
+  } catch (error) {
+    log.error(chalk.red('[launcher:downloadUpdate] error'), error);
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+ipcMain.handle('launcher:installUpdate', async () => {
+  try {
+    const choice = await dialog.showMessageBox({
+      type: 'question',
+      buttons: ['Restart now', 'Later'],
+      defaultId: 0,
+      title: 'Update ready',
+      message: 'A new version of the Eventide launcher has been downloaded. Restart now to install?',
+    });
+
+    if (choice.response === 0) {
+      autoUpdater.quitAndInstall();
+    }
+
+    return { success: true };
+  } catch (error) {
+    log.error(chalk.red('[launcher:installUpdate] error'), error);
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
 });
 
@@ -1164,7 +1271,6 @@ ipcMain.handle('game:fetch-patch-notes', async () => {
       return { success: false, error: 'No patch notes URL configured' };
     }
 
-    const { getPatchNotes } = await import('../core/manifest');
     const patchNotes = await getPatchNotes(release.patchNotesUrl);
 
     log.info(chalk.green(`[patch-notes] Fetched ${patchNotes.length} patch notes`));

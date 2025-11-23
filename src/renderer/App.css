@@ -1161,6 +1161,16 @@ body {
   }
 }
 
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
 .error-header {
   display: flex;
   align-items: flex-start;
