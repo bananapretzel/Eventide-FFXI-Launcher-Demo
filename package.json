@@ -41,8 +41,8 @@
     "postinstall": "ts-node .erb/scripts/check-native-dep.js && electron-builder install-app-deps && npm run build:dll",
     "lint": "cross-env NODE_ENV=development eslint . --ext .js,.jsx,.ts,.tsx",
     "lint:fix": "cross-env NODE_ENV=development eslint . --ext .js,.jsx,.ts,.tsx --fix",
-    "package": "ts-node ./.erb/scripts/clean.js dist && npm run build && electron-builder build --publish never && npm run build:dll",
-    "publish:win": "ts-node ./.erb/scripts/clean.js dist && npm run build && electron-builder --win nsis --publish always && npm run build:dll",
+    "package": "node ./.erb/scripts/create-installer-sidebar.js && ts-node ./.erb/scripts/clean.js dist && npm run build && electron-builder build --publish never && npm run build:dll",
+    "publish:win": "node ./.erb/scripts/create-installer-sidebar.js && ts-node ./.erb/scripts/clean.js dist && npm run build && electron-builder --win nsis --publish always && npm run build:dll",
     "rebuild": "electron-rebuild --parallel --types prod,dev,optional --module-dir release/app",
     "prestart": "cross-env NODE_ENV=development TS_NODE_TRANSPILE_ONLY=true NODE_OPTIONS=\"-r ts-node/register --no-warnings\" webpack --config ./.erb/configs/webpack.config.main.dev.ts",
     "start": "ts-node ./.erb/scripts/check-port-in-use.js && npm run prestart && npm run start:renderer",
@@ -152,6 +152,7 @@
     "@typescript-eslint/eslint-plugin": "^8.26.1",
     "@typescript-eslint/parser": "^8.26.1",
     "autoprefixer": "^10.4.21",
+    "bmp-js": "^0.1.0",
     "browserslist": "^4.27.0",
     "browserslist-config-erb": "^0.0.3",
     "caniuse-lite": "^1.0.30001751",
@@ -193,6 +194,7 @@
     "rimraf": "^6.0.1",
     "sass": "^1.86.0",
     "sass-loader": "^16.0.5",
+    "sharp": "^0.34.5",
     "style-loader": "^4.0.0",
     "tailwindcss": "^4.1.16",
     "terser-webpack-plugin": "^5.3.14",
@@ -251,7 +253,21 @@
     "win": {
       "target": [
         "nsis"
-      ]
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": false,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerHeaderIcon": "assets/icon.ico",
+      "installerSidebar": "assets/installerSidebar.bmp",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "linux": {
       "target": [

@@ -746,7 +746,7 @@ ipcMain.handle('launcher:launchGame', async (_event, installDir: string) => {
 
 
 
-
+const isDev = !app.isPackaged;
 
 
 let mainWindow: BrowserWindow | null = null;
@@ -757,11 +757,18 @@ if (!(global as any).mainWindow) {
 
 // Ensure mainWindow is initialized on app ready
 app.on('ready', () => {
-  // Use the correct path to the built preload.js for development
-  const preloadPath = path.join(__dirname, '../../.erb/dll/preload.js');
+  // Determine preload path based on environment
+  const preloadPath = app.isPackaged
+    ? path.join(__dirname, 'preload.js')
+    : path.join(__dirname, '../../.erb/dll/preload.js');
+
   mainWindow = new BrowserWindow({
-    width: 1024,
-    height: 768,
+    width: isDev ? 1600 : 1148,
+    height: isDev ? 750 : 673,
+    frame: isDev ? true : false, // Remove Windows frame for custom UI
+    transparent: true, // Enable transparency for borderless window
+    resizable: false,
+    backgroundColor: '#00FFFFFF',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

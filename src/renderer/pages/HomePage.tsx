@@ -1,7 +1,8 @@
-import React, { useEffect, useReducer, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { siDiscord } from 'simple-icons';
 import { fetchPatchNotes } from '../data/feed';
 import type { Post } from '../types/feed';
+import { useGameState } from '../contexts/GameStateContext';
 
 // Check update status on mount
 // (moved below imports)
@@ -29,85 +30,8 @@ export default function HomePage(props: HomePageProps) {
     installDir,
   } = props;
 
-  type State =
-    | { status: 'checking' }
-    | { status: 'missing' }
-    | {
-        status: 'downloading';
-        progress: number;
-        downloaded?: number;
-        total?: number;
-      }
-    | {
-        status: 'extracting';
-        progress: number;
-        current?: number;
-        total?: number;
-      }
-    | {
-        status: 'update-available';
-        remoteVersion?: string;
-        installedVersion?: string;
-      }
-    | { status: 'ready' }
-    | { status: 'launching' }
-    | {
-        status: 'error';
-        message: string;
-        isRetryable?: boolean;
-        lastOperation?: 'download' | 'update' | 'check';
-      };
-
-  type Action =
-    | { type: 'CHECK' }
-    | { type: 'SET'; state: State }
-    | { type: 'PROGRESS'; p: number; downloaded?: number; total?: number }
-    | { type: 'EXTRACT_PROGRESS'; p: number; current?: number; total?: number }
-    | {
-        type: 'ERROR';
-        msg: string;
-        isRetryable?: boolean;
-        lastOperation?: 'download' | 'update' | 'check';
-      };
-
-  function reducer(_: State, action: Action): State {
-    try {
-      switch (action.type) {
-        case 'CHECK':
-          return { status: 'checking' };
-        case 'SET':
-          return action.state;
-        case 'PROGRESS':
-          return {
-            status: 'downloading',
-            progress: action.p,
-            downloaded: action.downloaded,
-            total: action.total,
-          };
-        case 'EXTRACT_PROGRESS':
-          return {
-            status: 'extracting',
-            progress: action.p,
-            current: action.current,
-            total: action.total,
-          };
-        case 'ERROR':
-          return {
-            status: 'error',
-            message: action.msg,
-            isRetryable: action.isRetryable,
-            lastOperation: action.lastOperation,
-          };
-        default:
-          return { status: 'checking' };
-      }
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('[HomePage reducer] Error:', err, action);
-      return { status: 'error', message: String(err) };
-    }
-  }
-  const [state, dispatch] = useReducer(reducer, { status: 'checking' });
+  // Use the shared game state from context
+  const { state, dispatch } = useGameState();
   const [posts, setPosts] = useState<Post[]>([]);
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
@@ -247,17 +171,17 @@ export default function HomePage(props: HomePageProps) {
   };
 
   // Safely read progress from union-typed state
-  const getProgress = (s: State): number | undefined => {
+  const getProgress = (s: typeof state): number | undefined => {
     if (s.status === 'downloading' || s.status === 'extracting') {
       return s.progress;
     }
     return undefined;
   };
 
-  const getDownloaded = (s: State): number | undefined =>
+  const getDownloaded = (s: typeof state): number | undefined =>
     s.status === 'downloading' ? s.downloaded : undefined;
 
-  const getTotal = (s: State): number | undefined =>
+  const getTotal = (s: typeof state): number | undefined =>
     s.status === 'downloading' ? s.total : undefined;
 
   const formatBytes = (n?: number) => {
@@ -271,167 +195,6 @@ export default function HomePage(props: HomePageProps) {
     }
     return `${val.toFixed(val >= 10 || idx === 0 ? 0 : 1)} ${units[idx]}`;
   };
-
-  useEffect(() => {
-    let unsubProgress: (() => void) | undefined;
-    let unsubStatus: (() => void) | undefined;
-    let unsubExtract: (() => void) | undefined;
-
-    try {
-      const doCheck = async () => {
-        dispatch({ type: 'CHECK' });
-        try {
-          const res = await safeInvoke('game:check');
-          const { launcherState, latestVersion, installedVersion } = res ?? {};
-          if (launcherState === 'missing') {
-            dispatch({ type: 'SET', state: { status: 'missing' } });
-          } else if (launcherState === 'update-available') {
-            dispatch({
-              type: 'SET',
-              state: {
-                status: 'update-available',
-                remoteVersion: latestVersion,
-                installedVersion,
-              },
-            });
-          } else if (launcherState === 'ready') {
-            dispatch({ type: 'SET', state: { status: 'ready' } });
-          } else {
-            dispatch({ type: 'SET', state: { status: 'missing' } });
-          }
-        } catch (err) {
-          // eslint-disable-next-line no-console
-          console.error('[HomePage useEffect] doCheck error:', err);
-          dispatch({ type: 'ERROR', msg: String(err) });
-        }
-      };
-
-      // subscribe to progress/status events (main should send these)
-      try {
-        const { electron } = window as any;
-        const ipc = electron?.ipcRenderer;
-        if (ipc && typeof ipc.on === 'function') {
-          unsubProgress = ipc.on(
-            'download:progress',
-            (_ev: any, payload: any) => {
-              try {
-                // debug log incoming progress payload
-                // eslint-disable-next-line no-console
-                console.log('[renderer] received download:progress', payload);
-                const { dl, total } = payload ?? {};
-                const percent = total ? Math.round((dl / total) * 100) : 0;
-                dispatch({
-                  type: 'PROGRESS',
-                  p: percent,
-                  downloaded: dl,
-                  total,
-                });
-              } catch (err) {
-                // eslint-disable-next-line no-console
-                console.error(
-                  '[HomePage useEffect] download:progress handler error:',
-                  err,
-                );
-              }
-            },
-          );
-
-          // Add extraction progress listener
-          unsubExtract = ipc.on(
-            'extract:progress',
-            (_ev: any, payload: any) => {
-              try {
-                // eslint-disable-next-line no-console
-                console.log('[renderer] received extract:progress', payload);
-                const { current, total } = payload ?? {};
-                const percent = total ? Math.round((current / total) * 100) : 0;
-                dispatch({
-                  type: 'EXTRACT_PROGRESS',
-                  p: percent,
-                  current,
-                  total,
-                });
-              } catch (err) {
-                // eslint-disable-next-line no-console
-                console.error(
-                  '[HomePage useEffect] extract:progress handler error:',
-                  err,
-                );
-              }
-            },
-          );
-
-          unsubStatus = ipc.on('game:status', (_ev: any, payload: any) => {
-            try {
-              const { status, remoteVersion, installedVersion, message } =
-                payload ?? {};
-              // payload.status: 'downloaded'|'ready'|'error'|'launching' etc.
-              if (status === 'downloaded' || status === 'ready') {
-                dispatch({ type: 'SET', state: { status: 'ready' } });
-              } else if (status === 'error') {
-                dispatch({
-                  type: 'ERROR',
-                  msg: message ?? 'Unknown error',
-                  isRetryable: true,
-                });
-              } else if (status === 'update-available') {
-                dispatch({
-                  type: 'SET',
-                  state: {
-                    status: 'update-available',
-                    remoteVersion,
-                    installedVersion,
-                  },
-                });
-              }
-            } catch (err) {
-              // eslint-disable-next-line no-console
-              console.error(
-                '[HomePage useEffect] game:status handler error:',
-                err,
-              );
-            }
-          });
-        }
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.error('[HomePage useEffect] subscription error:', err);
-      }
-
-      doCheck();
-
-      return () => {
-        try {
-          if (typeof unsubProgress === 'function') {
-            unsubProgress();
-          }
-        } catch (err) {
-          // eslint-disable-next-line no-console
-          console.error('[HomePage useEffect] unsubProgress error:', err);
-        }
-        try {
-          if (typeof unsubExtract === 'function') {
-            unsubExtract();
-          }
-        } catch (err) {
-          // eslint-disable-next-line no-console
-          console.error('[HomePage useEffect] unsubExtract error:', err);
-        }
-        try {
-          if (typeof unsubStatus === 'function') {
-            unsubStatus();
-          }
-        } catch (err) {
-          // eslint-disable-next-line no-console
-          console.error('[HomePage useEffect] unsubStatus error:', err);
-        }
-      };
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('[HomePage useEffect] outer error:', err);
-    }
-    return undefined;
-  }, []);
 
   const handleActionClick = async () => {
     console.log('[HomePage] Play/Action button clicked, state:', state);
