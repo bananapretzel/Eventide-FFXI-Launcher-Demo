@@ -41,8 +41,8 @@
     "postinstall": "ts-node .erb/scripts/check-native-dep.js && electron-builder install-app-deps && npm run build:dll",
     "lint": "cross-env NODE_ENV=development eslint . --ext .js,.jsx,.ts,.tsx",
     "lint:fix": "cross-env NODE_ENV=development eslint . --ext .js,.jsx,.ts,.tsx --fix",
-    "package": "node ./.erb/scripts/create-installer-sidebar.js && ts-node ./.erb/scripts/clean.js dist && npm run build && electron-builder build --publish never && npm run build:dll",
-    "publish:win": "node ./.erb/scripts/create-installer-sidebar.js && ts-node ./.erb/scripts/clean.js dist && npm run build && electron-builder --win nsis --publish always && npm run build:dll",
+    "package": "ts-node ./.erb/scripts/clean.js dist && npm run build && electron-builder build --publish never && npm run build:dll",
+    "publish:win": "ts-node ./.erb/scripts/clean.js dist && npm run build && electron-builder --win nsis --publish always && npm run build:dll",
     "rebuild": "electron-rebuild --parallel --types prod,dev,optional --module-dir release/app",
     "prestart": "cross-env NODE_ENV=development TS_NODE_TRANSPILE_ONLY=true NODE_OPTIONS=\"-r ts-node/register --no-warnings\" webpack --config ./.erb/configs/webpack.config.main.dev.ts",
     "start": "ts-node ./.erb/scripts/check-port-in-use.js && npm run prestart && npm run start:renderer",
@@ -118,12 +118,14 @@
     "@electron/notarize": "^3.0.0",
     "ajv": "^8.17.1",
     "axios": "^1.13.2",
+    "check-disk-space": "^3.4.0",
     "electron-debug": "^4.1.0",
     "electron-dl": "^4.0.0",
     "electron-log": "^5.4.3",
     "electron-updater": "^6.6.2",
     "extract-zip": "^2.0.1",
     "ini": "^6.0.0",
+    "keytar": "^7.9.0",
     "lucide-react": "^0.548.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -267,7 +269,8 @@
       "installerSidebar": "assets/installerSidebar.bmp",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "artifactName": "${productName}-Setup-${version}.${ext}"
+      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "include": "assets/installer.nsh"
     },
     "linux": {
       "target": [

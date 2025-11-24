@@ -1,8 +1,9 @@
-﻿// HomePage component tests
+// HomePage component tests
 import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import HomePage from '../pages/HomePage';
+import { GameStateProvider } from '../contexts/GameStateContext';
 
 // Mock electron API with comprehensive IPC support
 const mockElectron = {
@@ -49,6 +50,19 @@ const defaultProps = {
   installDir: 'C:\\test\\game'
 };
 
+// Test wrapper to provide GameStateContext
+const TestWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <GameStateProvider>{children}</GameStateProvider>
+);
+
+const renderHomePage = (props = defaultProps) => {
+  return render(
+    <TestWrapper>
+      <HomePage {...props} />
+    </TestWrapper>
+  );
+};
+
 describe('HomePage Component', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -68,12 +82,12 @@ describe('HomePage Component', () => {
   });
 
   it('should render the component', () => {
-    render(<HomePage {...defaultProps} />);
+    renderHomePage({...defaultProps});
     expect(screen.getByText(/ACCOUNT LOGIN/i)).toBeInTheDocument();
   });
 
   it('should show checking state initially', () => {
-    render(<HomePage {...defaultProps} />);
+    renderHomePage({...defaultProps});
     expect(screen.getByText(/Checking/i)).toBeInTheDocument();
   });
 
@@ -89,7 +103,7 @@ describe('HomePage Component', () => {
       return Promise.resolve({ success: true });
     });
 
-    render(<HomePage {...defaultProps} />);
+    renderHomePage({...defaultProps});
 
     await waitFor(() => {
       const button = screen.getByRole('button', { name: /Download/i });
@@ -112,7 +126,7 @@ describe('HomePage Component', () => {
       return Promise.resolve({ success: true });
     });
 
-    render(<HomePage {...defaultProps} />);
+    renderHomePage({...defaultProps});
 
     await waitFor(() => {
       const button = screen.getByRole('button', { name: /Download/i });
@@ -142,7 +156,7 @@ describe('HomePage Component', () => {
       return Promise.resolve({ success: true });
     });
 
-    render(<HomePage {...defaultProps} />);
+    renderHomePage({...defaultProps});
 
     await waitFor(() => {
       const button = screen.getByRole('button', { name: /Download/i });
@@ -172,7 +186,7 @@ describe('HomePage Component', () => {
       return Promise.resolve({ success: true });
     });
 
-    render(<HomePage {...defaultProps} />);
+    renderHomePage({...defaultProps});
 
     await waitFor(() => {
       const button = screen.getByRole('button', { name: /Download/i });
@@ -205,7 +219,7 @@ describe('HomePage Component', () => {
       return Promise.resolve({ success: true });
     });
 
-    render(<HomePage {...defaultProps} />);
+    renderHomePage({...defaultProps});
 
     await waitFor(() => {
       const button = screen.getByRole('button', { name: /Download/i });
@@ -235,7 +249,7 @@ describe('HomePage Component', () => {
       return Promise.resolve({ success: true });
     });
 
-    render(<HomePage {...defaultProps} canPlay={true} />);
+    renderHomePage({ ...defaultProps, canPlay: true });
 
     await waitFor(() => {
       const button = screen.getByRole('button', { name: /^Play$/i });
@@ -255,7 +269,7 @@ describe('HomePage Component', () => {
       return Promise.resolve({ success: true });
     });
 
-    render(<HomePage {...defaultProps} />);
+    renderHomePage({...defaultProps});
 
     await waitFor(() => {
       const button = screen.getByRole('button', { name: /Update/i });
@@ -278,7 +292,7 @@ describe('HomePage Component', () => {
       return Promise.resolve({ success: true });
     });
 
-    render(<HomePage {...defaultProps} />);
+    renderHomePage({...defaultProps});
 
     await waitFor(() => {
       const button = screen.getByRole('button', { name: /Update/i });
@@ -321,7 +335,7 @@ describe('HomePage Component', () => {
       canPlay: true
     };
 
-    render(<HomePage {...props} />);
+    renderHomePage({...props});
 
     await waitFor(() => {
       const button = screen.getByRole('button', { name: /^Play$/i });
@@ -353,7 +367,7 @@ describe('HomePage Component', () => {
       return Promise.resolve({ success: true });
     });
 
-    render(<HomePage {...defaultProps} />);
+    renderHomePage({...defaultProps});
 
     await waitFor(() => {
       const button = screen.getByRole('button', { name: /Download/i });
@@ -385,7 +399,7 @@ describe('HomePage Component', () => {
       return Promise.resolve({ success: true });
     });
 
-    render(<HomePage {...defaultProps} canPlay={true} />);
+    renderHomePage({ ...defaultProps, canPlay: true });
 
     await waitFor(() => {
       const button = screen.getByRole('button', { name: /Download/i });
@@ -420,7 +434,7 @@ describe('HomePage Component', () => {
       return Promise.resolve({ success: true });
     });
 
-    render(<HomePage {...defaultProps} />);
+    renderHomePage({...defaultProps});
 
     await waitFor(() => {
       const button = screen.getByRole('button', { name: /Download/i });
@@ -452,11 +466,12 @@ describe('HomePage Component', () => {
       return Promise.resolve({ success: true });
     });
 
-    // Click the main retry button (with emoji)
-    const retryButton = screen.getByRole('button', { name: /⚠️ Retry/i });
+    // Click the main retry button (the play button with emoji, not the "Retry Now" button in the error card)
+    const retryButtons = screen.getAllByRole('button', { name: /Retry/i });
+    const mainRetryButton = retryButtons.find(btn => btn.classList.contains('play-btn'));
 
     await act(async () => {
-      fireEvent.click(retryButton);
+      fireEvent.click(mainRetryButton!);
     });
 
     await waitFor(() => {
@@ -476,7 +491,7 @@ describe('HomePage Component', () => {
       return Promise.resolve({ success: true });
     });
 
-    render(<HomePage {...defaultProps} canPlay={false} />);
+    renderHomePage({ ...defaultProps, canPlay: false });
 
     await waitFor(() => {
       const button = screen.getByRole('button', { name: /^Play$/i });
@@ -491,7 +506,7 @@ describe('HomePage Component', () => {
     const setUsername = jest.fn();
     const props = { ...defaultProps, setUsername };
 
-    render(<HomePage {...props} />);
+    renderHomePage({...props});
 
     const usernameInput = screen.getByPlaceholderText(/Username/i);
 
@@ -504,7 +519,7 @@ describe('HomePage Component', () => {
     const setPassword = jest.fn();
     const props = { ...defaultProps, setPassword };
 
-    render(<HomePage {...props} />);
+    renderHomePage({...props});
 
     const passwordInput = screen.getByPlaceholderText(/Password/i);
 
@@ -517,7 +532,7 @@ describe('HomePage Component', () => {
     const setRemember = jest.fn();
     const props = { ...defaultProps, setRemember };
 
-    render(<HomePage {...props} />);
+    renderHomePage({...props});
 
     const rememberCheckbox = screen.getByRole('checkbox', { name: /Remember credentials/i });
 
@@ -538,7 +553,7 @@ describe('HomePage Component', () => {
       return Promise.resolve({ success: true });
     });
 
-    render(<HomePage {...defaultProps} />);
+    renderHomePage({...defaultProps});
 
     await waitFor(() => {
       const button = screen.getByRole('button', { name: /Download/i });
@@ -577,7 +592,7 @@ describe('HomePage Component', () => {
       canPlay: true
     };
 
-    render(<HomePage {...props} />);
+    renderHomePage({...props});
 
     await waitFor(() => {
       const button = screen.getByRole('button', { name: /^Play$/i });
@@ -617,7 +632,7 @@ describe('HomePage Component', () => {
       canPlay: true
     };
 
-    render(<HomePage {...props} />);
+    renderHomePage({...props});
 
     await waitFor(() => {
       const button = screen.getByRole('button', { name: /^Play$/i });
@@ -651,7 +666,7 @@ describe('HomePage Component', () => {
         return Promise.resolve({ success: true });
       });
 
-      render(<HomePage {...defaultProps} />);
+      renderHomePage({...defaultProps});
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
@@ -686,7 +701,7 @@ describe('HomePage Component', () => {
         return Promise.resolve({ success: true });
       });
 
-      render(<HomePage {...defaultProps} />);
+      renderHomePage({...defaultProps});
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
@@ -698,9 +713,11 @@ describe('HomePage Component', () => {
       });
 
       await waitFor(() => {
-        const errorButton = screen.getByRole('button', { name: /⚠️ Retry/i });
-        expect(errorButton).toBeInTheDocument();
-        expect(errorButton).toHaveClass('is-error');
+        const errorButtons = screen.getAllByRole('button', { name: /Retry/i });
+        // The main play button (with class is-error) should be the first one
+        const mainErrorButton = errorButtons.find(btn => btn.classList.contains('is-error'));
+        expect(mainErrorButton).toBeInTheDocument();
+        expect(mainErrorButton).toHaveClass('is-error');
       });
     });
 
@@ -722,7 +739,7 @@ describe('HomePage Component', () => {
         return Promise.resolve({ success: true });
       });
 
-      render(<HomePage {...defaultProps} />);
+      renderHomePage({...defaultProps});
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
@@ -773,7 +790,7 @@ describe('HomePage Component', () => {
           return Promise.resolve({ success: true });
         });
 
-        const { unmount } = render(<HomePage {...defaultProps} />);
+        const { unmount } = renderHomePage({...defaultProps});
 
         await waitFor(() => {
           expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
@@ -817,7 +834,7 @@ describe('HomePage Component', () => {
         return Promise.resolve({ success: true });
       });
 
-      render(<HomePage {...defaultProps} />);
+      renderHomePage({...defaultProps});
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
@@ -857,3 +874,4 @@ describe('HomePage Component', () => {
     });
   });
 });
+

@@ -1,6 +1,6 @@
 import { downloadFile } from '../core/net';
 import { verifySha256 } from '../core/hash';
-import { extractZip, verifyExtractedFiles } from '../core/fs';
+import { extractZip, verifyExtractedFiles, createPivotIni } from '../core/fs';
 import { setClientVersion } from '../core/versions';
 import { join } from 'path';
 import { updateStorage } from '../core/storage';
@@ -17,10 +17,17 @@ export async function downloadGame(
   onProgress?: (dl: number, total: number) => void,
   onExtractProgress?: (current: number, total: number) => void
 ): Promise<void> {
+  log.info(chalk.cyan('[downloadGame] ================================='));
   log.info(chalk.cyan('[downloadGame] Starting base game download...'));
   log.info(chalk.cyan(`[downloadGame] URL: ${url}`));
   log.info(chalk.cyan(`[downloadGame] Install dir: ${installDir}`));
   log.info(chalk.cyan(`[downloadGame] Downloads dir: ${downloadsDir}`));
+  log.info(chalk.cyan(`[downloadGame] Expected SHA256: ${sha256}`));
+  log.info(chalk.cyan(`[downloadGame] Base version: ${baseVersion}`));
+  if (expectedSize) {
+    log.info(chalk.cyan(`[downloadGame] Expected size: ${(expectedSize / 1024 / 1024).toFixed(2)} MB`));
+  }
+  log.info(chalk.cyan('[downloadGame] ================================='));
 
   const zipName = url.split('/').pop() || 'base-game.zip';
   const zipPath = join(downloadsDir, zipName);
@@ -54,6 +61,14 @@ export async function downloadGame(
 
   // Set version in AppData storage (installDir is ignored by setClientVersion)
   await setClientVersion(installDir, baseVersion);
+
+  // Configure Pivot overlay system for DAT file management
+  log.info(chalk.cyan(`[downloadGame] Configuring Pivot overlay system...`));
+  const pivotResult = await createPivotIni(installDir);
+  if (!pivotResult.success) {
+    log.warn(chalk.yellow(`[downloadGame] Failed to configure Pivot: ${pivotResult.error}`));
+    // Don't fail the installation, just warn
+  }
 
   log.info(chalk.green(`[downloadGame] ✓ Base game installation complete! Version: ${baseVersion}`));
 }

@@ -52,6 +52,9 @@ describe('Download Logic', () => {
         updater: { downloaded: "", extracted: "" },
       },
     });
+
+    // Mock createPivotIni to succeed by default
+    (fs.createPivotIni as jest.Mock).mockResolvedValue({ success: true });
   });
 
   it('should call downloadFile with correct parameters', async () => {

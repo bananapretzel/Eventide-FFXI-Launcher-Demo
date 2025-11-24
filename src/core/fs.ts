@@ -1,8 +1,39 @@
-import { promises as fs, createWriteStream } from 'fs';
+import { promises as fs, createWriteStream, statfsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import log from 'electron-log';
 import chalk from 'chalk';
+import * as os from 'os';
+
+/**
+ * Sets write permissions on a file before writing to it
+ * This ensures config files can be written even if they were read-only
+ * @param filePath Path to the file
+ */
+export async function ensureFileWritable(filePath: string): Promise<void> {
+  try {
+    // Check if file exists first
+    const exists = await fileExists(filePath);
+    if (!exists) {
+      // File doesn't exist, no need to change permissions
+      return;
+    }
+
+    // On Windows, use fs.chmod to set write permissions
+    if (process.platform === 'win32') {
+      // 0o666 = read+write for owner, group, and others
+      await fs.chmod(filePath, 0o666);
+      log.info(chalk.cyan(`[ensureFileWritable] Set write permissions on: ${filePath}`));
+    } else {
+      // On Unix-like systems, use fs.chmod with standard permissions
+      await fs.chmod(filePath, 0o644);
+      log.info(chalk.cyan(`[ensureFileWritable] Set write permissions on: ${filePath}`));
+    }
+  } catch (err) {
+    // Log warning but don't fail - we'll try writing anyway
+    log.warn(chalk.yellow(`[ensureFileWritable] Could not set permissions on ${filePath}:`), err);
+  }
+}
 
 export async function fileExists(path: string): Promise<boolean> {
   try {
@@ -23,6 +54,9 @@ export async function readJson<T>(path: string): Promise<T | null> {
 }
 
 export async function writeJson(path: string, data: any): Promise<void> {
+  // Ensure the file is writable before writing
+  await ensureFileWritable(path);
+
   const tmp = join(tmpdir(), `tmp-${Date.now()}.json`);
   await fs.writeFile(tmp, JSON.stringify(data, null, 2), 'utf-8');
   await fs.rename(tmp, path);
@@ -186,4 +220,152 @@ export async function verifyExtractedFiles(destDir: string, expectedMinFiles?: n
 
 export async function moveFile(src: string, dest: string): Promise<void> {
   await fs.rename(src, dest);
+}
+
+/**
+ * Check available disk space for a given path
+ * @param path Directory path to check
+ * @returns Available space in bytes, or null if check fails
+ */
+export function getAvailableDiskSpace(path: string): number | null {
+  try {
+    if (process.platform === 'win32') {
+      // On Windows, use a different approach
+      const { spawn } = require('child_process');
+      // We'll use wmic for Windows disk space check
+      // For now, return null and let the caller handle it
+      // This will be a synchronous approximation
+      return null; // Windows requires async handling
+    } else {
+      // On Unix-like systems, use statfs
+      const stats = statfsSync(path);
+      const availableBytes = stats.bavail * stats.bsize;
+      return availableBytes;
+    }
+  } catch (err) {
+    log.error(chalk.red('[getAvailableDiskSpace] Error checking disk space:'), err);
+    return null;
+  }
+}
+
+/**
+ * Check if there's enough disk space for an operation
+ * @param path Directory path to check
+ * @param requiredBytes Bytes required
+ * @returns true if enough space, false otherwise
+ */
+export async function checkDiskSpace(path: string, requiredBytes: number): Promise<{ hasSpace: boolean; availableBytes: number; message?: string }> {
+  try {
+    log.info(chalk.cyan(`[checkDiskSpace] Checking disk space for ${path}, required: ${(requiredBytes / 1024 / 1024 / 1024).toFixed(2)} GB`));
+
+    // For cross-platform support, use check-disk-space package if available
+    // Otherwise provide a basic check
+    try {
+      const checkDiskSpace = require('check-disk-space').default;
+      const diskSpace = await checkDiskSpace(path);
+      const available = diskSpace.free;
+
+      log.info(chalk.cyan(`[checkDiskSpace] Available: ${(available / 1024 / 1024 / 1024).toFixed(2)} GB`));
+
+      if (available < requiredBytes) {
+        const shortfall = requiredBytes - available;
+        return {
+          hasSpace: false,
+          availableBytes: available,
+          message: `Insufficient disk space. Need ${(requiredBytes / 1024 / 1024 / 1024).toFixed(2)} GB, but only ${(available / 1024 / 1024 / 1024).toFixed(2)} GB available. Please free up at least ${(shortfall / 1024 / 1024 / 1024).toFixed(2)} GB.`
+        };
+      }
+
+      return { hasSpace: true, availableBytes: available };
+    } catch (importErr) {
+      // If check-disk-space is not available, return a permissive result
+      log.warn(chalk.yellow('[checkDiskSpace] check-disk-space module not available, skipping disk space check'));
+      return { hasSpace: true, availableBytes: 0 };
+    }
+  } catch (err) {
+    log.error(chalk.red('[checkDiskSpace] Error checking disk space:'), err);
+    // On error, be permissive and allow the operation
+    return { hasSpace: true, availableBytes: 0 };
+  }
+}
+
+/**
+ * Check if directory is writable
+ * @param dirPath Directory to check
+ * @returns true if writable, false otherwise
+ */
+export async function checkDirectoryWritable(dirPath: string): Promise<{ writable: boolean; error?: string }> {
+  try {
+    log.info(chalk.cyan(`[checkDirectoryWritable] Checking write permissions for: ${dirPath}`));
+
+    // Ensure directory exists
+    await fs.mkdir(dirPath, { recursive: true });
+
+    // Try to write a test file
+    const testFile = join(dirPath, `.write-test-${Date.now()}`);
+    try {
+      await fs.writeFile(testFile, 'test', 'utf-8');
+      await fs.unlink(testFile);
+      log.info(chalk.green(`[checkDirectoryWritable] Directory is writable: ${dirPath}`));
+      return { writable: true };
+    } catch (err) {
+      log.error(chalk.red(`[checkDirectoryWritable] Directory is NOT writable: ${dirPath}`), err);
+      return {
+        writable: false,
+        error: `Cannot write to directory: ${dirPath}. Please check folder permissions or try running as administrator.`
+      };
+    }
+  } catch (err) {
+    log.error(chalk.red(`[checkDirectoryWritable] Error checking directory:`, err));
+    return {
+      writable: false,
+      error: `Cannot access directory: ${dirPath}. ${err instanceof Error ? err.message : String(err)}`
+    };
+  }
+}
+
+/**
+ * Creates or updates pivot.ini configuration file for Pivot plugin overlay system
+ * This fixes the "incorrect pivot root_path configuration" bug
+ * @param gameRoot Root game installation directory
+ */
+export async function createPivotIni(gameRoot: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const pivotConfigDir = join(gameRoot, 'config', 'pivot');
+    const pivotIniPath = join(pivotConfigDir, 'pivot.ini');
+
+    log.info(chalk.cyan(`[createPivotIni] Configuring Pivot overlay system at: ${pivotIniPath}`));
+
+    // Check write permissions first
+    const writeCheck = await checkDirectoryWritable(pivotConfigDir);
+    if (!writeCheck.writable) {
+      log.error(chalk.red(`[createPivotIni] Cannot write to pivot config directory`));
+      return { success: false, error: writeCheck.error };
+    }
+
+    // Pivot.ini content with correct root_path configuration
+    // This ensures patches in polplugins/DATs/Eventide/ROM/ are properly loaded
+    const pivotIniContent = `[Settings]
+; Pivot DAT Overlay Configuration
+; Generated by Eventide Launcher
+
+; Root path for DAT overlays (relative to game root)
+root_path=polplugins/DATs/
+
+; Overlay priority order (higher number = higher priority)
+[Overlays]
+Eventide=1
+`;
+
+    await fs.writeFile(pivotIniPath, pivotIniContent, 'utf-8');
+    log.info(chalk.green(`[createPivotIni] ✓ Pivot configuration created successfully`));
+
+    return { success: true };
+  } catch (err) {
+    log.error(chalk.red(`[createPivotIni] Error creating pivot.ini:`), err);
+    return {
+      success: false,
+      error: `Failed to create pivot.ini: ${err instanceof Error ? err.message : String(err)}`
+    };
+  }
 }

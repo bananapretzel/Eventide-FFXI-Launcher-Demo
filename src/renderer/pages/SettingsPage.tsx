@@ -198,7 +198,7 @@ function LauncherUpdatesCard({ handleShowToast }: { handleShowToast: (msg: strin
         case 'up-to-date':
           setUpdateStatus('up-to-date');
           setIsChecking(false);
-          handleShowToast('Launcher is up to date!');
+          handleShowToast(payload.message || 'Launcher is up to date!');
           break;
         case 'downloading':
           setUpdateStatus('downloading');
@@ -207,13 +207,13 @@ function LauncherUpdatesCard({ handleShowToast }: { handleShowToast: (msg: strin
         case 'downloaded':
           setUpdateStatus('downloaded');
           setIsDownloading(false);
-          handleShowToast('Update downloaded! Click "Install Update" to restart.');
+          handleShowToast(payload.message || 'Update downloaded! Click "Install Update" to restart.');
           break;
         case 'error':
           setUpdateStatus('error');
           setIsChecking(false);
           setIsDownloading(false);
-          handleShowToast(`Update error: ${payload.error}`);
+          handleShowToast(payload.message || `Update error: ${payload.error}`);
           break;
         default:
           break;

@@ -547,6 +547,11 @@ export const DEFAULT_PLUGINS = [
     "enabled": false
   },
   {
+    "name": "Sequencer",
+    "description": "Manages packet sequencing for Ashitacast, LegacyAC, and LuAshitacast. Always loaded for proper packet management.",
+    "enabled": true
+  },
+  {
     "name": "Thirdparty",
     "description": "Enables third-party external applications to communicate with Ashita and the game client.",
     "enabled": false

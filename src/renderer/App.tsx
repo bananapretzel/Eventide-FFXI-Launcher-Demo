@@ -77,6 +77,7 @@ export default function App() {
   return (
     <HashRouter>
       <div className="launcher-shell">
+        <div className="drag-region" />
         <header className="launcher-header">
           {/* window controls live here */}
           <div className="window-controls" aria-label="Window controls">

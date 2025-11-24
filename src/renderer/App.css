@@ -427,6 +427,26 @@ body {
   /* preserve newlines from post body text */
 }
 
+.drag-region {
+  position: absolute;
+  top: -20px;
+  left: -20px;
+  right: 80px;
+  height: 32px;
+  /* or whatever height you want for the drag strip */
+  -webkit-app-region: drag;
+
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+
+
+  background: transparent;
+  /* can be fully transparent, or a subtle gradient */
+  z-index: 10;
+  /* sits above content visually, but won't break layout below */
+}
+
 /* Window Controls */
 .window-controls {
   position: absolute;

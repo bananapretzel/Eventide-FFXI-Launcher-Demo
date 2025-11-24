@@ -67,35 +67,45 @@ export default function HomePage(props: HomePageProps) {
       return () => {}; // Return empty cleanup function
     }
 
-    const cleanup = window.electron.launcherUpdate.onUpdateEvent((_event, payload) => {
-      switch (payload.status) {
-        case 'checking':
-          setUpdateStatus('checking');
-          break;
-        case 'update-available':
-          setUpdateStatus('available');
-          setUpdateInfo(payload.info);
-          handleShowToast(`New launcher update available: ${payload.info?.version || 'Unknown'}`);
-          break;
-        case 'up-to-date':
-          setUpdateStatus('up-to-date');
-          handleShowToast('Launcher is up to date!');
-          break;
-        case 'downloading':
-          setUpdateStatus('downloading');
-          break;
-        case 'downloaded':
-          setUpdateStatus('downloaded');
-          handleShowToast('Update downloaded! Go to Settings to install.');
-          break;
-        case 'error':
-          setUpdateStatus('error');
-          handleShowToast(`Update error: ${payload.error}`);
-          break;
-        default:
-          break;
-      }
-    });
+    const cleanup = window.electron.launcherUpdate.onUpdateEvent(
+      (_event, payload) => {
+        switch (payload.status) {
+          case 'checking':
+            setUpdateStatus('checking');
+            break;
+          case 'update-available':
+            setUpdateStatus('available');
+            setUpdateInfo(payload.info);
+            handleShowToast(
+              payload.message ||
+                `New launcher update available: ${payload.info?.version || 'Unknown'}`,
+            );
+            break;
+          case 'up-to-date':
+            setUpdateStatus('up-to-date');
+            handleShowToast(payload.message || 'Launcher is up to date!');
+            break;
+          case 'downloading':
+            setUpdateStatus('downloading');
+            break;
+          case 'downloaded':
+            setUpdateStatus('downloaded');
+            handleShowToast(
+              payload.message ||
+                'Update downloaded! Go to Settings to install.',
+            );
+            break;
+          case 'error':
+            setUpdateStatus('error');
+            handleShowToast(
+              payload.message || `Update error: ${payload.error}`,
+            );
+            break;
+          default:
+            break;
+        }
+      },
+    );
 
     return cleanup;
   }, []);
@@ -235,79 +245,112 @@ export default function HomePage(props: HomePageProps) {
         }
       } else if (state.status === 'ready') {
         // save credentials and update INI before launching
-        const writeResult = await (window as any).electron.writeConfig({
-          username: remember ? username : '',
-          password: remember ? password : '',
-          rememberCredentials: remember,
-        });
-        if (!writeResult?.success) {
-          dispatch({
-            type: 'ERROR',
-            msg:
-              writeResult?.error ||
-              'Failed to save credentials. Please check your system keychain and try again.',
-            isRetryable: false,
-          });
-          return;
-        }
-
-        const updateResult = await (
-          window as any
-        ).electron.updateIniCredentials(username, password, installDir);
-        if (!updateResult?.success) {
-          dispatch({
-            type: 'ERROR',
-            msg: updateResult?.error ?? 'Failed to update INI',
-            isRetryable: false,
-          });
-          return;
-        }
-
-        // Write default.txt script with enabled addons and plugins
         try {
-          const scriptResult = await (
-            window as any
-          ).electron.writeDefaultScript();
-          if (!scriptResult?.success) {
-            // eslint-disable-next-line no-console
-            console.warn(
-              '[HomePage] Failed to write default.txt:',
-              scriptResult?.error,
+          // Validate password for forbidden characters: dash, hash, and space
+          const forbiddenChars = [];
+          if (password) {
+            if (password.includes('-')) forbiddenChars.push('dash (-)');
+            if (password.includes('#')) forbiddenChars.push('hash (#)');
+            if (password.includes(' ')) forbiddenChars.push('space');
+          }
+
+          if (forbiddenChars.length > 0) {
+            const charList = forbiddenChars.join(', ');
+            const confirmed = window.confirm(
+              `WARNING: Your password contains forbidden character(s): ${charList}.\n\n` +
+                'These characters may cause the game to crash on launch due to command-line parsing issues.\n\n' +
+                'It is strongly recommended to change your password to one without these characters.\n\n' +
+                'Do you want to proceed anyway?',
             );
-            // Don't block launch on script write failure
-          } else {
+            if (!confirmed) {
+              return; // User cancelled, don't launch
+            }
+          }
+
+          const writeResult = await (window as any).electron.writeConfig({
+            username: remember ? username : '',
+            password: remember ? password : '',
+            rememberCredentials: remember,
+          });
+          if (!writeResult?.success) {
+            dispatch({
+              type: 'ERROR',
+              msg:
+                writeResult?.error ||
+                'Failed to save credentials. Please check your system keychain and try again.',
+              isRetryable: false,
+            });
+            return;
+          }
+
+          const updateResult = await (
+            window as any
+          ).electron.updateIniCredentials(username, password, installDir);
+          if (!updateResult?.success) {
+            dispatch({
+              type: 'ERROR',
+              msg: updateResult?.error ?? 'Failed to update INI',
+              isRetryable: false,
+            });
+            return;
+          }
+
+          // Write default.txt script with enabled addons and plugins
+          try {
+            const scriptResult = await (
+              window as any
+            ).electron.writeDefaultScript();
+            if (!scriptResult?.success) {
+              // eslint-disable-next-line no-console
+              console.warn(
+                '[HomePage] Failed to write default.txt:',
+                scriptResult?.error,
+              );
+              // Don't block launch on script write failure
+            } else {
+              // eslint-disable-next-line no-console
+              console.log('[HomePage] Successfully wrote default.txt');
+            }
+          } catch (err) {
             // eslint-disable-next-line no-console
-            console.log('[HomePage] Successfully wrote default.txt');
+            console.warn('[HomePage] Error writing default.txt:', err);
+            // Don't block launch on script write failure
           }
-        } catch (err) {
+
+          dispatch({ type: 'SET', state: { status: 'launching' } });
+
+          // Check if we should close launcher on game run
+          try {
+            const settingsResult = await (
+              window as any
+            ).electron.readSettings();
+            if (
+              settingsResult?.success &&
+              settingsResult?.data?.launcher?.closeOnRun
+            ) {
+              // Launch game and close launcher after a brief delay
+              await safeInvoke('game:launch');
+              setTimeout(() => {
+                (window as any).electron?.windowControls?.close?.();
+              }, 1000);
+            } else {
+              // Just launch without closing
+              await safeInvoke('game:launch');
+            }
+          } catch {
+            // If settings read fails, just launch normally
+            await safeInvoke('game:launch');
+          }
+          // main can emit status if needed
+        } catch (launchErr) {
           // eslint-disable-next-line no-console
-          console.warn('[HomePage] Error writing default.txt:', err);
-          // Don't block launch on script write failure
+          console.error('[HomePage] Launch error:', launchErr);
+          dispatch({
+            type: 'ERROR',
+            msg: String(launchErr),
+            isRetryable: false,
+          });
         }
-
-        dispatch({ type: 'SET', state: { status: 'launching' } });
-
-        // Check if we should close launcher on game run
-        try {
-          const settingsResult = await (window as any).electron.readSettings();
-          if (
-            settingsResult?.success &&
-            settingsResult?.data?.launcher?.closeOnRun
-          ) {
-            // Launch game and close launcher after a brief delay
-            await safeInvoke('game:launch');
-            setTimeout(() => {
-              (window as any).electron?.windowControls?.close?.();
-            }, 1000);
-          } else {
-            // Just launch without closing
-            await safeInvoke('game:launch');
-          }
-        } catch {
-          // If settings read fails, just launch normally
-          await safeInvoke('game:launch');
-        }
-        // main can emit status if needed
       } else if (state.status === 'error') {
         // Retry the last failed operation
         if (state.lastOperation === 'download') {
@@ -386,21 +429,34 @@ export default function HomePage(props: HomePageProps) {
     const msg = errorMsg.toLowerCase();
 
     // Network errors
-    if (msg.includes('network') || msg.includes('enotfound') || msg.includes('econnrefused') || msg.includes('timeout')) {
+    if (
+      msg.includes('network') ||
+      msg.includes('enotfound') ||
+      msg.includes('econnrefused') ||
+      msg.includes('timeout') ||
+      msg.includes('server is offline') ||
+      msg.includes('unreachable')
+    ) {
       return {
         title: 'Network Error',
         message: 'Unable to connect to the download server.',
         suggestions: [
           'Check your internet connection',
           'Verify your firewall is not blocking the launcher',
-          'Try again in a few moments',
+          'Server may be temporarily offline',
+          'Try again in a few minutes',
         ],
         icon: '🌐',
       };
     }
 
     // SHA256/Verification errors
-    if (msg.includes('sha256') || msg.includes('checksum') || msg.includes('verification') || msg.includes('size mismatch')) {
+    if (
+      msg.includes('sha256') ||
+      msg.includes('checksum') ||
+      msg.includes('verification') ||
+      msg.includes('size mismatch')
+    ) {
       return {
         title: 'Download Corrupted',
         message: 'The downloaded file failed verification.',
@@ -429,7 +485,11 @@ export default function HomePage(props: HomePageProps) {
     }
 
     // Disk space errors
-    if (msg.includes('enospc') || msg.includes('disk') || msg.includes('space')) {
+    if (
+      msg.includes('enospc') ||
+      msg.includes('disk') ||
+      msg.includes('space')
+    ) {
       return {
         title: 'Insufficient Disk Space',
         message: 'Not enough free space on your drive.',
@@ -442,7 +502,11 @@ export default function HomePage(props: HomePageProps) {
     }
 
     // Permission errors
-    if (msg.includes('eacces') || msg.includes('eperm') || msg.includes('permission')) {
+    if (
+      msg.includes('eacces') ||
+      msg.includes('eperm') ||
+      msg.includes('permission')
+    ) {
       return {
         title: 'Permission Denied',
         message: 'The launcher does not have permission to write files.',
@@ -611,26 +675,34 @@ export default function HomePage(props: HomePageProps) {
               <div className="error-header">
                 <div className="error-icon">
                   {(() => {
-                    const errorInfo = categorizeError((state as any).message || 'Unknown error');
+                    const errorInfo = categorizeError(
+                      (state as any).message || 'Unknown error',
+                    );
                     return errorInfo.icon;
                   })()}
                 </div>
                 <div className="error-content">
                   <h4 className="error-title">
                     {(() => {
-                      const errorInfo = categorizeError((state as any).message || 'Unknown error');
+                      const errorInfo = categorizeError(
+                        (state as any).message || 'Unknown error',
+                      );
                       return errorInfo.title;
                     })()}
                   </h4>
                   <p className="error-message">
                     {(() => {
-                      const errorInfo = categorizeError((state as any).message || 'Unknown error');
+                      const errorInfo = categorizeError(
+                        (state as any).message || 'Unknown error',
+                      );
                       return errorInfo.message;
                     })()}
                   </p>
                   <ul className="error-suggestions">
                     {(() => {
-                      const errorInfo = categorizeError((state as any).message || 'Unknown error');
+                      const errorInfo = categorizeError(
+                        (state as any).message || 'Unknown error',
+                      );
                       return errorInfo.suggestions.map((suggestion, idx) => (
                         <li key={idx}>{suggestion}</li>
                       ));
@@ -703,18 +775,26 @@ export default function HomePage(props: HomePageProps) {
             }
 
             return (
-              <article key={p.id} className="post" style={{ position: 'relative' }}>
+              <article
+                key={p.id}
+                className="post"
+                style={{ position: 'relative' }}
+              >
                 {daysOld !== null && daysOld <= 7 && (
-                  <div style={{
-                    position: 'absolute',
-                    top: '8px',
-                    right: '12px',
-                    fontSize: '0.7em',
-                    color: '#10b981',
-                    fontWeight: 'bold',
-                    opacity: 0.8
-                  }}>
-                    {daysOld === 0 ? 'New!' : `${daysOld} day${daysOld === 1 ? '' : 's'} old!`}
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '8px',
+                      right: '12px',
+                      fontSize: '0.7em',
+                      color: '#10b981',
+                      fontWeight: 'bold',
+                      opacity: 0.8,
+                    }}
+                  >
+                    {daysOld === 0
+                      ? 'New!'
+                      : `${daysOld} day${daysOld === 1 ? '' : 's'} old!`}
                   </div>
                 )}
                 <h3 className="post-title" style={{ fontSize: '0.95em' }}>

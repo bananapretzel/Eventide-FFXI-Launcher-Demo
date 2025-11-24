@@ -14,6 +14,11 @@ export async function applyPatches(
   onProgress?: (patch: string, dl: number, total: number) => void,
   onExtractProgress?: (current: number, total: number) => void
 ): Promise<void> {
+  log.info(chalk.cyan('[applyPatches] ================================='));
+  log.info(chalk.cyan('[applyPatches] Starting patch application'));
+  log.info(chalk.cyan(`[applyPatches] Install directory: ${installDir}`));
+  log.info(chalk.cyan(`[applyPatches] Latest version in manifest: ${manifest.latestVersion}`));
+  log.info(chalk.cyan('[applyPatches] ================================='));
   const latestVersion = manifest.latestVersion;
   const patches = manifest.patches || [];
 
@@ -90,6 +95,15 @@ export async function applyPatches(
 
     // Update version in storage (installDir is ignored by setClientVersion)
     await setClientVersion(installDir, patch.to);
+
+    // Configure Pivot overlay system after extraction
+    log.info(chalk.cyan(`[applyPatches] Configuring Pivot overlay system...`));
+    const { createPivotIni } = await import('../core/fs');
+    const pivotResult = await createPivotIni(installDir);
+    if (!pivotResult.success) {
+      log.warn(chalk.yellow(`[applyPatches] Failed to configure Pivot: ${pivotResult.error}`));
+      // Don't fail the entire patch process, just warn
+    }
 
     // Get updated version to continue loop
     currentVersion = await getClientVersion(installDir);

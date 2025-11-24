@@ -3,6 +3,7 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import HomePage from '../pages/HomePage';
+import { GameStateProvider } from '../contexts/GameStateContext';
 
 // Mock electron API
 const mockElectron = {
@@ -47,6 +48,19 @@ const defaultProps = {
   installDir: 'C:\\test\\game',
 };
 
+// Test wrapper to provide GameStateContext
+const TestWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <GameStateProvider>{children}</GameStateProvider>
+);
+
+const renderHomePage = (props = defaultProps) => {
+  return render(
+    <TestWrapper>
+      <HomePage {...props} />
+    </TestWrapper>
+  );
+};
+
 describe('Error Display and Recovery', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -70,7 +84,7 @@ describe('Error Display and Recovery', () => {
         return Promise.resolve({ success: true });
       });
 
-      render(<HomePage {...defaultProps} />);
+      renderHomePage({...defaultProps});
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
@@ -103,7 +117,7 @@ describe('Error Display and Recovery', () => {
         return Promise.resolve({ success: true });
       });
 
-      render(<HomePage {...defaultProps} />);
+      renderHomePage({...defaultProps});
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
@@ -136,7 +150,7 @@ describe('Error Display and Recovery', () => {
         return Promise.resolve({ success: true });
       });
 
-      render(<HomePage {...defaultProps} />);
+      renderHomePage({...defaultProps});
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
@@ -169,7 +183,7 @@ describe('Error Display and Recovery', () => {
         return Promise.resolve({ success: true });
       });
 
-      render(<HomePage {...defaultProps} />);
+      renderHomePage({...defaultProps});
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
@@ -202,7 +216,7 @@ describe('Error Display and Recovery', () => {
         return Promise.resolve({ success: true });
       });
 
-      render(<HomePage {...defaultProps} />);
+      renderHomePage({...defaultProps});
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
@@ -235,7 +249,7 @@ describe('Error Display and Recovery', () => {
         return Promise.resolve({ success: true });
       });
 
-      render(<HomePage {...defaultProps} />);
+      renderHomePage({...defaultProps});
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Update/i })).toBeInTheDocument();
@@ -270,7 +284,7 @@ describe('Error Display and Recovery', () => {
         return Promise.resolve({ success: true });
       });
 
-      render(<HomePage {...defaultProps} />);
+      renderHomePage({...defaultProps});
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
@@ -310,7 +324,7 @@ describe('Error Display and Recovery', () => {
         return Promise.resolve({ success: true });
       });
 
-      render(<HomePage {...defaultProps} />);
+      renderHomePage({...defaultProps});
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
@@ -356,7 +370,7 @@ describe('Error Display and Recovery', () => {
         return Promise.resolve({ success: true });
       });
 
-      render(<HomePage {...defaultProps} />);
+      renderHomePage({...defaultProps});
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
@@ -399,7 +413,7 @@ describe('Error Display and Recovery', () => {
         return Promise.resolve({ success: true });
       });
 
-      render(<HomePage {...defaultProps} />);
+      renderHomePage({...defaultProps});
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
@@ -442,7 +456,7 @@ describe('Error Display and Recovery', () => {
         return Promise.resolve({ success: true });
       });
 
-      render(<HomePage {...defaultProps} />);
+      renderHomePage({...defaultProps});
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Update/i })).toBeInTheDocument();
@@ -492,7 +506,7 @@ describe('Error Display and Recovery', () => {
         return Promise.resolve({ success: true });
       });
 
-      render(<HomePage {...defaultProps} />);
+      renderHomePage({...defaultProps});
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
@@ -546,7 +560,7 @@ describe('Error Display and Recovery', () => {
         return Promise.resolve({ success: true });
       });
 
-      render(<HomePage {...defaultProps} />);
+      renderHomePage({...defaultProps});
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
@@ -566,3 +580,4 @@ describe('Error Display and Recovery', () => {
     });
   });
 });
+
