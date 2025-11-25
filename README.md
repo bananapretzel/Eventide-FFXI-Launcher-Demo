@@ -44,6 +44,7 @@
 
 ## ✨ Features
 
+- 🐧 **Cross-Platform Support** – Runs natively on Windows and Linux (macOS support planned)
 - 🎮 **Secure Credential Management** – Uses `keytar` for OS keychain integration (no plaintext on disk)
 - 📦 **Game Bootstrap & Auto-Extraction** – Detects downloaded base game archive and extracts it automatically on first run
 - ⬇️ **Patch & Update System** – Remote release + patch manifest retrieval (`release.json` + patch manifest) with version comparison
@@ -223,6 +224,42 @@ npm run package:linux
 npm run package:all
 ```
 
+### Linux-Specific Build Notes
+
+The launcher supports Linux and creates three package formats:
+- **AppImage** - Universal Linux package that runs on most distributions
+- **deb** - Debian/Ubuntu package format
+- **tar.gz** - Portable archive
+
+**Building on Linux:**
+```bash
+npm run package:linux
+```
+
+**Running FFXI on Linux:**
+The launcher itself runs natively on Linux, but Final Fantasy XI requires Windows compatibility:
+- **Wine/Proton**: Use Wine 8.0+ or Proton for running the Windows game client
+- **Launch Script**: The launcher creates `Launch_Eventide.sh` which should be configured to launch the game through Wine
+  - See `Launch_Eventide.sh.example` in the project root for a template
+  - See `LINUX_SETUP.md` for detailed Linux installation and configuration guide
+- **Default Paths**: Game files install to `~/.config/ffxi-eventide-launcher/Eventide/Game/`
+
+**Linux Installation:**
+```bash
+# AppImage (recommended)
+chmod +x Eventide-FFXI-Launcher-*.AppImage
+./Eventide-FFXI-Launcher-*.AppImage
+
+# Debian/Ubuntu
+sudo dpkg -i eventide-ffxi-launcher_*.deb
+sudo apt-get install -f  # Install dependencies if needed
+
+# Portable tar.gz
+tar -xzf eventide-ffxi-launcher-*.tar.gz
+cd eventide-ffxi-launcher/
+./eventide-ffxi-launcher
+```
+
 ### Build Options
 
 The launcher uses `electron-builder` for packaging. Configuration is in `package.json` under the `build` section.
@@ -264,10 +301,10 @@ Then attach your debugger to `localhost:5858`
 The application uses `electron-log` for logging:
 
 - **Development**: Logs appear in the console
-- **Production**: Logs are written to:
-  - Windows: `%USERPROFILE%\AppData\Roaming\eventide-launcher\logs`
-  - macOS: `~/Library/Logs/eventide-launcher`
-  - Linux: `~/.config/eventide-launcher/logs`
+- **Production**: Logs are written to platform-specific locations:
+  - Windows: `%USERPROFILE%\AppData\Roaming\ffxi-eventide-launcher\logs\`
+  - macOS: `~/Library/Logs/ffxi-eventide-launcher/`
+  - Linux: `~/.config/ffxi-eventide-launcher/logs/`
 
 ### Common Issues
 

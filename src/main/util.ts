@@ -19,40 +19,78 @@ export function resolveHtmlPath(htmlFileName: string) {
 /**
  * Creates a desktop shortcut to the launcher
  * This fixes the "desktop shortcuts not being created" bug
+ * Supports Windows (.lnk) and Linux (.desktop)
  */
 export async function createDesktopShortcut(): Promise<{ success: boolean; error?: string }> {
   try {
-    if (process.platform !== 'win32') {
-      // Only Windows is supported for now
-      log.info(chalk.yellow('[createDesktopShortcut] Not on Windows, skipping shortcut creation'));
-      return { success: true };
-    }
-
     const desktopPath = path.join(app.getPath('home'), 'Desktop');
-    const shortcutPath = path.join(desktopPath, 'Eventide Launcher.lnk');
 
-    // Check if shortcut already exists
-    if (fs.existsSync(shortcutPath)) {
-      log.info(chalk.cyan('[createDesktopShortcut] Shortcut already exists at:'), shortcutPath);
-      return { success: true };
-    }
+    if (process.platform === 'win32') {
+      // Windows shortcut (.lnk)
+      const shortcutPath = path.join(desktopPath, 'Eventide Launcher.lnk');
 
-    // Get the path to the launcher executable
-    const exePath = app.getPath('exe');
+      // Check if shortcut already exists
+      if (fs.existsSync(shortcutPath)) {
+        log.info(chalk.cyan('[createDesktopShortcut] Shortcut already exists at:'), shortcutPath);
+        return { success: true };
+      }
 
-    // Create the shortcut using Electron's shell.writeShortcutLink
-    const success = shell.writeShortcutLink(shortcutPath, {
-      target: exePath,
-      description: 'Eventide FFXI Launcher',
-      cwd: path.dirname(exePath),
-    });
+      // Get the path to the launcher executable
+      const exePath = app.getPath('exe');
 
-    if (success) {
+      // Create the shortcut using Electron's shell.writeShortcutLink
+      const success = shell.writeShortcutLink(shortcutPath, {
+        target: exePath,
+        description: 'Eventide FFXI Launcher',
+        cwd: path.dirname(exePath),
+      });
+
+      if (success) {
+        log.info(chalk.green('[createDesktopShortcut] ✓ Desktop shortcut created successfully at:'), shortcutPath);
+        return { success: true };
+      } else {
+        log.warn(chalk.yellow('[createDesktopShortcut] Failed to create desktop shortcut'));
+        return { success: false, error: 'Failed to create shortcut (unknown reason)' };
+      }
+    } else if (process.platform === 'linux') {
+      // Linux .desktop file
+      const shortcutPath = path.join(desktopPath, 'eventide-launcher.desktop');
+
+      // Check if shortcut already exists
+      if (fs.existsSync(shortcutPath)) {
+        log.info(chalk.cyan('[createDesktopShortcut] Desktop file already exists at:'), shortcutPath);
+        return { success: true };
+      }
+
+      // Get the path to the launcher executable
+      const exePath = app.getPath('exe');
+      const iconPath = path.join(path.dirname(exePath), 'resources', 'app', 'assets', 'icon.png');
+
+      // Create .desktop file content
+      const desktopFileContent = `[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Eventide FFXI Launcher
+Comment=A launcher for Final Fantasy XI - Eventide Server
+Exec="${exePath}"
+Icon=${fs.existsSync(iconPath) ? iconPath : 'application-x-executable'}
+Terminal=false
+Categories=Game;
+StartupNotify=true
+`;
+
+      // Write the .desktop file
+      await fs.writeFile(shortcutPath, desktopFileContent, 'utf-8');
+
+      // Make it executable
+      await fs.chmod(shortcutPath, 0o755);
+
       log.info(chalk.green('[createDesktopShortcut] ✓ Desktop shortcut created successfully at:'), shortcutPath);
       return { success: true };
     } else {
-      log.warn(chalk.yellow('[createDesktopShortcut] Failed to create desktop shortcut'));
-      return { success: false, error: 'Failed to create shortcut (unknown reason)' };
+      // macOS or other platforms - not supported yet
+      log.info(chalk.yellow('[createDesktopShortcut] Platform not supported for desktop shortcut creation'));
+      return { success: true };
     }
   } catch (err) {
     log.error(chalk.red('[createDesktopShortcut] Error creating desktop shortcut:'), err);

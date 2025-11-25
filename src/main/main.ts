@@ -950,6 +950,7 @@ ipcMain.handle('launcher:launchGame', async (_event, installDir: string) => {
     if (process.platform === 'win32') {
       launchScript = path.join(installDir, 'Launch_Eventide.bat');
     } else {
+      // Linux and other Unix-like systems
       launchScript = path.join(installDir, 'Launch_Eventide.sh');
     }
     log.info(
@@ -1525,6 +1526,15 @@ ipcMain.handle(
 // IPC handler to open gamepad config executable
 ipcMain.handle('open-gamepad-config', async () => {
   try {
+    // Note: This feature is Windows-only. On Linux, users would need to configure
+    // the gamepad through Wine/Proton's control panel or other tools.
+    if (process.platform !== 'win32') {
+      return {
+        success: false,
+        error: 'Gamepad configuration is only available on Windows. On Linux, please use Wine/Proton configuration tools.',
+      };
+    }
+
     const paths = getEventidePaths();
     const installDir = paths.gameRoot;
     const gamepadConfigPath = path.join(
@@ -1634,8 +1644,14 @@ async function launchGameWithBatch(installDir: string, launchScript: string) {
           cwd: installDir,
         });
       } else {
-        // Use /bin/sh to run the shell script
-        child = spawn('/bin/sh', [launchScript], {
+        // Use /bin/bash or /bin/sh to run the shell script on Linux/Unix
+        // Make script executable first
+        try {
+          fs.chmodSync(launchScript, '755');
+        } catch (chmodErr) {
+          log.warn(chalk.yellow('[launch] Could not chmod launch script:'), chmodErr);
+        }
+        child = spawn('/bin/bash', [launchScript], {
           detached: true,
           stdio: ['ignore', 'pipe', 'pipe'],
           cwd: installDir,
@@ -2016,8 +2032,9 @@ ipcMain.handle('game:check', async () => {
     );
     log.info(chalk.cyan('[game:check] launcherState:'), launcherState);
 
-    // For existence, check for a main executable (e.g., ashita-cli.exe) in gameRoot
-    const mainExe = path.join(installDir, 'ashita-cli.exe');
+    // For existence, check for a main executable in gameRoot (platform-specific)
+    const exeName = process.platform === 'win32' ? 'ashita-cli.exe' : 'ashita-cli';
+    const mainExe = path.join(installDir, exeName);
     const exists = fs.existsSync(mainExe);
 
     return {
@@ -2298,8 +2315,9 @@ ipcMain.handle('game:import-existing', async () => {
       };
     }
 
-    // quick check for main executable
-    const mainExe = path.join(installDir, 'ashita-cli.exe');
+    // quick check for main executable (platform-specific)
+    const exeName = process.platform === 'win32' ? 'ashita-cli.exe' : 'ashita-cli';
+    const mainExe = path.join(installDir, exeName);
     if (!fs.existsSync(mainExe)) {
       log.error(
         chalk.red('[import] Main executable not found in install directory:'),
@@ -2488,7 +2506,9 @@ ipcMain.handle('game:launch', async () => {
   try {
     const paths = getEventidePaths();
     const installDir = paths.gameRoot;
-    const launchBat = path.join(installDir, 'Launch_Eventide.bat');
+    const launchScript = process.platform === 'win32'
+      ? path.join(installDir, 'Launch_Eventide.bat')
+      : path.join(installDir, 'Launch_Eventide.sh');
 
     if (mainWindow) {
       log.info(chalk.cyan(`[ipc] Sending to renderer: game:status`), {
@@ -2497,10 +2517,10 @@ ipcMain.handle('game:launch', async () => {
       mainWindow.webContents.send('game:status', { status: 'launching' });
     }
 
-    // Require the batch wrapper in all cases; do not fall back to directly
+    // Require the launch wrapper in all cases; do not fall back to directly
     // launching the executable. Return a clear error if the wrapper is missing.
-    if (!fs.existsSync(launchBat)) {
-      const msg = `Launch batch not found: ${launchBat}`;
+    if (!fs.existsSync(launchScript)) {
+      const msg = `Launch script not found: ${launchScript}`;
       log.error(chalk.red(msg));
       if (mainWindow) {
         log.info(chalk.cyan(`[ipc] Sending to renderer: game:status`), {
@@ -2515,8 +2535,8 @@ ipcMain.handle('game:launch', async () => {
       return { success: false, error: msg };
     }
 
-    log.info(chalk.cyan('Launching via batch:'), launchBat);
-    const launchResult = await launchGameWithBatch(installDir, launchBat);
+    log.info(chalk.cyan('Launching via script:'), launchScript);
+    const launchResult = await launchGameWithBatch(installDir, launchScript);
     if (!launchResult.success) {
       log.error(chalk.red('Failed to launch game:'), launchResult.error);
       if (mainWindow) {
