@@ -35,6 +35,53 @@ import {
   getDefaultPluginsObject,
 } from './defaultExtensions';
 
+// ============================================================================
+// SECURITY UTILITIES
+// ============================================================================
+
+/**
+ * Validates that a URL is safe for external opening
+ * Prevents command injection by blocking dangerous protocols
+ */
+function isUrlSafeForExternal(urlString: string): boolean {
+  try {
+    const url = new URL(urlString);
+
+    // Only allow HTTPS and HTTP protocols
+    const allowedProtocols = ['https:', 'http:'];
+    if (!allowedProtocols.includes(url.protocol)) {
+      log.warn(chalk.yellow(`[Security] Blocked unsafe protocol: ${url.protocol} for URL: ${urlString}`));
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    log.error(chalk.red('[Security] Invalid URL format:'), urlString, err);
+    return false;
+  }
+}
+
+/**
+ * Sanitizes user input to remove potentially problematic characters
+ * Removes control characters and null bytes, but no arbitrary length limits
+ */
+function sanitizeInput(input: string): string {
+  if (typeof input !== 'string') {
+    return '';
+  }
+
+  // Trim and remove null bytes and control characters
+  const sanitized = input.trim().replace(/[\x00-\x1F\x7F]/g, '');
+
+  return sanitized;
+}
+
+
+
+// ============================================================================
+// END SECURITY UTILITIES
+// ============================================================================
+
 // Cache for manifest data to avoid redundant network calls
 interface ManifestCache {
   release: any | null;
@@ -161,6 +208,59 @@ ipcMain.handle(
 
 // Set the app name to 'Eventide Launcherv2' so userData points to %APPDATA%\Eventide Launcherv2
 app.setName('Eventide Launcherv2');
+
+// ============================================================================
+// SECURITY: Web Contents Creation Handler
+// ============================================================================
+app.on('web-contents-created', (_event, contents) => {
+  // Security: Prevent navigation to untrusted domains
+  contents.on('will-navigate', (event, navigationUrl) => {
+    const allowedUrls = [
+      'file://',
+      'devtools://',
+      'about:blank'
+    ];
+
+    const isAllowed = allowedUrls.some(allowed => navigationUrl.startsWith(allowed));
+
+    if (!isAllowed) {
+      log.warn(chalk.yellow(`[Security] Blocked navigation to: ${navigationUrl}`));
+      event.preventDefault();
+    }
+  });
+
+  // Security: Prevent opening new windows
+  contents.setWindowOpenHandler(({ url }) => {
+    log.warn(chalk.yellow(`[Security] Blocked window open attempt: ${url}`));
+
+    // Only allow opening trusted URLs in external browser
+    if (isUrlSafeForExternal(url)) {
+      shell.openExternal(url).catch(err =>
+        log.error(chalk.red('[Security] Error opening external URL:'), err)
+      );
+    }
+
+    return { action: 'deny' };
+  });
+
+  // Security: Verify webview creation (if webviews are used)
+  contents.on('will-attach-webview', (event, webPreferences, params) => {
+    log.warn(chalk.yellow('[Security] Webview attachment attempted, verifying...'));
+
+    // Delete preload scripts if unused or verify their location
+    delete webPreferences.preload;
+
+    // Disable Node.js integration in webviews
+    webPreferences.nodeIntegration = false;
+    webPreferences.contextIsolation = true;
+
+    // Verify URL being loaded
+    if (!params.src || !isUrlSafeForExternal(params.src)) {
+      log.error(chalk.red('[Security] Blocked webview with untrusted URL'));
+      event.preventDefault();
+    }
+  });
+});
 
 // --- Ensure config.json exists with defaults on startup ---
 // ...existing code...
@@ -1022,6 +1122,37 @@ app.on('ready', () => {
     },
   });
   mainWindow.loadURL(resolveHtmlPath('index.html'));
+
+  // Security: Prevent unauthorized window creation
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    log.warn(chalk.yellow(`[Security] Blocked attempt to open new window: ${url}`));
+
+    // Only allow opening safe URLs in external browser
+    if (isUrlSafeForExternal(url)) {
+      shell.openExternal(url).catch(err =>
+        log.error(chalk.red('[Security] Error opening external URL:'), err)
+      );
+    }
+
+    return { action: 'deny' };
+  });
+
+  // Security: Prevent unauthorized navigation
+  mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+    const allowedUrls = [
+      resolveHtmlPath('index.html'),
+      'file://',
+      'devtools://'
+    ];
+
+    const isAllowed = allowedUrls.some(allowed => navigationUrl.startsWith(allowed));
+
+    if (!isAllowed) {
+      log.warn(chalk.yellow(`[Security] Blocked navigation to: ${navigationUrl}`));
+      event.preventDefault();
+    }
+  });
+
   // Open DevTools automatically in development mode
   if (process.env.NODE_ENV !== 'production') {
     mainWindow.webContents.openDevTools({ mode: 'right' });
@@ -1099,10 +1230,30 @@ ipcMain.handle('read-ini-file', async () => {
 ipcMain.handle(
   'update-ini-auth-and-run',
   async (_event, username: string, password: string, installDir?: string) => {
-    // log.info(chalk.cyan(`[INI] update-ini-auth-and-run called with username='${username}', password='${password}'`));
+    // Sanitize inputs to remove control characters
+    const sanitizedUsername = sanitizeInput(username);
+    const sanitizedPassword = sanitizeInput(password);
+
+    // Validate inputs are not empty
+    if (sanitizedUsername.length === 0) {
+      log.error(chalk.red('[INI] Username cannot be empty'));
+      return {
+        success: false,
+        error: 'Username cannot be empty',
+      };
+    }
+
+    if (sanitizedPassword.length === 0) {
+      log.error(chalk.red('[INI] Password cannot be empty'));
+      return {
+        success: false,
+        error: 'Password cannot be empty',
+      };
+    }
+
     log.info(
       chalk.cyan(
-        `[INI] update-ini-auth-and-run called (credentials provided: ${!!username && !!password})`,
+        `[INI] update-ini-auth-and-run called (credentials provided: ${!!sanitizedUsername && !!sanitizedPassword})`,
       ),
     );
     try {
@@ -1144,12 +1295,12 @@ ipcMain.handle(
           },
         );
         // Only append --user and --pass if both are non-empty
-        if (username && password) {
+        if (sanitizedUsername && sanitizedPassword) {
           // Check for forbidden characters in password which can cause game launch issues
           const warnings = [];
-          if (password.includes('-')) warnings.push('dash (-)');
-          if (password.includes('#')) warnings.push('hash (#)');
-          if (password.includes(' ')) warnings.push('space');
+          if (sanitizedPassword.includes('-')) warnings.push('dash (-)');
+          if (sanitizedPassword.includes('#')) warnings.push('hash (#)');
+          if (sanitizedPassword.includes(' ')) warnings.push('space');
 
           if (warnings.length > 0) {
             log.warn(
@@ -1158,13 +1309,12 @@ ipcMain.handle(
               ),
             );
           }
-          // log.info(chalk.cyan(`[INI] Appending --user and --pass to command: --user ${username} --pass ${password}`));
           log.info(
             chalk.cyan(
               `[INI] Appending --user and --pass to command: [REDACTED]`,
             ),
           );
-          commandParts.push('--user', username, '--pass', password);
+          commandParts.push('--user', sanitizedUsername, '--pass', sanitizedPassword);
         } else {
           log.info(
             chalk.cyan(
@@ -1398,6 +1548,13 @@ ipcMain.handle(
     data: { username: string; password: string; rememberCredentials: boolean },
   ) => {
     try {
+      // Sanitize inputs to remove control characters
+      const sanitizedUsername = sanitizeInput(data.username);
+      const sanitizedPassword = sanitizeInput(data.password);
+
+      // Validate boolean input
+      const rememberCredentials = Boolean(data.rememberCredentials);
+
       const paths = getEventidePaths();
       ensureDirs();
       const configPath = paths.config;
@@ -1426,17 +1583,17 @@ ipcMain.handle(
         launcherVersion: app.getVersion(),
       };
       // Handle both username and password in keytar only
-      if (data.rememberCredentials && data.username && data.password) {
+      if (rememberCredentials && sanitizedUsername && sanitizedPassword) {
         log.info(chalk.cyan('[keytar] Saving credentials to keytar'));
         await keytar.setPassword(
           SERVICE_NAME,
           KEYTAR_ACCOUNT_USERNAME,
-          data.username,
+          sanitizedUsername,
         );
         await keytar.setPassword(
           SERVICE_NAME,
           KEYTAR_ACCOUNT_PASSWORD,
-          data.password,
+          sanitizedPassword,
         );
         log.info(chalk.cyan('[keytar] Credentials saved'));
       } else {
@@ -1465,7 +1622,8 @@ ipcMain.handle(
 ipcMain.handle('open-config-folder', async () => {
   try {
     const paths = getEventidePaths();
-    const configFolder = paths.userData; // config.json is in userData root
+    const configFolder = paths.userData;
+
     await shell.openPath(configFolder);
     return { success: true };
   } catch (error) {
@@ -1485,6 +1643,7 @@ ipcMain.handle('open-log-file', async () => {
     const fileToOpen = fs.existsSync(logFile)
       ? logFile
       : path.join(paths.logsRoot, 'launcher-invoke-output.log');
+
     await shell.openPath(fileToOpen);
     return { success: true };
   } catch (error) {
@@ -1500,6 +1659,15 @@ ipcMain.handle(
   'open-extension-folder',
   async (_event, folderType: 'addons' | 'plugins') => {
     try {
+      // Security: Validate folder type
+      if (folderType !== 'addons' && folderType !== 'plugins') {
+        log.error(chalk.red('[Security] Invalid folder type requested'));
+        return {
+          success: false,
+          error: 'Invalid folder type',
+        };
+      }
+
       const paths = getEventidePaths();
       const extensionFolder = path.join(paths.gameRoot, 'config', folderType);
 
