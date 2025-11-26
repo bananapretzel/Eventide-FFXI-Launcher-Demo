@@ -1,6 +1,6 @@
 import { downloadFile } from '../core/net';
 import { verifySha256 } from '../core/hash';
-import { extractAndMergeZip, verifyExtractedFiles, createPivotIni } from '../core/fs';
+import { extractZip, verifyExtractedFiles } from '../core/fs';
 import { setClientVersion, getClientVersion } from '../core/versions';
 import { join } from 'path';
 import { PatchManifest } from '../core/manifest';
@@ -78,9 +78,9 @@ export async function applyPatches(
     }
     log.info(chalk.green('[applyPatches] Checksum verified'));
 
-    const extractPath = join(installDir, 'polplugins/DATs/Eventide/ROM/');
+    const extractPath = installDir;
     log.info(chalk.cyan(`[applyPatches] Extracting to: ${extractPath}`));
-    await extractAndMergeZip(patchZipPath, extractPath, onExtractProgress);
+    await extractZip(patchZipPath, extractPath, onExtractProgress);
     log.info(chalk.green('[applyPatches] Extraction complete'));
 
     // Verify extracted files (patches should have at least 1 file)
@@ -95,14 +95,6 @@ export async function applyPatches(
 
     // Update version in storage (installDir is ignored by setClientVersion)
     await setClientVersion(installDir, patch.to);
-
-    // Configure Pivot overlay system after extraction
-    log.info(chalk.cyan(`[applyPatches] Configuring Pivot overlay system...`));
-    const pivotResult = await createPivotIni(installDir);
-    if (!pivotResult.success) {
-      log.warn(chalk.yellow(`[applyPatches] Failed to configure Pivot: ${pivotResult.error}`));
-      // Don't fail the entire patch process, just warn
-    }
 
     // Get updated version to continue loop
     currentVersion = await getClientVersion(installDir);

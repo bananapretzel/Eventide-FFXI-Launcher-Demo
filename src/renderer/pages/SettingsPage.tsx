@@ -71,7 +71,7 @@ interface Settings {
   };
 }
 
-type CategoryId = 'ffxi' | 'ashita' | 'pivot';
+type CategoryId = 'ffxi' | 'ashita' | 'pivot' | 'troubleshooting';
 type SubTabId =
   | 'general'
   | 'graphics'
@@ -102,6 +102,10 @@ const CATEGORY_DEFS: Record<
   },
   pivot: {
     label: 'PIVOT',
+    subTabs: [],
+  },
+  troubleshooting: {
+    label: 'TROUBLESHOOTING',
     subTabs: [],
   },
 };
@@ -256,65 +260,63 @@ function LauncherUpdatesCard({ handleShowToast }: { handleShowToast: (msg: strin
   };
 
   return (
-    <Card title="Launcher Updates">
-      <div
-        className="settings-row"
+    <div
+      className="settings-row"
+      style={{
+        flexDirection: 'column',
+        alignItems: 'flex-start',
+        gap: '12px',
+      }}
+    >
+      <p
         style={{
-          flexDirection: 'column',
-          alignItems: 'flex-start',
-          gap: '12px',
+          margin: '0 0 8px 0',
+          color: 'var(--ink-soft)',
+          fontSize: '14px',
         }}
       >
-        <p
-          style={{
-            margin: '0 0 8px 0',
-            color: 'var(--ink-soft)',
-            fontSize: '14px',
-          }}
-        >
-          {updateStatus === 'checking' && 'Checking for updates...'}
-          {updateStatus === 'up-to-date' && 'Launcher is up to date.'}
-          {updateStatus === 'available' && updateInfo && (
-            <>New version available: {updateInfo.version}</>
-          )}
-          {updateStatus === 'downloading' && (
-            <>Downloading update: {downloadProgress.toFixed(1)}%</>
-          )}
-          {updateStatus === 'downloaded' && 'Update ready to install!'}
-          {updateStatus === 'error' && 'Error checking for updates.'}
-          {updateStatus === 'idle' && 'Check for launcher updates.'}
-        </p>
+        {updateStatus === 'checking' && 'Checking for updates...'}
+        {updateStatus === 'up-to-date' && 'Launcher is up to date.'}
+        {updateStatus === 'available' && updateInfo && (
+          <>New version available: {updateInfo.version}</>
+        )}
+        {updateStatus === 'downloading' && (
+          <>Downloading update: {downloadProgress.toFixed(1)}%</>
+        )}
+        {updateStatus === 'downloaded' && 'Update ready to install!'}
+        {updateStatus === 'error' && 'Error checking for updates.'}
+        {updateStatus === 'idle' && 'Check for launcher updates.'}
+      </p>
+      <button
+        type="button"
+        className="btn"
+        onClick={handleCheckForUpdates}
+        disabled={isChecking || isDownloading || updateStatus === 'downloading'}
+      >
+        {isChecking ? 'CHECKING...' : 'CHECK FOR UPDATES'}
+      </button>
+      {updateStatus === 'available' && (
         <button
           type="button"
           className="btn"
-          onClick={handleCheckForUpdates}
-          disabled={isChecking || isDownloading || updateStatus === 'downloading'}
+          onClick={handleDownloadUpdate}
+          disabled={isDownloading}
+          style={{ background: '#3b82f6' }}
         >
-          {isChecking ? 'CHECKING...' : 'CHECK FOR UPDATES'}
+          {isDownloading ? 'DOWNLOADING...' : 'DOWNLOAD UPDATE'}
         </button>
-        {updateStatus === 'available' && (
-          <button
-            type="button"
-            className="btn"
-            onClick={handleDownloadUpdate}
-            disabled={isDownloading}
-            style={{ background: '#3b82f6' }}
-          >
-            {isDownloading ? 'DOWNLOADING...' : 'DOWNLOAD UPDATE'}
-          </button>
-        )}
-        {updateStatus === 'downloaded' && (
-          <button
-            type="button"
-            className="btn"
-            onClick={handleInstallUpdate}
-            style={{ background: '#10b981' }}
-          >
-            INSTALL UPDATE & RESTART
-          </button>
-        )}
-      </div>
-    </Card>
+      )}
+      {updateStatus === 'downloaded' && (
+        <button
+          type="button"
+          className="btn"
+          onClick={handleInstallUpdate}
+          style={{ background: '#10b981' }}
+        >
+          INSTALL UPDATE & RESTART
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -1613,19 +1615,20 @@ export default function SettingsPage() {
                 </Field>
               </Row>
             </Card>
-            <LauncherUpdatesCard handleShowToast={handleShowToast} />
-            <Card title="Paths and Logs">
-              <div
-                className="settings-row"
-                style={{
-                  flexDirection: 'column',
-                  alignItems: 'flex-start',
-                  gap: '12px',
-                }}
-              >
+          </>
+        )}
+
+        {category === 'troubleshooting' && (
+          <>
+            <Card title="Launcher Updates">
+              <LauncherUpdatesCard handleShowToast={handleShowToast} />
+            </Card>
+
+            <Card title="Paths & Logs">
+              <Row>
                 <button
                   type="button"
-                  className="btn"
+                  className="btn btn-secondary"
                   onClick={async () => {
                     try {
                       const result =
@@ -1637,12 +1640,15 @@ export default function SettingsPage() {
                       handleShowToast('Failed to open folder');
                     }
                   }}
+                  style={{ flex: 1 }}
                 >
-                  OPEN LAUNCHER CONFIGURATION FOLDER
+                  📂 Open Configuration Folder
                 </button>
+              </Row>
+              <Row>
                 <button
                   type="button"
-                  className="btn"
+                  className="btn btn-secondary"
                   onClick={async () => {
                     try {
                       const result =
@@ -1654,112 +1660,127 @@ export default function SettingsPage() {
                       handleShowToast('Failed to open log file');
                     }
                   }}
+                  style={{ flex: 1 }}
                 >
-                  OPEN LOG FILE
+                  📄 Open Log File
                 </button>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={async () => {
-                    try {
-                      const result =
-                        await window.electron.invoke('reapply-patches');
-                      if (result.success) {
-                        handleShowToast(
-                          'Version reset to 1.0.0. Please restart the launcher and return to the home page to reapply patches.',
-                        );
-                      } else {
-                        handleShowToast(
-                          `Failed to reset version: ${result.error || 'Unknown error'}`,
-                        );
-                      }
-                    } catch {
-                      handleShowToast('Failed to reset version');
-                    }
-                  }}
-                >
-                  REAPPLY PATCHES
-                </button>
-                <button
-                  type="button"
-                  className="btn"
-                  style={{ background: '#ef4444' }}
-                  onClick={async () => {
-                    // eslint-disable-next-line no-restricted-globals, no-alert
-                    const confirmed = window.confirm(
-                      'This will delete all downloaded files and reset the launcher. You will need to download the game again. Continue?',
-                    );
-                    if (!confirmed) {
-                      return;
-                    }
-                    try {
-                      const result =
-                        await window.electron.invoke('clear-downloads');
-                      if (result.success) {
-                        handleShowToast(
-                          'Downloads cleared successfully. Please return to the home page to start fresh.',
-                        );
-                      } else {
-                        handleShowToast(
-                          `Failed to clear downloads: ${result.error || 'Unknown error'}`,
-                        );
-                      }
-                    } catch {
-                      handleShowToast('Failed to clear downloads');
-                    }
-                  }}
-                >
-                  CLEAR ALL DOWNLOADS
-                </button>
-              </div>
+              </Row>
             </Card>
-            <Card title="Troubleshooting">
-              <div
-                className="settings-row"
-                style={{
-                  flexDirection: 'column',
-                  alignItems: 'flex-start',
-                  gap: '12px',
-                }}
-              >
-                <p
-                  style={{
-                    margin: '0 0 8px 0',
-                    color: 'var(--ink-soft)',
-                    fontSize: '14px',
-                  }}
-                >
-                  Force start will attempt to launch the game regardless of
-                  the current state of the play button.
-                </p>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={async () => {
-                    try {
-                      if (!window.electron?.launchGame) {
-                        handleShowToast('Launch API not available');
+
+            <Card title="Repair & Reset">
+              <Row>
+                <Field label="Reapply Patches" htmlFor="reapply-patches">
+                  <button
+                    type="button"
+                    id="reapply-patches"
+                    className="btn btn-secondary"
+                    onClick={async () => {
+                      try {
+                        const result =
+                          await window.electron.invoke('reapply-patches');
+                        if (result.success) {
+                          handleShowToast(
+                            'Version reset to 1.0.0. Please restart the launcher and return to the home page to reapply patches.',
+                          );
+                        } else {
+                          handleShowToast(
+                            `Failed to reset version: ${result.error || 'Unknown error'}`,
+                          );
+                        }
+                      } catch {
+                        handleShowToast('Failed to reset version');
+                      }
+                    }}
+                  >
+                    Reapply
+                  </button>
+                </Field>
+              </Row>
+              <Row>
+                <span className="hint" style={{ fontSize: '13px', color: 'var(--ink-soft)' }}>
+                  Reset version to 1.0.0 and reapply all patches on next launch.
+                </span>
+              </Row>
+              <Row>
+                <Field label="Clear All Downloads" htmlFor="clear-downloads">
+                  <button
+                    type="button"
+                    id="clear-downloads"
+                    className="btn btn-danger"
+                    onClick={async () => {
+                      // eslint-disable-next-line no-restricted-globals, no-alert
+                      const confirmed = window.confirm(
+                        'This will delete all downloaded files and reset the launcher. You will need to download the game again. Continue?',
+                      );
+                      if (!confirmed) {
                         return;
                       }
-                      const result =
-                        await window.electron.launchGame(installDir);
-                      if (result && result.success) {
-                        handleShowToast('Game launched successfully');
-                      } else {
+                      try {
+                        const result =
+                          await window.electron.invoke('clear-downloads');
+                        if (result.success) {
+                          handleShowToast(
+                            'Downloads cleared successfully. Please return to the home page to start fresh.',
+                          );
+                        } else {
+                          handleShowToast(
+                            `Failed to clear downloads: ${result.error || 'Unknown error'}`,
+                          );
+                        }
+                      } catch {
+                        handleShowToast('Failed to clear downloads');
+                      }
+                    }}
+                  >
+                    Clear
+                  </button>
+                </Field>
+              </Row>
+              <Row>
+                <span className="hint" style={{ fontSize: '13px', color: 'var(--ink-soft)' }}>
+                  Delete all downloaded files. You will need to download the game again.
+                </span>
+              </Row>
+            </Card>
+
+            <Card title="Quick Actions">
+              <Row>
+                <Field label="Force Start Game" htmlFor="force-start">
+                  <button
+                    type="button"
+                    id="force-start"
+                    className="btn btn-primary"
+                    onClick={async () => {
+                      try {
+                        if (!window.electron?.launchGame) {
+                          handleShowToast('Launch API not available');
+                          return;
+                        }
+                        const result =
+                          await window.electron.launchGame(installDir);
+                        if (result && result.success) {
+                          handleShowToast('Game launched successfully');
+                        } else {
+                          handleShowToast(
+                            `Failed to launch game: ${result?.error || 'Unknown error'}`,
+                          );
+                        }
+                      } catch (err) {
                         handleShowToast(
-                          `Failed to launch game: ${result?.error || 'Unknown error'}`,
+                          `Error launching game: ${err instanceof Error ? err.message : 'Unknown error'}`,
                         );
                       }
-                    } catch (err) {
-                      handleShowToast(
-                        `Error launching game: ${err instanceof Error ? err.message : 'Unknown error'}`,
-                      );
-                    }
-                  }}
-                >
-                  FORCE START
-                </button>
-              </div>
+                    }}
+                  >
+                    Launch
+                  </button>
+                </Field>
+              </Row>
+              <Row>
+                <span className="hint" style={{ fontSize: '13px', color: 'var(--ink-soft)' }}>
+                  Attempt to launch the game regardless of the current play button state.
+                </span>
+              </Row>
             </Card>
           </>
         )}

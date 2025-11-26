@@ -1,6 +1,6 @@
 import { downloadFile } from '../core/net';
 import { verifySha256 } from '../core/hash';
-import { extractZip, verifyExtractedFiles, createPivotIni } from '../core/fs';
+import { extractZip, verifyExtractedFiles } from '../core/fs';
 import { setClientVersion } from '../core/versions';
 import { join } from 'path';
 import { updateStorage } from '../core/storage';
@@ -61,14 +61,6 @@ export async function downloadGame(
 
   // Set version in AppData storage (installDir is ignored by setClientVersion)
   await setClientVersion(installDir, baseVersion);
-
-  // Configure Pivot overlay system for DAT file management
-  log.info(chalk.cyan(`[downloadGame] Configuring Pivot overlay system...`));
-  const pivotResult = await createPivotIni(installDir);
-  if (!pivotResult.success) {
-    log.warn(chalk.yellow(`[downloadGame] Failed to configure Pivot: ${pivotResult.error}`));
-    // Don't fail the installation, just warn
-  }
 
   log.info(chalk.green(`[downloadGame] ✓ Base game installation complete! Version: ${baseVersion}`));
 }

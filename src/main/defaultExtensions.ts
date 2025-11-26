@@ -193,10 +193,10 @@ export const DEFAULT_ADDONS = [
   },
   {
     "name": "find",
-    "description": "",
+    "description": "Allows searching for items within a players various storage containers via a slash command (case insensitive).",
     "author": "MalRD, zombie343, sippius(v4)",
     "version": "3.1.0",
-    "link": "",
+    "link": "https://github.com/Sippius/Ashita-v4-addons",
     "enabled": false
   },
   {
@@ -457,10 +457,10 @@ export const DEFAULT_ADDONS = [
   },
   {
     "name": "RollTracker",
-    "description": "",
+    "description": "Prints a clean, color-formatted summary of Corsair's roll effects on party members in real time.",
     "author": "Daniel_H, sippius(v4)",
-    "version": "1.0.2",
-    "link": "",
+    "version": "0.2",
+    "link": "https://github.com/Sippius/Ashita-v4-addons",
     "enabled": false
   },
   {

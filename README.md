@@ -48,8 +48,7 @@
 - 🎮 **Secure Credential Management** – Uses `keytar` for OS keychain integration (no plaintext on disk)
 - 📦 **Game Bootstrap & Auto-Extraction** – Detects downloaded base game archive and extracts it automatically on first run
 - ⬇️ **Patch & Update System** – Remote release + patch manifest retrieval (`release.json` + patch manifest) with version comparison
-- 🔄 **Incremental Patching** – Applies patches sequentially via `logic/patch.ts` ensuring integrity
-- 🎨 **Pivot DAT Overlay Support** – Integrates with Pivot plugin for layered DAT file modifications at `polplugins/DATs/Eventide/ROM/`
+- 🔄 **Incremental Patching** – Applies patches sequentially via `logic/patch.ts` ensuring integrity with direct-to-game-root extraction
 - 🌐 **Network + Manifest Layer** – Separate `core/net.ts`, `core/manifest.ts` for clean remote interactions
 - 🧪 **Storage Validation** – `core/storage.ts` schema validation and safe defaults (protects against corrupt `storage.json`)
 - 🔐 **Config Isolation** – Per-user `config.json` stored under Electron `userData` (not in repository) – replaces earlier root-level config approach
@@ -67,13 +66,12 @@
 
 ## 🆕 Recent Changes
 
-Date: 2025-11-23
+Date: 2025-11-27
 
-- **Pivot DAT Overlay Integration** – Patches now extract to `polplugins/DATs/Eventide/ROM/` for seamless overlay system support
+- **Direct Patch Extraction** – Patches now extract directly to the game root folder for simplified file management
 - **Manifest Caching** – Implemented 5-minute TTL cache for release and patch manifests to reduce redundant network calls
 - **Config Migration** – Automatic migration from old `extensions.addons/plugins` arrays to new object-based structure
 - **Patch Extraction Enhancement** – Smart ZIP extraction with automatic directory merging (prevents nested folder issues)
-- **Settings UI Expansion** – Added Pivot overlay configuration tab and launcher settings panel
 - Introduced layered architecture (`core`, `logic`) separating domain concerns from Electron main
 - Added automatic base game extraction and version initialization logic
 - Implemented remote release + patch manifest fetching with update notification logic
@@ -191,7 +189,7 @@ IPC Endpoints (selected):
 Game Updating:
 - Download orchestrated via `logic/download.ts` (to `Downloads/`)
 - Patch application via `logic/patch.ts` with manifest guidance
-- Patches extract to `polplugins/DATs/Eventide/ROM/` for Pivot overlay system
+- Patches extract directly to the game root folder
 - Smart ZIP extraction with automatic directory merging (avoids nested folders)
 - Integrity & version tracking stored in `storage.json` with SHA256 verification
 - Manifest caching (5-minute TTL) reduces redundant network requests
@@ -444,24 +442,13 @@ Tracks game & patch state:
 ### Default Script Generation
 `write-default-script` builds `scripts/default.txt` with auto-load commands based on enabled addons/plugins.
 
-### Pivot DAT Overlay System
-Eventide integrates with the Pivot plugin for layered DAT file modifications:
-```
-Game/
-  polplugins/
-    DATs/
-      Eventide/
-        ROM/           # Patch files extracted here
-  config/
-    pivot/
-      pivot.ini        # Overlay configuration
-```
-
-Pivot overlay structure:
-- Patches extract to `polplugins/DATs/Eventide/ROM/`
-- Pivot configuration at `config/pivot/pivot.ini` defines overlay order
-- Supports multiple overlay layers (e.g., Eventide, custom mods)
-- DAT files override base game files without modifying originals
+### Patch Extraction
+Patches are extracted directly to the game root folder:
+- Patch files download to `Downloads/` directory
+- ZIP files extract directly to the game installation folder
+- Smart extraction with automatic directory merging prevents nested folder issues
+- Files are verified post-extraction with SHA256 checksums
+- Version tracking ensures patches apply in correct order
 
 ### Security Notes
 - Credentials stored via OS keychain (`keytar`) – not in JSON files

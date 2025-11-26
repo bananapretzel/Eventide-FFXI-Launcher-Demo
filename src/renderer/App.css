@@ -623,6 +623,206 @@ body {
   padding: 16px 100px;
 }
 
+/* ========================================
+   Troubleshooting Tab Styles
+   ======================================== */
+
+.troubleshooting-container {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 8px 0;
+}
+
+.troubleshooting-section {
+  background: var(--panel);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  transition: box-shadow 0.2s ease;
+}
+
+.troubleshooting-section:hover {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
+}
+
+.troubleshooting-section-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 24px;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark, #1e3a5f) 100%);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.troubleshooting-icon {
+  font-size: 24px;
+  filter: grayscale(100%) brightness(200%);
+}
+
+.troubleshooting-section-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.troubleshooting-section-content {
+  padding: 0;
+}
+
+.troubleshooting-section-content .settings-card {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.troubleshooting-section-content .settings-card-body {
+  padding: 20px 24px;
+}
+
+.troubleshooting-section-content .settings-card-title {
+  display: none;
+}
+
+/* Troubleshooting buttons grid */
+.troubleshooting-buttons-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.troubleshooting-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 20px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.troubleshooting-btn:hover {
+  background: var(--accent-dark, #1e3a5f);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.troubleshooting-btn .btn-icon {
+  font-size: 16px;
+  filter: grayscale(100%) brightness(200%);
+}
+
+/* Troubleshooting item rows */
+.troubleshooting-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.troubleshooting-item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.troubleshooting-item:first-child {
+  padding-top: 0;
+}
+
+.troubleshooting-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.troubleshooting-item-label {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.troubleshooting-item-desc {
+  font-size: 13px;
+  color: var(--ink-soft);
+  line-height: 1.4;
+}
+
+/* Action buttons */
+.troubleshooting-btn-action {
+  padding: 10px 24px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.troubleshooting-btn-action:hover {
+  background: var(--accent-dark, #1e3a5f);
+  transform: translateY(-1px);
+}
+
+/* Danger state for destructive actions */
+.troubleshooting-item-danger {
+  background: rgba(239, 68, 68, 0.05);
+  margin: 16px -24px -20px -24px;
+  padding: 16px 24px;
+  border-radius: 0 0 16px 16px;
+  border-bottom: none;
+}
+
+.troubleshooting-btn-danger {
+  padding: 10px 24px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  border-radius: 8px;
+  background: #ef4444;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.troubleshooting-btn-danger:hover {
+  background: #dc2626;
+  transform: translateY(-1px);
+}
+
+/* Force Start button special styling */
+.troubleshooting-btn-start {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+}
+
+.troubleshooting-btn-start:hover {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%);
+}
+
+/* ========================================
+   End Troubleshooting Tab Styles
+   ======================================== */
+
 .settings-row {
   display: flex;
   align-items: center;
@@ -1155,6 +1355,16 @@ body {
 
 .btn-primary:hover {
   background: var(--accent-dark);
+}
+
+.btn-danger {
+  background: #ef4444;
+  color: #fff;
+  border: none;
+}
+
+.btn-danger:hover {
+  background: #dc2626;
 }
 
 /* Error Display Styles */
