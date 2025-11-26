@@ -124,6 +124,9 @@ export default function ExtensionsPage() {
   const [plugins, setPlugins] = useState<ExtensionItem[]>([]);
   const [error, setError] = useState<string | null>(null);
 
+  // Required plugins that should always be loaded and hidden from UI
+  const requiredPlugins = ['Addons', 'Screenshot', 'Sequencer', 'Thirdparty'];
+
   // Load extensions from config.json on mount
   useEffect(() => {
     const loadExtensions = async () => {
@@ -149,16 +152,18 @@ export default function ExtensionsPage() {
             setAddons(addonsArray);
           }
 
-          // Transform plugins object to array
+          // Transform plugins object to array, filtering out required plugins
           if (data.plugins) {
-            const pluginsArray = Object.entries(data.plugins).map(([key, value]: [string, any]) => ({
-              id: key,
-              name: key,
-              description: value.description || '',
-              author: value.author || '',
-              version: value.version || '',
-              enabled: value.enabled ?? true,
-            }));
+            const pluginsArray = Object.entries(data.plugins)
+              .filter(([key]) => !requiredPlugins.includes(key))
+              .map(([key, value]: [string, any]) => ({
+                id: key,
+                name: key,
+                description: value.description || '',
+                author: value.author || '',
+                version: value.version || '',
+                enabled: value.enabled ?? true,
+              }));
             setPlugins(pluginsArray);
           }
         }

@@ -27,7 +27,7 @@ export const DEFAULT_ADDONS = [
     "name": "balloon",
     "description": "Displays NPC chat logs in a UI Balloon, similar to FFXIV.",
     "author": "Hando, Yuki, & Kenshi",
-    "version": "4.3.0",
+    "version": "4.3.2",
     "link": "https://github.com/onimitch/ffxi-balloon-ashitav4",
     "enabled": false
   },
@@ -68,21 +68,13 @@ export const DEFAULT_ADDONS = [
     "description": "Display current skillchain options.",
     "author": "Sippius - Original Ashita-v3 skillchains by Ivaar",
     "version": "0.6.2",
-    "link": "",
-    "enabled": false
+    "link": "https://github.com/Sippius/Ashita-v4-addons/tree/main/chains",
+    "enabled": true
   },
   {
     "name": "changecall",
     "description": "Replaces all call commands with the selected call id instead.",
     "author": "atom0s",
-    "version": "1.0",
-    "link": "https://ashitaxi.com",
-    "enabled": false
-  },
-  {
-    "name": "chatfix",
-    "description": "Fixes private server chat issues related to a client update.",
-    "author": "atom0s & Thorny",
     "version": "1.0",
     "link": "https://ashitaxi.com",
     "enabled": false
@@ -323,7 +315,7 @@ export const DEFAULT_ADDONS = [
     "name": "luashitacast",
     "description": "A lua-based equipment swapping system for Ashita",
     "author": "Thorny",
-    "version": "1.50",
+    "version": "2.04",
     "link": "https://github.com/ThornyFFXI/LuAshitacast",
     "enabled": false
   },
@@ -353,7 +345,7 @@ export const DEFAULT_ADDONS = [
   },
   {
     "name": "mipmap",
-    "description": "Removes the recent patch made by SE to alter how mipmaps are configured.",
+    "description": "Removes the recent patch made by SE to alter how mipmaps are configured. If your game look grainy or is shimmering and you can't fix it with the typical graphics settings, test this.",
     "author": "atom0s",
     "version": "1.0",
     "link": "https://ashitaxi.com",
@@ -363,7 +355,7 @@ export const DEFAULT_ADDONS = [
     "name": "mobdb",
     "description": "Displays various information about monsters.",
     "author": "Thorny",
-    "version": "1.11",
+    "version": "1.19",
     "link": "https://ashitaxi.com",
     "enabled": false
   },
@@ -384,14 +376,6 @@ export const DEFAULT_ADDONS = [
     "enabled": false
   },
   {
-    "name": "NoLock",
-    "description": "Allows you to engage/disengage without animation lock from effects such as spells being cast on you or mob TP moves.",
-    "author": "WinterSolstice8",
-    "version": "1.0.0",
-    "link": "https://github.com/WinterSolstice8/nolock",
-    "enabled": false
-  },
-  {
     "name": "NoName",
     "description": "Removes the local player name.",
     "author": "atom0s",
@@ -408,26 +392,18 @@ export const DEFAULT_ADDONS = [
     "enabled": false
   },
   {
-    "name": "petinfo",
-    "description": "Displays information about the players pet.",
-    "author": "atom0s & Tornac",
-    "version": "1.1",
-    "link": "https://ashitaxi.com",
-    "enabled": false
-  },
-  {
     "name": "petme",
     "description": "Displays detailed pet information.",
     "author": "Mathemagic",
-    "version": "2.1.1",
-    "link": "",
+    "version": "2.1.2",
+    "link": "https://github.com/m4thmatic/PetMe",
     "enabled": false
   },
   {
     "name": "points",
     "description": "Various resource point and event tracking",
     "author": "Shinzaku",
-    "version": "2.2.2",
+    "version": "2.2.10",
     "link": "https://github.com/Shinzaku/Ashita4-Addons/points",
     "enabled": false
   },
@@ -475,7 +451,7 @@ export const DEFAULT_ADDONS = [
     "name": "SimpleLog",
     "description": "Combat log parser",
     "author": "Created by Byrth, Ported by Spiken",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "link": "https://github.com/Spike2D/SimpleLog",
     "enabled": false
   },
@@ -531,7 +507,7 @@ export const DEFAULT_ADDONS = [
     "name": "xicamera",
     "description": "Modifies the camera distance from the player.",
     "author": "Hokuten",
-    "version": "0.7.5",
+    "version": "0.7.9",
     "link": "",
     "enabled": false
   },
@@ -546,11 +522,6 @@ export const DEFAULT_ADDONS = [
 ];
 
 export const DEFAULT_PLUGINS = [
-  {
-    "name": "Addons",
-    "description": "Enabled use of addons.",
-    "enabled": false
-  },
   {
     "name": "DiscordRPC",
     "description": "Sends \"rich presence\" information to Discord showing your character's name, location, levels, etc.",
@@ -579,21 +550,6 @@ export const DEFAULT_PLUGINS = [
   {
     "name": "PacketFlow",
     "description": "Sends update requests to the server at a higher rate",
-    "enabled": false
-  },
-  {
-    "name": "Screenshot",
-    "description": "Allows users to save a current snapshot of the screen in different image formats.",
-    "enabled": false
-  },
-  {
-    "name": "Sequencer",
-    "description": "Manages packet sequencing for Ashitacast, LegacyAC, and LuAshitacast. Always loaded for proper packet management.",
-    "enabled": true
-  },
-  {
-    "name": "Thirdparty",
-    "description": "Enables third-party external applications to communicate with Ashita and the game client.",
     "enabled": false
   },
   {

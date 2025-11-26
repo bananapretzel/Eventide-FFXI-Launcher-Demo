@@ -819,11 +819,15 @@ ipcMain.handle('write-default-script', async () => {
     const configContent = fs.readFileSync(configPath, 'utf-8');
     const config = JSON.parse(configContent);
 
-    // Get enabled plugins
+    // Define required plugins that should always be loaded
+    const requiredPlugins = ['Addons', 'Screenshot', 'Sequencer', 'Thirdparty'];
+
+    // Get enabled plugins (excluding required ones as they're always included)
     const enabledPlugins: string[] = [];
     if (config.plugins) {
       Object.entries(config.plugins).forEach(([key, value]: [string, any]) => {
-        if (value.enabled === true) {
+        // Skip required plugins as they're handled separately
+        if (!requiredPlugins.includes(key) && value.enabled === true) {
           enabledPlugins.push(key);
         }
       });
@@ -844,13 +848,21 @@ ipcMain.handle('write-default-script', async () => {
     lines.push('### START DO NOT MODIFY AREA ###');
     lines.push('');
 
-    // Add plugins first
+    // Add required plugins first (always loaded)
+    requiredPlugins.forEach((plugin) => {
+      lines.push(`/load ${plugin}`);
+    });
+
+    // Add user-enabled plugins
+    if (enabledPlugins.length > 0) {
+      lines.push('');
+    }
     enabledPlugins.forEach((plugin) => {
       lines.push(`/load ${plugin}`);
     });
 
     // Blank line between plugins and addons
-    if (enabledPlugins.length > 0 && enabledAddons.length > 0) {
+    if ((requiredPlugins.length > 0 || enabledPlugins.length > 0) && enabledAddons.length > 0) {
       lines.push('');
     }
 
@@ -879,7 +891,11 @@ ipcMain.handle('write-default-script', async () => {
       defaultScriptPath,
     );
     log.info(
-      chalk.cyan('[write-default-script] Enabled plugins:'),
+      chalk.cyan('[write-default-script] Required plugins (always loaded):'),
+      requiredPlugins.join(', '),
+    );
+    log.info(
+      chalk.cyan('[write-default-script] User-enabled plugins:'),
       enabledPlugins.length,
     );
     log.info(
