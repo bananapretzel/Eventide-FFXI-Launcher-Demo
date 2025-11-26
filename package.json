@@ -272,7 +272,8 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "artifactName": "${productName}-Setup-${version}.${ext}",
-      "include": "assets/installer.nsh"
+      "include": "assets/installer.nsh",
+      "deleteAppDataOnUninstall": false
     },
     "linux": {
       "target": [

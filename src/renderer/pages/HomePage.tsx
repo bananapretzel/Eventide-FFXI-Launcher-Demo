@@ -1,8 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { siDiscord } from 'simple-icons';
 import { fetchPatchNotes } from '../data/feed';
 import type { Post } from '../types/feed';
 import { useGameState } from '../contexts/GameStateContext';
+import { safeInvoke } from '../utils/ipc';
+import { formatBytes } from '../utils/format';
 
 // Check update status on mount
 // (moved below imports)
@@ -125,61 +127,6 @@ export default function HomePage(props: HomePageProps) {
     );
   }, [state, canPlay]);
 
-  // Helper: safe invoke that prefers window.electron.invoke if available,
-  // otherwise falls back to ipcRenderer.sendMessage + once-reply pattern.
-  const safeInvoke = async (channel: string, ...args: unknown[]) => {
-    const anyWin: any = window as any;
-    const { electron } = anyWin;
-    if (!electron) {
-      throw new Error('IPC not available');
-    }
-
-    // Prefer direct invoke if preload exposes it
-    if (typeof electron.invoke === 'function') {
-      return electron.invoke(channel, ...args);
-    }
-
-    // Fallback: use ipcRenderer.sendMessage and wait for a reply on `${channel}:reply`
-    const ipc = electron.ipcRenderer;
-    if (
-      !ipc ||
-      typeof ipc.sendMessage !== 'function' ||
-      typeof ipc.once !== 'function'
-    ) {
-      throw new Error('No suitable IPC invoke method available');
-    }
-
-    const replyChannel = `${channel}:reply`;
-    return new Promise((resolve, reject) => {
-      let timeout: ReturnType<typeof setTimeout>;
-      let finished = false;
-
-      const handler = (_ev: any, payload: any) => {
-        if (finished) return;
-        finished = true;
-        clearTimeout(timeout);
-        resolve(payload);
-      };
-
-      timeout = setTimeout(() => {
-        if (finished) return;
-        finished = true;
-        reject(new Error('IPC invoke timed out'));
-      }, 10000);
-
-      ipc.once(replyChannel, handler);
-      try {
-        ipc.sendMessage(channel, args);
-      } catch (err) {
-        if (!finished) {
-          finished = true;
-          clearTimeout(timeout);
-          reject(err);
-        }
-      }
-    });
-  };
-
   // Safely read progress from union-typed state
   const getProgress = (s: typeof state): number | undefined => {
     if (s.status === 'downloading' || s.status === 'extracting') {
@@ -193,18 +140,6 @@ export default function HomePage(props: HomePageProps) {
 
   const getTotal = (s: typeof state): number | undefined =>
     s.status === 'downloading' ? s.total : undefined;
-
-  const formatBytes = (n?: number) => {
-    if (!n || n <= 0) return '0 B';
-    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-    let idx = 0;
-    let val = n;
-    while (val >= 1024 && idx < units.length - 1) {
-      val /= 1024;
-      idx += 1;
-    }
-    return `${val.toFixed(val >= 10 || idx === 0 ? 0 : 1)} ${units[idx]}`;
-  };
 
   const handleActionClick = async () => {
     console.log('[HomePage] Play/Action button clicked, state:', state);
@@ -319,35 +254,27 @@ export default function HomePage(props: HomePageProps) {
 
           dispatch({ type: 'SET', state: { status: 'launching' } });
 
-          // Check if we should close launcher on game run
+          // Launch game and close launcher after a brief delay
           try {
-            const settingsResult = await (
-              window as any
-            ).electron.readSettings();
-            if (
-              settingsResult?.success &&
-              settingsResult?.data?.launcher?.closeOnRun
-            ) {
-              // Launch game and close launcher after a brief delay
-              await safeInvoke('game:launch');
-              setTimeout(() => {
-                (window as any).electron?.windowControls?.close?.();
-              }, 1000);
-            } else {
-              // Just launch without closing
-              await safeInvoke('game:launch');
-            }
-          } catch {
-            // If settings read fails, just launch normally
             await safeInvoke('game:launch');
+            setTimeout(() => {
+              (window as any).electron?.windowControls?.close?.();
+            }, 1000);
+          } catch (launchErr) {
+            // eslint-disable-next-line no-console
+            console.error('[HomePage] Launch error:', launchErr);
+            dispatch({
+              type: 'ERROR',
+              msg: String(launchErr),
+              isRetryable: false,
+            });
           }
-          // main can emit status if needed
-        } catch (launchErr) {
+        } catch (err) {
           // eslint-disable-next-line no-console
-          console.error('[HomePage] Launch error:', launchErr);
+          console.error('[HomePage] Ready status error:', err);
           dispatch({
             type: 'ERROR',
-            msg: String(launchErr),
+            msg: String(err),
             isRetryable: false,
           });
         }
@@ -622,6 +549,7 @@ export default function HomePage(props: HomePageProps) {
             disabled={
               state.status === 'checking' ||
               state.status === 'downloading' ||
+              state.status === 'extracting' ||
               state.status === 'launching' ||
               (state.status === 'ready' && !canPlay)
             }

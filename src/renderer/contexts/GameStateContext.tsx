@@ -1,4 +1,5 @@
 ﻿import React, { createContext, useContext, useReducer, useEffect, ReactNode } from 'react';
+import { safeInvoke } from '../utils/ipc';
 
 export type GameState =
   | { status: 'checking' }
@@ -93,61 +94,10 @@ export function GameStateProvider({ children }: { children: ReactNode }) {
     let unsubStatus: (() => void) | undefined;
     let unsubExtract: (() => void) | undefined;
 
-    const safeInvoke = async (channel: string, ...args: unknown[]) => {
-      const anyWin: any = window as any;
-      const { electron } = anyWin;
-      if (!electron) {
-        throw new Error('IPC not available');
-      }
-
-      if (typeof electron.invoke === 'function') {
-        return electron.invoke(channel, ...args);
-      }
-
-      const ipc = electron.ipcRenderer;
-      if (
-        !ipc ||
-        typeof ipc.sendMessage !== 'function' ||
-        typeof ipc.once !== 'function'
-      ) {
-        throw new Error('No suitable IPC invoke method available');
-      }
-
-      const replyChannel = `${channel}:reply`;
-      return new Promise((resolve, reject) => {
-        let timeout: ReturnType<typeof setTimeout>;
-        let finished = false;
-
-        const handler = (_ev: any, payload: any) => {
-          if (finished) return;
-          finished = true;
-          clearTimeout(timeout);
-          resolve(payload);
-        };
-
-        timeout = setTimeout(() => {
-          if (finished) return;
-          finished = true;
-          reject(new Error('IPC invoke timed out'));
-        }, 10000);
-
-        ipc.once(replyChannel, handler);
-        try {
-          ipc.sendMessage(channel, args);
-        } catch (err) {
-          if (!finished) {
-            finished = true;
-            clearTimeout(timeout);
-            reject(err);
-          }
-        }
-      });
-    };
-
     const doCheck = async () => {
       dispatch({ type: 'CHECK' });
       try {
-        const res = await safeInvoke('game:check');
+        const res = await safeInvoke<any>('game:check');
         const { launcherState, latestVersion, installedVersion } = res ?? {};
         if (launcherState === 'missing') {
           dispatch({ type: 'SET', state: { status: 'missing' } });

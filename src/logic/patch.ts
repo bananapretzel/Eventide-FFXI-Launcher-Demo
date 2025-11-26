@@ -1,6 +1,6 @@
 import { downloadFile } from '../core/net';
 import { verifySha256 } from '../core/hash';
-import { extractAndMergeZip, verifyExtractedFiles } from '../core/fs';
+import { extractAndMergeZip, verifyExtractedFiles, createPivotIni } from '../core/fs';
 import { setClientVersion, getClientVersion } from '../core/versions';
 import { join } from 'path';
 import { PatchManifest } from '../core/manifest';
@@ -98,7 +98,6 @@ export async function applyPatches(
 
     // Configure Pivot overlay system after extraction
     log.info(chalk.cyan(`[applyPatches] Configuring Pivot overlay system...`));
-    const { createPivotIni } = await import('../core/fs');
     const pivotResult = await createPivotIni(installDir);
     if (!pivotResult.success) {
       log.warn(chalk.yellow(`[applyPatches] Failed to configure Pivot: ${pivotResult.error}`));

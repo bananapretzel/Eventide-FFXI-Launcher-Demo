@@ -1,5 +1,13 @@
 export const DEFAULT_ADDONS = [
   {
+    "name": "allmaps",
+    "description": "Enables the ability to see every map via /map without needing the key items. Also works for viewing map waypoints.",
+    "author": "atom0s",
+    "version": "1.0",
+    "link": "https://ashitaxi.com/",
+    "enabled": false
+  },
+  {
     "name": "aspect",
     "description": "Forces the games aspect ratio to match the windows resolution.",
     "author": "atom0s",
@@ -13,6 +21,14 @@ export const DEFAULT_ADDONS = [
     "author": "atom0s & Thorny",
     "version": "1.0",
     "link": "https://ashitaxi.com",
+    "enabled": false
+  },
+  {
+    "name": "balloon",
+    "description": "Displays NPC chat logs in a UI Balloon, similar to FFXIV.",
+    "author": "Hando, Yuki, & Kenshi",
+    "version": "4.3.0",
+    "link": "https://github.com/onimitch/ffxi-balloon-ashitav4",
     "enabled": false
   },
   {
@@ -53,14 +69,6 @@ export const DEFAULT_ADDONS = [
     "author": "Sippius - Original Ashita-v3 skillchains by Ivaar",
     "version": "0.6.2",
     "link": "",
-    "enabled": false
-  },
-  {
-    "name": "chamcham",
-    "description": "Enables coloring models based on their entity type.",
-    "author": "atom0s",
-    "version": "1.0",
-    "link": "https://ashitaxi.com",
     "enabled": false
   },
   {
@@ -128,14 +136,6 @@ export const DEFAULT_ADDONS = [
     "enabled": false
   },
   {
-    "name": "debuff",
-    "description": "Enables cancelling status effects via a command.",
-    "author": "atom0s",
-    "version": "1.0",
-    "link": "https://ashitaxi.com",
-    "enabled": false
-  },
-  {
     "name": "distance",
     "description": "Displays the distance between you and your target.",
     "author": "atom0s",
@@ -155,7 +155,7 @@ export const DEFAULT_ADDONS = [
     "name": "enternity",
     "description": "Removes the need to press enter through npc dialog and cutscenes.",
     "author": "Hypnotoad & atom0s",
-    "version": "1.0",
+    "version": "1.1",
     "link": "https://ashitaxi.com",
     "enabled": false
   },
@@ -163,7 +163,15 @@ export const DEFAULT_ADDONS = [
     "name": "equipmon",
     "description": "Displays the players equipment onscreen at all times.",
     "author": "atom0s",
-    "version": "1.0",
+    "version": "1.2",
+    "link": "https://ashitaxi.com",
+    "enabled": false
+  },
+  {
+    "name": "fastswap",
+    "description": "Fixes a state issue with the client when trying to swap jobs too fast.",
+    "author": "atom0s",
+    "version": "1.1",
     "link": "https://ashitaxi.com",
     "enabled": false
   },
@@ -205,6 +213,14 @@ export const DEFAULT_ADDONS = [
     "author": "atom0s",
     "version": "1.0",
     "link": "https://ashitaxi.com",
+    "enabled": false
+  },
+  {
+    "name": "HGather",
+    "description": "General purpose gathering tracker.",
+    "author": "Hastega",
+    "version": "1.7.1",
+    "link": "https://github.com/samson-ffxi/HGather",
     "enabled": false
   },
   {
@@ -360,11 +376,35 @@ export const DEFAULT_ADDONS = [
     "enabled": false
   },
   {
-    "name": "noname",
+    "name": "NoCombat",
+    "description": "Changes the combat music for a zone to match the zone\'s default music.",
+    "author": "Thorny",
+    "version": "1.0",
+    "link": "https://ashitaxi.com",
+    "enabled": false
+  },
+  {
+    "name": "NoLock",
+    "description": "Allows you to engage/disengage without animation lock from effects such as spells being cast on you or mob TP moves.",
+    "author": "WinterSolstice8",
+    "version": "1.0.0",
+    "link": "https://github.com/WinterSolstice8/nolock",
+    "enabled": false
+  },
+  {
+    "name": "NoName",
     "description": "Removes the local player name.",
     "author": "atom0s",
     "version": "1.0",
     "link": "https://ashitaxi.com",
+    "enabled": false
+  },
+  {
+    "name": "partybuffs",
+    "description": "Displays party buffs next to vanilla party list.",
+    "author": "Thorny",
+    "version": "1.08",
+    "link": "https://github.com/ThornyFFXI/MiscAshita4",
     "enabled": false
   },
   {
@@ -448,6 +488,14 @@ export const DEFAULT_ADDONS = [
     "enabled": false
   },
   {
+    "name": "statustimers",
+    "description": "Comprehensive replacement for the default status timer display",
+    "author": "heals",
+    "version": "4.1.503",
+    "link": "https://github.com/HealsCodes/statustimers",
+    "enabled": false
+  },
+  {
     "name": "stfu",
     "description": "Prevents commonly repeated chat output from the game and prevents calls from making sounds.",
     "author": "atom0s",
@@ -464,24 +512,8 @@ export const DEFAULT_ADDONS = [
     "enabled": false
   },
   {
-    "name": "timers",
-    "description": "Displays the duration of spells and abilities you've used.",
-    "author": "Lunaretic, Shiyo, The Mystic",
-    "version": "1.0.3.3",
-    "link": "https://github.com/Lunaretic/Timers",
-    "enabled": false
-  },
-  {
     "name": "timestamp",
     "description": "Adds a timestamp to chat messages.",
-    "author": "atom0s",
-    "version": "1.0",
-    "link": "https://ashitaxi.com",
-    "enabled": false
-  },
-  {
-    "name": "tokens",
-    "description": "Extends the parsable tokens in the chatlog.",
     "author": "atom0s",
     "version": "1.0",
     "link": "https://ashitaxi.com",
@@ -501,6 +533,14 @@ export const DEFAULT_ADDONS = [
     "author": "Hokuten",
     "version": "0.7.5",
     "link": "",
+    "enabled": false
+  },
+  {
+    "name": "zonename",
+    "description": "Displays the zone and region name for a short time while changing zones.",
+    "author": "Xenonsmurf. Japanese support and other improvements by onimitch.",
+    "version": "2.3",
+    "link": "https://github.com/onimitch/ffxi-zonename",
     "enabled": false
   }
 ];
