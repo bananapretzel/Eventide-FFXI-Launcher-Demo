@@ -843,16 +843,53 @@ ipcMain.handle('write-default-script', async () => {
       });
     }
 
+    // Path to default.txt
+    const scriptsDir = path.join(paths.gameRoot, 'scripts');
+    const defaultScriptPath = path.join(scriptsDir, 'default.txt');
+
+    // Read existing file to preserve custom user settings
+    let customUserContent = '';
+    if (fs.existsSync(defaultScriptPath)) {
+      try {
+        const existingContent = fs.readFileSync(defaultScriptPath, 'utf-8');
+        const startMarker = '########## Custom user addons and plugins start here  ##########';
+        const endMarker = '########## Custom user addons and plugins ends here ##########';
+
+        const startIndex = existingContent.indexOf(startMarker);
+        const endIndex = existingContent.indexOf(endMarker);
+
+        if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
+          // Extract content between markers (excluding the markers themselves)
+          customUserContent = existingContent
+            .substring(startIndex + startMarker.length, endIndex)
+            .trim();
+
+          if (customUserContent) {
+            log.info(
+              chalk.cyan('[write-default-script] Preserved custom user settings'),
+            );
+          }
+        }
+      } catch (err) {
+        log.warn(
+          chalk.yellow('[write-default-script] Could not read existing file, custom settings will not be preserved:'),
+          err,
+        );
+      }
+    }
+
     // Build script content
     const lines: string[] = [];
-    lines.push('### START DO NOT MODIFY AREA ###');
+    lines.push('########## START DO NOT MODIFY AREA ##########');
     lines.push('');
-
+    lines.push('#EVENTIDE_MANDATORY_PLUGINS_START');
     // Add required plugins first (always loaded)
     requiredPlugins.forEach((plugin) => {
       lines.push(`/load ${plugin}`);
     });
-
+    lines.push('#EVENTIDE_MANDATORY_PLUGINS_END');
+    lines.push('');
+    lines.push('#EVENTIDE_LAUNCHER_ADDONS_AND_PLUGINS_START');
     // Add user-enabled plugins
     if (enabledPlugins.length > 0) {
       lines.push('');
@@ -870,15 +907,42 @@ ipcMain.handle('write-default-script', async () => {
     enabledAddons.forEach((addon) => {
       lines.push(`/addon load ${addon}`);
     });
-
+    lines.push('/wait 5');
+    lines.push('/renamer load ET');
+    lines.push('#EVENTIDE_LAUNCHER_ADDONS_AND_PLUGINS_END');
     lines.push('');
-    lines.push('### END DO NOT MODIFY AREA ###');
+    lines.push('/bind insert /ashita');
+    lines.push('/bind SYSRQ /screenshot hide');
+    lines.push('/bind ^v /paste');
+    lines.push('/bind F11 /ambient');
+    lines.push('/bind F12 /fps');
+    lines.push('/bind ^F1 /ta <a10>');
+    lines.push('/bind ^F2 /ta <a11>');
+    lines.push('/bind ^F3 /ta <a12>');
+    lines.push('/bind ^F4 /ta <a13>');
+    lines.push('/bind ^F5 /ta <a14>');
+    lines.push('/bind ^F6 /ta <a15>');
+    lines.push('/bind !F1 /ta <a20>');
+    lines.push('/bind !F2 /ta <a21>');
+    lines.push('/bind !F3 /ta <a22>');
+    lines.push('/bind !F4 /ta <a23>');
+    lines.push('/bind !F5 /ta <a24>');
+    lines.push('/bind !F6 /ta <a25>');
+    lines.push('');
+    lines.push('/wait 3');
+    lines.push('/ambient 255 255 255');
+    lines.push('');
+    lines.push('########## END DO NOT MODIFY AREA ##########');
+    lines.push('');
+    lines.push('########## Custom user addons and plugins start here  ##########');
 
+    // Add preserved custom content
+    if (customUserContent) {
+      lines.push(customUserContent);
+    }
+
+    lines.push('########## Custom user addons and plugins ends here ##########');
     const scriptContent = lines.join('\n');
-
-    // Write to scripts/default.txt
-    const scriptsDir = path.join(paths.gameRoot, 'scripts');
-    const defaultScriptPath = path.join(scriptsDir, 'default.txt');
 
     // Ensure scripts directory exists
     fs.mkdirSync(scriptsDir, { recursive: true });
