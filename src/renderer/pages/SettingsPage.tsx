@@ -27,61 +27,13 @@ interface Settings {
     hardwareMouse?: boolean;
     graphicsStabilization?: boolean;
   };
-  ashita?: {
-    fps?: string;
-    bootFile?: string;
-    gameModule?: string;
-    script?: string;
-    args?: string;
-    langPlayOnline?: string;
-    langAshita?: string;
-    logLevel?: string;
-    crashDumps?: boolean;
-    threadCount?: number;
-    resOffsets?: boolean;
-    resPointers?: boolean;
-    resResources?: boolean;
-    startX?: number;
-    startY?: number;
-    gamepadAllowBg?: boolean;
-    gamepadDisableEnum?: boolean;
-    kbBlockInput?: boolean;
-    kbBlockBinds?: boolean;
-    kbSilentBinds?: boolean;
-    kbWinKey?: boolean;
-    mouseBlockInput?: boolean;
-    mouseUnhook?: boolean;
-    addonsSilent?: boolean;
-    aliasesSilent?: boolean;
-    pluginsSilent?: boolean;
-    d3dBBFormat?: number;
-    d3dBBCount?: number;
-    d3dMultiSample?: number;
-    d3dSwapEffect?: number;
-    d3dAutoDepth?: number;
-    d3dDepthFormat?: number;
-    d3dFlags?: number;
-    d3dRefresh?: number;
-    d3dPresentInterval?: number;
-    d3dFPUPreserve?: number;
-    additionalSettings?: string;
-  };
   pivot?: {
     overlayEnabled?: boolean;
   };
 }
 
-type CategoryId = 'ffxi' | 'ashita' | 'pivot' | 'troubleshooting';
-type SubTabId =
-  | 'general'
-  | 'graphics'
-  | 'features'
-  | 'other'
-  | 'script'
-  | 'initialization'
-  | 'overlays'
-  | 'paths'
-  | 'logs';
+type CategoryId = 'ffxi' | 'pivot' | 'troubleshooting';
+type SubTabId = 'general' | 'graphics' | 'features' | 'other';
 
 const CATEGORY_DEFS: Record<
   CategoryId,
@@ -95,10 +47,6 @@ const CATEGORY_DEFS: Record<
       { id: 'features', label: 'FEATURES' },
       { id: 'other', label: 'OTHER' },
     ],
-  },
-  ashita: {
-    label: 'ASHITA',
-    subTabs: [{ id: 'script', label: 'SCRIPT' }],
   },
   pivot: {
     label: 'PIVOT',
@@ -139,15 +87,47 @@ function Row({ children }: { children: React.ReactNode }) {
 function Field({
   label,
   htmlFor,
+  tooltip = '',
   children,
 }: {
   label: string;
   htmlFor: string;
+  // eslint-disable-next-line react/require-default-props
+  tooltip?: string;
   children: React.ReactNode;
 }) {
+  const tooltipRef = React.useRef<HTMLSpanElement>(null);
+  const iconRef = React.useRef<HTMLSpanElement>(null);
+
+  const handleMouseEnter = () => {
+    if (tooltipRef.current && iconRef.current) {
+      const iconRect = iconRef.current.getBoundingClientRect();
+      tooltipRef.current.style.left = `${iconRect.left}px`;
+      tooltipRef.current.style.top = `${iconRect.bottom + 8}px`;
+    }
+  };
+
   return (
     <label className="settings-field" htmlFor={htmlFor}>
-      <span className="settings-field-label">{label}</span>
+      <span className="settings-field-label">
+        <span className="settings-field-label-text">
+          {label}
+          {tooltip && (
+            <span className="tooltip-wrapper" onMouseEnter={handleMouseEnter}>
+              <span className="tooltip-icon" ref={iconRef}>
+                ?
+              </span>
+              <span className="tooltip-content" ref={tooltipRef}>
+                {tooltip
+                  .split('\n')
+                  .map((line, i) =>
+                    i === 0 ? line : [<br key={`br-${line}`} />, line],
+                  )}
+              </span>
+            </span>
+          )}
+        </span>
+      </span>
       {children}
     </label>
   );
@@ -169,7 +149,11 @@ function brightnessToRange(brightness: number): number {
   );
 }
 
-function LauncherUpdatesCard({ handleShowToast }: { handleShowToast: (msg: string) => void }) {
+function LauncherUpdatesCard({
+  handleShowToast,
+}: {
+  handleShowToast: (msg: string) => void;
+}) {
   const [updateStatus, setUpdateStatus] = useState<string>('idle');
   const [updateInfo, setUpdateInfo] = useState<any>(null);
   const [isChecking, setIsChecking] = useState(false);
@@ -178,44 +162,50 @@ function LauncherUpdatesCard({ handleShowToast }: { handleShowToast: (msg: strin
 
   useEffect(() => {
     if (!window.electron?.launcherUpdate?.onUpdateEvent) {
-      return () => {}; // Return empty cleanup function
+      return () => {};
     }
 
-    // Listen for update events from main process
-    const cleanup = window.electron.launcherUpdate.onUpdateEvent((_event, payload) => {
-      switch (payload.status) {
-        case 'checking':
-          setUpdateStatus('checking');
-          break;
-        case 'update-available':
-          setUpdateStatus('available');
-          setUpdateInfo(payload.info);
-          setIsChecking(false);
-          break;
-        case 'up-to-date':
-          setUpdateStatus('up-to-date');
-          setIsChecking(false);
-          handleShowToast(payload.message || 'Launcher is up to date!');
-          break;
-        case 'downloading':
-          setUpdateStatus('downloading');
-          setDownloadProgress(payload.progress?.percent || 0);
-          break;
-        case 'downloaded':
-          setUpdateStatus('downloaded');
-          setIsDownloading(false);
-          handleShowToast(payload.message || 'Update downloaded! Click "Install Update" to restart.');
-          break;
-        case 'error':
-          setUpdateStatus('error');
-          setIsChecking(false);
-          setIsDownloading(false);
-          handleShowToast(payload.message || `Update error: ${payload.error}`);
-          break;
-        default:
-          break;
-      }
-    });
+    const cleanup = window.electron.launcherUpdate.onUpdateEvent(
+      (_event, payload) => {
+        switch (payload.status) {
+          case 'checking':
+            setUpdateStatus('checking');
+            break;
+          case 'update-available':
+            setUpdateStatus('available');
+            setUpdateInfo(payload.info);
+            setIsChecking(false);
+            break;
+          case 'up-to-date':
+            setUpdateStatus('up-to-date');
+            setIsChecking(false);
+            handleShowToast(payload.message || 'Launcher is up to date!');
+            break;
+          case 'downloading':
+            setUpdateStatus('downloading');
+            setDownloadProgress(payload.progress?.percent || 0);
+            break;
+          case 'downloaded':
+            setUpdateStatus('downloaded');
+            setIsDownloading(false);
+            handleShowToast(
+              payload.message ||
+                'Update downloaded! Click "Install Update" to restart.',
+            );
+            break;
+          case 'error':
+            setUpdateStatus('error');
+            setIsChecking(false);
+            setIsDownloading(false);
+            handleShowToast(
+              payload.message || `Update error: ${payload.error}`,
+            );
+            break;
+          default:
+            break;
+        }
+      },
+    );
 
     return cleanup;
   }, [handleShowToast]);
@@ -231,7 +221,9 @@ function LauncherUpdatesCard({ handleShowToast }: { handleShowToast: (msg: strin
         setIsChecking(false);
       }
     } catch (err) {
-      handleShowToast(`Error checking for updates: ${err instanceof Error ? err.message : 'Unknown'}`);
+      handleShowToast(
+        `Error checking for updates: ${err instanceof Error ? err.message : 'Unknown'}`,
+      );
       setUpdateStatus('error');
       setIsChecking(false);
     }
@@ -246,7 +238,9 @@ function LauncherUpdatesCard({ handleShowToast }: { handleShowToast: (msg: strin
         setIsDownloading(false);
       }
     } catch (err) {
-      handleShowToast(`Error downloading update: ${err instanceof Error ? err.message : 'Unknown'}`);
+      handleShowToast(
+        `Error downloading update: ${err instanceof Error ? err.message : 'Unknown'}`,
+      );
       setIsDownloading(false);
     }
   };
@@ -255,53 +249,58 @@ function LauncherUpdatesCard({ handleShowToast }: { handleShowToast: (msg: strin
     try {
       await window.electron.launcherUpdate.installUpdate();
     } catch (err) {
-      handleShowToast(`Error installing update: ${err instanceof Error ? err.message : 'Unknown'}`);
+      handleShowToast(
+        `Error installing update: ${err instanceof Error ? err.message : 'Unknown'}`,
+      );
     }
   };
 
   return (
-    <div
-      className="settings-row"
-      style={{
-        flexDirection: 'column',
-        alignItems: 'flex-start',
-        gap: '12px',
-      }}
-    >
-      <p
-        style={{
-          margin: '0 0 8px 0',
-          color: 'var(--ink-soft)',
-          fontSize: '14px',
-        }}
-      >
-        {updateStatus === 'checking' && 'Checking for updates...'}
-        {updateStatus === 'up-to-date' && 'Launcher is up to date.'}
-        {updateStatus === 'available' && updateInfo && (
-          <>New version available: {updateInfo.version}</>
-        )}
-        {updateStatus === 'downloading' && (
-          <>Downloading update: {downloadProgress.toFixed(1)}%</>
-        )}
-        {updateStatus === 'downloaded' && 'Update ready to install!'}
-        {updateStatus === 'error' && 'Error checking for updates.'}
-        {updateStatus === 'idle' && 'Check for launcher updates.'}
-      </p>
-      <button
-        type="button"
-        className="btn"
-        onClick={handleCheckForUpdates}
-        disabled={isChecking || isDownloading || updateStatus === 'downloading'}
-      >
-        {isChecking ? 'CHECKING...' : 'CHECK FOR UPDATES'}
-      </button>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <p
+          style={{
+            margin: 0,
+            color: 'var(--ink-soft)',
+            fontSize: '14px',
+            flex: 1,
+          }}
+        >
+          {updateStatus === 'checking' && 'Checking for updates...'}
+          {updateStatus === 'up-to-date' && 'Launcher is up to date.'}
+          {updateStatus === 'available' && updateInfo && (
+            <>New version available: {updateInfo.version}</>
+          )}
+          {updateStatus === 'downloading' && (
+            <>Downloading update: {downloadProgress.toFixed(1)}%</>
+          )}
+          {updateStatus === 'downloaded' && 'Update ready to install!'}
+          {updateStatus === 'error' && 'Error checking for updates.'}
+          {updateStatus === 'idle' && 'Check for launcher updates.'}
+        </p>
+        <button
+          type="button"
+          className="btn"
+          onClick={handleCheckForUpdates}
+          disabled={
+            isChecking || isDownloading || updateStatus === 'downloading'
+          }
+          style={{ minWidth: '180px', width: 'auto' }}
+        >
+          {isChecking ? 'CHECKING...' : 'CHECK FOR UPDATES'}
+        </button>
+      </div>
       {updateStatus === 'available' && (
         <button
           type="button"
           className="btn"
           onClick={handleDownloadUpdate}
           disabled={isDownloading}
-          style={{ background: '#3b82f6' }}
+          style={{
+            background: '#3b82f6',
+            width: 'fit-content',
+            minWidth: '180px',
+          }}
         >
           {isDownloading ? 'DOWNLOADING...' : 'DOWNLOAD UPDATE'}
         </button>
@@ -311,7 +310,11 @@ function LauncherUpdatesCard({ handleShowToast }: { handleShowToast: (msg: strin
           type="button"
           className="btn"
           onClick={handleInstallUpdate}
-          style={{ background: '#10b981' }}
+          style={{
+            background: '#10b981',
+            width: 'fit-content',
+            minWidth: '180px',
+          }}
         >
           INSTALL UPDATE & RESTART
         </button>
@@ -345,7 +348,11 @@ function FFXIGeneralPanel({
     <>
       <Card title="Screen Settings">
         <Row>
-          <Field label="Window Mode" htmlFor="window-mode">
+          <Field
+            label="Window Mode"
+            htmlFor="window-mode"
+            tooltip="Choose how the game window is displayed: Fullscreen, Windowed, or Windowed Borderless."
+          >
             <select
               id="window-mode"
               value={settings.ffxi?.windowMode ?? 1}
@@ -357,13 +364,16 @@ function FFXIGeneralPanel({
               <option value={0}>Fullscreen</option>
               <option value={1}>Windowed</option>
               <option value={2}>Windowed (Borderless)</option>
-              <option value={3}>Fullscreen (Windowed)</option>
             </select>
           </Field>
         </Row>
 
         <Row>
-          <Field label="Window Resolution" htmlFor="win-width">
+          <Field
+            label="Window Resolution"
+            htmlFor="win-width"
+            tooltip="Represents the physical number of pixels displayed on your screen. This setting is very delicate, and can only be set to a limited number of supported resolutions. It is important that both your video card and your monitor support the screen resolution, or the game will not work."
+          >
             <div className="res-grid">
               <input
                 id="win-width"
@@ -390,7 +400,18 @@ function FFXIGeneralPanel({
         </Row>
 
         <Row>
-          <Field label="Menu Resolution" htmlFor="menu-width">
+          <Field
+            label="Menu Resolution"
+            htmlFor="menu-width"
+            tooltip="Set the resolution for in-game menus and UI elements. Smaller = larger. Some examples:
+
+            1280 x 720
+            1366 x 768
+            1600 x 900
+            1920 x 1080
+            2048 x 1152
+            2560 x 1440"
+          >
             <div className="res-grid">
               <input
                 id="menu-width"
@@ -495,7 +516,11 @@ function FFXIGraphicsPanel({
     <>
       <Card title="Screen Settings">
         <Row>
-          <Field label="Background Resolution" htmlFor="bg-width">
+          <Field
+            label="Background Resolution"
+            htmlFor="bg-width"
+            tooltip="The background resolution is the resolution at which the 3-D graphics in the game are rendered. Most PC games render the 3D environment at the same resolution the screen resolution is set at. However, Final Fantasy XI renders the 3-D environment at an independent resolution than that of the screen resolution. The background (3-D) graphics are rendered at this fixed resolution and then scaled to fit the screen resolution.&#10;&#10;Rule of thumb: set background resolution to your window resolution and for higher end PCs, set it to 1.5x - 2x your windows resolution for better quality."
+          >
             <div className="res-grid">
               <input
                 id="bg-width"
@@ -521,7 +546,11 @@ function FFXIGraphicsPanel({
           </Field>
         </Row>
         <Row>
-          <Field label="Maintain Aspect Ratio" htmlFor="maintain-ar">
+          <Field
+            label="Maintain Aspect Ratio"
+            htmlFor="maintain-ar"
+            tooltip="When enabled, preserves the original aspect ratio of the game to prevent stretching or distortion."
+          >
             <div className="toggle" aria-label="Maintain Aspect Ratio">
               <input
                 id="maintain-ar"
@@ -539,7 +568,11 @@ function FFXIGraphicsPanel({
 
       <Card title="Quality">
         <Row>
-          <Field label="Texture Compression" htmlFor="tex-comp">
+          <Field
+            label="Texture Compression"
+            htmlFor="tex-comp"
+            tooltip="Texture Compression has three settings: High, Low, and Uncompressed. The only textures this setting actually affects are cloud and light flares. Honestly, whichever setting you choose, you will have a hard time telling the difference. The high setting compresses both flares and clouds, while the low setting uses compressed textures only for clouds."
+          >
             <select
               id="tex-comp"
               value={settings.ffxi?.textureCompression ?? 2}
@@ -555,7 +588,11 @@ function FFXIGraphicsPanel({
           </Field>
         </Row>
         <Row>
-          <Field label="Map Compression" htmlFor="map-comp">
+          <Field
+            label="Map Compression"
+            htmlFor="map-comp"
+            tooltip="Sets the level of quality for the game's map textures."
+          >
             <select
               id="map-comp"
               value={settings.ffxi?.mapCompression ?? 1}
@@ -564,13 +601,17 @@ function FFXIGraphicsPanel({
               }
               className="select"
             >
-              <option value={0}>Compressed</option>
-              <option value={1}>Uncompressed</option>
+              <option value={0}>Low</option>
+              <option value={1}>High</option>
             </select>
           </Field>
         </Row>
         <Row>
-          <Field label="Font Compression" htmlFor="font-comp">
+          <Field
+            label="Font Compression"
+            htmlFor="font-comp"
+            tooltip="Controls the quality of in-game text rendering. 99% of the time, you will want to set this to high."
+          >
             <select
               id="font-comp"
               value={settings.ffxi?.fontCompression ?? 2}
@@ -579,14 +620,29 @@ function FFXIGraphicsPanel({
               }
               className="select"
             >
-              <option value={0}>Compressed</option>
-              <option value={1}>Uncompressed</option>
-              <option value={2}>High Quality</option>
+              <option value={0}>Low</option>
+              <option value={1}>Medium</option>
+              <option value={2}>High</option>
             </select>
           </Field>
         </Row>
         <Row>
-          <Field label="Environment Animations" htmlFor="env-animations">
+          <Field
+            label="Environment Animations"
+            htmlFor="env-animations"
+            tooltip="This determines the framerate at which objects in the environment move, and is defined in the registry value 0011. The possible settings are:
+
+Off:
+    No animation. The trees and bushes will not sway in the wind, torch flame will not flicker, etc.
+
+Normal:
+    The trees and bushes will sway but their motion will not be smooth. They will move a little, stop, move a little, stop, in very rapid succession, making the movement appear unnatural.
+
+Smooth:
+    The framerate will be increased so that the motion is more natural.
+
+This setting will not have a huge impact on gameplay, and turning the setting down will not free up many system resources. For that reason, it is advised to leave this on 2 (smooth). "
+          >
             <select
               id="env-animations"
               value={settings.ffxi?.envAnimations ?? 2}
@@ -605,7 +661,11 @@ function FFXIGraphicsPanel({
 
       <Card title="Mapping and Effects">
         <Row>
-          <Field label="Mip Mapping" htmlFor="mip-mapping">
+          <Field
+            label="Mip Mapping"
+            htmlFor="mip-mapping"
+            tooltip="MIP Mapping is the process of reducing large textures into smaller ones to optimize their display at a distance. Higher values reduce shimmer and improve visual quality at a distance, while alleviating strain on the GPU at the cost of using more VRAM."
+          >
             <select
               id="mip-mapping"
               value={settings.ffxi?.mipMapping ?? 6}
@@ -625,7 +685,11 @@ function FFXIGraphicsPanel({
           </Field>
         </Row>
         <Row>
-          <Field label="Bump Mapping" htmlFor="bump-mapping">
+          <Field
+            label="Bump Mapping"
+            htmlFor="bump-mapping"
+            tooltip="Bump mapping is a process by which the textures of an object are given the appearance of 3-D depth. Normally, a texture is created with a preset light source in a preset position, so that no matter how you shine light on an object, the shadows and highlights of the texture will always be the same. Bump mapping assigns limited 3-D attributes to the texture, so that shadows and highlights can be generated with consideration for the various light sources in the environment."
+          >
             <div className="toggle" aria-label="Bump Mapping">
               <input
                 id="bump-mapping"
@@ -715,7 +779,11 @@ function FFXIOtherPanel({
 
       <Card title="Sounds">
         <Row>
-          <Field label="Enable Sounds" htmlFor="enable-sounds">
+          <Field
+            label="Enable Sounds"
+            htmlFor="enable-sounds"
+            tooltip="Master toggle for all in-game sound effects and audio. Disable to mute all game audio. Legend foretells of Tarutaru pondering for thousands of years why this option exists when you can just turn it off in-game..."
+          >
             <div className="toggle" aria-label="Enable Sounds">
               <input
                 id="enable-sounds"
@@ -730,7 +798,11 @@ function FFXIOtherPanel({
           </Field>
         </Row>
         <Row>
-          <Field label="Play Sounds in Background" htmlFor="bg-sounds">
+          <Field
+            label="Play Sounds in Background"
+            htmlFor="bg-sounds"
+            tooltip="Allows game audio to continue playing when the game window is not in focus or minimized."
+          >
             <div className="toggle" aria-label="Play Sounds in Background">
               <input
                 id="bg-sounds"
@@ -745,7 +817,11 @@ function FFXIOtherPanel({
           </Field>
         </Row>
         <Row>
-          <Field label="Number Simultaneous Sounds" htmlFor="num-sounds">
+          <Field
+            label="Maximum # of Sounds"
+            htmlFor="num-sounds"
+            tooltip="Maximum number of simultaneous sounds that can be played at once. PS2 limitation. Just set this to 20."
+          >
             <div style={{ width: '100%' }}>
               <input
                 id="num-sounds"
@@ -785,27 +861,10 @@ function FFXIOtherPanel({
       <Card title="Legacy Settings">
         <Row>
           <Field
-            label="Simplified Character Creation Graphics"
-            htmlFor="simplified-ccg"
+            label="Hardware Mouse"
+            htmlFor="hardware-mouse"
+            tooltip="Uses hardware acceleration for mouse cursor rendering. Provides smoother cursor movement, but may cause issues on some systems. Recommended: ON."
           >
-            <div
-              className="toggle"
-              aria-label="Simplified Character Creation Graphics"
-            >
-              <input
-                id="simplified-ccg"
-                type="checkbox"
-                checked={settings.ffxi?.simplifiedCCG ?? false}
-                onChange={(e) =>
-                  updateSetting('ffxi.simplifiedCCG', e.target.checked)
-                }
-              />
-              <span aria-hidden />
-            </div>
-          </Field>
-        </Row>
-        <Row>
-          <Field label="Hardware Mouse" htmlFor="hardware-mouse">
             <div className="toggle" aria-label="Hardware Mouse">
               <input
                 id="hardware-mouse"
@@ -820,7 +879,11 @@ function FFXIOtherPanel({
           </Field>
         </Row>
         <Row>
-          <Field label="Graphics Stabilization" htmlFor="graphics-stab">
+          <Field
+            label="Graphics Stabilization"
+            htmlFor="graphics-stab"
+            tooltip="Enabling this option increases the likelihood of avoiding certain issues that arise with specific graphics cards. Keep this off initially, and if you experience GPU-style crashes, turn it on."
+          >
             <div className="toggle" aria-label="Graphics Stabilization">
               <input
                 id="graphics-stab"
@@ -835,134 +898,6 @@ function FFXIOtherPanel({
           </Field>
         </Row>
       </Card>
-    </>
-  );
-}
-
-function AshitaScriptPanel({
-  settings,
-  updateSetting,
-}: {
-  settings: Settings;
-  updateSetting: (path: string, value: any) => void;
-}) {
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [additionalSettings, setAdditionalSettings] = useState(
-    settings.ashita?.additionalSettings ?? '',
-  );
-
-  const handleOpenDialog = () => {
-    setIsDialogOpen(true);
-  };
-
-  const handleCloseDialog = () => {
-    setIsDialogOpen(false);
-  };
-
-  const handleOverlayClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.target === e.currentTarget) {
-      handleCloseDialog();
-    }
-  };
-
-  const handleSave = () => {
-    updateSetting('ashita.additionalSettings', additionalSettings);
-    setIsDialogOpen(false);
-  };
-
-  return (
-    <>
-      <Card title="Commands">
-        <Row>
-          <Field label="FPS" htmlFor="ashita-fps">
-            <select
-              id="ashita-fps"
-              value={settings.ashita?.fps ?? '30'}
-              onChange={(e) => updateSetting('ashita.fps', e.target.value)}
-              className="select"
-            >
-              <option value="30">30 FPS</option>
-              <option value="60">60 FPS</option>
-              <option value="uncapped">Uncapped (not recommended)</option>
-            </select>
-          </Field>
-        </Row>
-        <Row>
-          <span className="hint">Manually Edit Script</span>
-          <button
-            type="button"
-            id="edit-script-btn"
-            className="btn btn-icon"
-            aria-label="Edit script"
-            onClick={handleOpenDialog}
-          >
-            ✏️
-          </button>
-        </Row>
-      </Card>
-
-      {isDialogOpen && (
-        <div
-          className="modal-overlay"
-          onClick={handleOverlayClick}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') handleCloseDialog();
-          }}
-          role="button"
-          tabIndex={0}
-          aria-label="Close dialog"
-        >
-          <div
-            className="modal-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="modal-title"
-          >
-            <div className="modal-header">
-              <h2 id="modal-title" className="modal-title">
-                Edit Additional Settings
-              </h2>
-              <button
-                type="button"
-                className="modal-close"
-                onClick={handleCloseDialog}
-                aria-label="Close dialog"
-              >
-                ×
-              </button>
-            </div>
-            <div className="modal-body">
-              <label htmlFor="additional-settings" className="modal-label">
-                Additional Script Commands:
-                <textarea
-                  id="additional-settings"
-                  className="modal-textarea"
-                  rows={10}
-                  value={additionalSettings}
-                  onChange={(e) => setAdditionalSettings(e.target.value)}
-                  placeholder="Enter additional Ashita script commands here..."
-                />
-              </label>
-            </div>
-            <div className="modal-footer">
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={handleCloseDialog}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={handleSave}
-              >
-                Save
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }
@@ -1183,606 +1118,163 @@ export default function SettingsPage() {
           <FFXIOtherPanel settings={settings} updateSetting={updateSetting} />
         )}
 
-        {category === 'ashita' && subTab === 'script' && (
-          <AshitaScriptPanel
-            settings={settings}
-            updateSetting={updateSetting}
-          />
-        )}
-
-        {/* Ashita initialization section removed */}
-        {false && category === 'ashita' && (
-          <>
-            <Card title="Boot">
-              <Row>
-                <Field label="File" htmlFor="boot-file">
-                  <input
-                    id="boot-file"
-                    type="text"
-                    className="input"
-                    defaultValue={(() => {
-                      if (platform === 'win32') {
-                        return '.\\bootloader\\xiloader.exe';
-                      }
-                      if (platform === 'linux') {
-                        return './bootloader/xiloader';
-                      }
-                      if (platform === 'darwin') {
-                        return './bootloader/xiloader';
-                      }
-                      return '';
-                    })()}
-                  />
-                </Field>
-              </Row>
-              <Row>
-                <Field label="Game Module" htmlFor="game-module">
-                  <input
-                    id="game-module"
-                    type="text"
-                    className="input"
-                    defaultValue={(() => {
-                      if (platform === 'win32') return 'ffximain.dll';
-                      if (platform === 'linux') return 'ffximain.so';
-                      if (platform === 'darwin') return 'ffximain.dylib';
-                      return '';
-                    })()}
-                  />
-                </Field>
-              </Row>
-              <Row>
-                <Field label="Script" htmlFor="boot-script">
-                  <input
-                    id="boot-script"
-                    type="text"
-                    className="input"
-                    defaultValue="default.txt"
-                  />
-                </Field>
-              </Row>
-              <Row>
-                <Field label="Args" htmlFor="boot-args">
-                  <input
-                    id="boot-args"
-                    type="text"
-                    className="input"
-                    defaultValue=""
-                  />
-                </Field>
-              </Row>
-            </Card>
-
-            <Card title="Language">
-              <Row>
-                <Field label="PlayOnline" htmlFor="lang-playonline">
-                  <select
-                    id="lang-playonline"
-                    defaultValue="English"
-                    className="select"
-                  >
-                    <option value="English">English</option>
-                    <option value="Japanese">Japanese</option>
-                  </select>
-                </Field>
-              </Row>
-              <Row>
-                <Field label="Ashita" htmlFor="lang-ashita">
-                  <select
-                    id="lang-ashita"
-                    defaultValue="English"
-                    className="select"
-                  >
-                    <option value="English">English</option>
-                    <option value="Japanese">Japanese</option>
-                  </select>
-                </Field>
-              </Row>
-            </Card>
-
-            <Card title="Logging">
-              <Row>
-                <Field label="Level" htmlFor="log-level">
-                  <select
-                    id="log-level"
-                    defaultValue="Debug"
-                    className="select"
-                  >
-                    <option value="Debug">Debug</option>
-                    <option value="Info">Info</option>
-                    <option value="Warn">Warn</option>
-                    <option value="Error">Error</option>
-                    <option value="Critical">Critical</option>
-                  </select>
-                </Field>
-              </Row>
-              <Row>
-                <Field label="Crash Dumps" htmlFor="crash-dumps">
-                  <div className="toggle" aria-label="Crash Dumps">
-                    <input id="crash-dumps" type="checkbox" defaultChecked />
-                    <span aria-hidden />
-                  </div>
-                </Field>
-              </Row>
-            </Card>
-
-            <Card title="Task Pool">
-              <Row>
-                <Field label="Thread Count" htmlFor="thread-count">
-                  <input
-                    id="thread-count"
-                    type="number"
-                    className="input"
-                    defaultValue={-1}
-                  />
-                </Field>
-              </Row>
-            </Card>
-
-            <Card title="Resources - Use Overrides">
-              <Row>
-                <Field label="Offsets" htmlFor="res-offsets">
-                  <div className="toggle" aria-label="Offsets">
-                    <input id="res-offsets" type="checkbox" defaultChecked />
-                    <span aria-hidden />
-                  </div>
-                </Field>
-              </Row>
-              <Row>
-                <Field label="Pointers" htmlFor="res-pointers">
-                  <div className="toggle" aria-label="Pointers">
-                    <input id="res-pointers" type="checkbox" defaultChecked />
-                    <span aria-hidden />
-                  </div>
-                </Field>
-              </Row>
-              <Row>
-                <Field label="Resources" htmlFor="res-resources">
-                  <div className="toggle" aria-label="Resources">
-                    <input id="res-resources" type="checkbox" defaultChecked />
-                    <span aria-hidden />
-                  </div>
-                </Field>
-              </Row>
-            </Card>
-
-            <Card title="Start Position">
-              <Row>
-                <Field label="X" htmlFor="start-x">
-                  <input
-                    id="start-x"
-                    type="number"
-                    className="input"
-                    defaultValue={0}
-                  />
-                </Field>
-              </Row>
-              <Row>
-                <Field label="Y" htmlFor="start-y">
-                  <input
-                    id="start-y"
-                    type="number"
-                    className="input"
-                    defaultValue={0}
-                  />
-                </Field>
-              </Row>
-            </Card>
-
-            <Card title="Input">
-              <Row>
-                <Field
-                  label="Gamepad Allow Background"
-                  htmlFor="gamepad-allow-bg"
-                >
-                  <div className="toggle" aria-label="Gamepad Allow Background">
-                    <input id="gamepad-allow-bg" type="checkbox" />
-                    <span aria-hidden />
-                  </div>
-                </Field>
-              </Row>
-              <Row>
-                <Field
-                  label="Gamepad Disable Enumeration"
-                  htmlFor="gamepad-disable-enum"
-                >
-                  <div
-                    className="toggle"
-                    aria-label="Gamepad Disable Enumeration"
-                  >
-                    <input id="gamepad-disable-enum" type="checkbox" />
-                    <span aria-hidden />
-                  </div>
-                </Field>
-              </Row>
-              <Row>
-                <Field label="Keyboard Block Input" htmlFor="kb-block-input">
-                  <div className="toggle" aria-label="Keyboard Block Input">
-                    <input id="kb-block-input" type="checkbox" />
-                    <span aria-hidden />
-                  </div>
-                </Field>
-              </Row>
-              <Row>
-                <Field
-                  label="Keyboard Block Binds During Input"
-                  htmlFor="kb-block-binds"
-                >
-                  <div
-                    className="toggle"
-                    aria-label="Keyboard Block Binds During Input"
-                  >
-                    <input id="kb-block-binds" type="checkbox" defaultChecked />
-                    <span aria-hidden />
-                  </div>
-                </Field>
-              </Row>
-              <Row>
-                <Field label="Keyboard Silent Binds" htmlFor="kb-silent-binds">
-                  <div className="toggle" aria-label="Keyboard Silent Binds">
-                    <input id="kb-silent-binds" type="checkbox" />
-                    <span aria-hidden />
-                  </div>
-                </Field>
-              </Row>
-              <Row>
-                <Field
-                  label="Keyboard Windows Key Enabled"
-                  htmlFor="kb-win-key"
-                >
-                  <div
-                    className="toggle"
-                    aria-label="Keyboard Windows Key Enabled"
-                  >
-                    <input id="kb-win-key" type="checkbox" />
-                    <span aria-hidden />
-                  </div>
-                </Field>
-              </Row>
-              <Row>
-                <Field label="Mouse Block Input" htmlFor="mouse-block-input">
-                  <div className="toggle" aria-label="Mouse Block Input">
-                    <input id="mouse-block-input" type="checkbox" />
-                    <span aria-hidden />
-                  </div>
-                </Field>
-              </Row>
-              <Row>
-                <Field label="Mouse Unhook" htmlFor="mouse-unhook">
-                  <div className="toggle" aria-label="Mouse Unhook">
-                    <input id="mouse-unhook" type="checkbox" defaultChecked />
-                    <span aria-hidden />
-                  </div>
-                </Field>
-              </Row>
-            </Card>
-
-            <Card title="Miscellaneous">
-              <Row>
-                <Field label="Addons Silent" htmlFor="addons-silent">
-                  <div className="toggle" aria-label="Addons Silent">
-                    <input id="addons-silent" type="checkbox" />
-                    <span aria-hidden />
-                  </div>
-                </Field>
-              </Row>
-              <Row>
-                <Field label="Aliases Silent" htmlFor="aliases-silent">
-                  <div className="toggle" aria-label="Aliases Silent">
-                    <input id="aliases-silent" type="checkbox" />
-                    <span aria-hidden />
-                  </div>
-                </Field>
-              </Row>
-              <Row>
-                <Field label="Plugins Silent" htmlFor="plugins-silent">
-                  <div className="toggle" aria-label="Plugins Silent">
-                    <input id="plugins-silent" type="checkbox" />
-                    <span aria-hidden />
-                  </div>
-                </Field>
-              </Row>
-            </Card>
-
-            <Card title="FFXI Direct3d8 - Present Params">
-              <Row>
-                <Field label="Back Buffer Format" htmlFor="d3d-bb-format">
-                  <input
-                    id="d3d-bb-format"
-                    type="number"
-                    className="input"
-                    defaultValue={-1}
-                  />
-                </Field>
-              </Row>
-              <Row>
-                <Field label="Back Buffer Count" htmlFor="d3d-bb-count">
-                  <input
-                    id="d3d-bb-count"
-                    type="number"
-                    className="input"
-                    defaultValue={-1}
-                  />
-                </Field>
-              </Row>
-              <Row>
-                <Field label="Multi Sample Type" htmlFor="d3d-multi-sample">
-                  <input
-                    id="d3d-multi-sample"
-                    type="number"
-                    className="input"
-                    defaultValue={-1}
-                  />
-                </Field>
-              </Row>
-              <Row>
-                <Field label="Swap Effect" htmlFor="d3d-swap-effect">
-                  <input
-                    id="d3d-swap-effect"
-                    type="number"
-                    className="input"
-                    defaultValue={-1}
-                  />
-                </Field>
-              </Row>
-              <Row>
-                <Field
-                  label="Enable Auto Depth Stencil"
-                  htmlFor="d3d-auto-depth"
-                >
-                  <input
-                    id="d3d-auto-depth"
-                    type="number"
-                    className="input"
-                    defaultValue={-1}
-                  />
-                </Field>
-              </Row>
-              <Row>
-                <Field
-                  label="Auto Depth Stencil Format"
-                  htmlFor="d3d-depth-format"
-                >
-                  <input
-                    id="d3d-depth-format"
-                    type="number"
-                    className="input"
-                    defaultValue={-1}
-                  />
-                </Field>
-              </Row>
-              <Row>
-                <Field label="Flags" htmlFor="d3d-flags">
-                  <input
-                    id="d3d-flags"
-                    type="number"
-                    className="input"
-                    defaultValue={-1}
-                  />
-                </Field>
-              </Row>
-              <Row>
-                <Field
-                  label="Fullscreen Refresh Rate (Hz)"
-                  htmlFor="d3d-refresh"
-                >
-                  <input
-                    id="d3d-refresh"
-                    type="number"
-                    className="input"
-                    defaultValue={-1}
-                  />
-                </Field>
-              </Row>
-              <Row>
-                <Field
-                  label="Fullscreen Presentation Interval"
-                  htmlFor="d3d-present-interval"
-                >
-                  <input
-                    id="d3d-present-interval"
-                    type="number"
-                    className="input"
-                    defaultValue={-1}
-                  />
-                </Field>
-              </Row>
-              <Row>
-                <Field
-                  label="Behavior Flags FPU Preserve"
-                  htmlFor="d3d-fpu-preserve"
-                >
-                  <input
-                    id="d3d-fpu-preserve"
-                    type="number"
-                    className="input"
-                    defaultValue={0}
-                  />
-                </Field>
-              </Row>
-            </Card>
-          </>
-        )}
-
         {category === 'pivot' && (
-          <>
-            <Card title="Overlays">
-              <Row>
-                <Field label="Eventide" htmlFor="pivot-overlay">
-                  <div className="toggle" aria-label="Eventide overlay">
-                    <input id="pivot-overlay" type="checkbox" defaultChecked />
-                    <span aria-hidden />
-                  </div>
-                </Field>
-              </Row>
-            </Card>
-          </>
+          <Card title="Overlays">
+            <Row>
+              <Field
+                label="Eventide"
+                htmlFor="pivot-overlay"
+                tooltip="Applies Eventide's DATs to the game."
+              >
+                <div className="toggle" aria-label="Eventide overlay">
+                  <input
+                    id="pivot-overlay"
+                    type="checkbox"
+                    checked
+                    disabled
+                    style={{ opacity: 0.6, cursor: 'not-allowed' }}
+                  />
+                  <span aria-hidden />
+                </div>
+              </Field>
+            </Row>
+          </Card>
         )}
 
         {category === 'troubleshooting' && (
-          <>
-            <Card title="Launcher Updates">
-              <LauncherUpdatesCard handleShowToast={handleShowToast} />
-            </Card>
+          <Card title={undefined}>
+            <LauncherUpdatesCard handleShowToast={handleShowToast} />
 
-            <Card title="Paths & Logs">
-              <Row>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={async () => {
-                    try {
-                      const result =
-                        await window.electron.invoke('open-config-folder');
-                      if (!result.success) {
-                        handleShowToast('Failed to open folder');
-                      }
-                    } catch {
+            <Row>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={async () => {
+                  try {
+                    const result =
+                      await window.electron.invoke('open-config-folder');
+                    if (!result.success) {
                       handleShowToast('Failed to open folder');
                     }
-                  }}
-                  style={{ flex: 1 }}
-                >
-                  📂 Open Configuration Folder
-                </button>
-              </Row>
-              <Row>
+                  } catch {
+                    handleShowToast('Failed to open folder');
+                  }
+                }}
+                style={{ width: 'fit-content', minWidth: '220px' }}
+              >
+                📂 Open Configuration Folder
+              </button>
+            </Row>
+            <Row>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={async () => {
+                  try {
+                    const result =
+                      await window.electron.invoke('open-log-file');
+                    if (!result.success) {
+                      handleShowToast('Failed to open log file');
+                    }
+                  } catch {
+                    handleShowToast('Failed to open log file');
+                  }
+                }}
+                style={{ width: 'fit-content', minWidth: '180px' }}
+              >
+                📄 Open Log File
+              </button>
+            </Row>
+
+            <Row>
+              <Field
+                label="Reapply Patches"
+                htmlFor="reapply-patches"
+                tooltip="Reset the game version to 1.0.0 and redownload all patches. Use this if game files are corrupted or updates have failed."
+              >
                 <button
                   type="button"
+                  id="reapply-patches"
                   className="btn btn-secondary"
                   onClick={async () => {
                     try {
                       const result =
-                        await window.electron.invoke('open-log-file');
-                      if (!result.success) {
-                        handleShowToast('Failed to open log file');
-                      }
-                    } catch {
-                      handleShowToast('Failed to open log file');
-                    }
-                  }}
-                  style={{ flex: 1 }}
-                >
-                  📄 Open Log File
-                </button>
-              </Row>
-            </Card>
-
-            <Card title="Repair & Reset">
-              <Row>
-                <Field label="Reapply Patches" htmlFor="reapply-patches">
-                  <button
-                    type="button"
-                    id="reapply-patches"
-                    className="btn btn-secondary"
-                    onClick={async () => {
-                      try {
-                        const result =
-                          await window.electron.invoke('reapply-patches');
-                        if (result.success) {
-                          handleShowToast(
-                            'Version reset to 1.0.0. Please restart the launcher and return to the home page to reapply patches.',
-                          );
-                        } else {
-                          handleShowToast(
-                            `Failed to reset version: ${result.error || 'Unknown error'}`,
-                          );
-                        }
-                      } catch {
-                        handleShowToast('Failed to reset version');
-                      }
-                    }}
-                  >
-                    Reapply
-                  </button>
-                </Field>
-              </Row>
-              <Row>
-                <span className="hint" style={{ fontSize: '13px', color: 'var(--ink-soft)' }}>
-                  Reset version to 1.0.0 and reapply all patches on next launch.
-                </span>
-              </Row>
-              <Row>
-                <Field label="Clear All Downloads" htmlFor="clear-downloads">
-                  <button
-                    type="button"
-                    id="clear-downloads"
-                    className="btn btn-danger"
-                    onClick={async () => {
-                      // eslint-disable-next-line no-restricted-globals, no-alert
-                      const confirmed = window.confirm(
-                        'This will delete all downloaded files and reset the launcher. You will need to download the game again. Continue?',
-                      );
-                      if (!confirmed) {
-                        return;
-                      }
-                      try {
-                        const result =
-                          await window.electron.invoke('clear-downloads');
-                        if (result.success) {
-                          handleShowToast(
-                            'Downloads cleared successfully. Please return to the home page to start fresh.',
-                          );
-                        } else {
-                          handleShowToast(
-                            `Failed to clear downloads: ${result.error || 'Unknown error'}`,
-                          );
-                        }
-                      } catch {
-                        handleShowToast('Failed to clear downloads');
-                      }
-                    }}
-                  >
-                    Clear
-                  </button>
-                </Field>
-              </Row>
-              <Row>
-                <span className="hint" style={{ fontSize: '13px', color: 'var(--ink-soft)' }}>
-                  Delete all downloaded files. You will need to download the game again.
-                </span>
-              </Row>
-            </Card>
-
-            <Card title="Quick Actions">
-              <Row>
-                <Field label="Force Start Game" htmlFor="force-start">
-                  <button
-                    type="button"
-                    id="force-start"
-                    className="btn btn-primary"
-                    onClick={async () => {
-                      try {
-                        if (!window.electron?.launchGame) {
-                          handleShowToast('Launch API not available');
-                          return;
-                        }
-                        const result =
-                          await window.electron.launchGame(installDir);
-                        if (result && result.success) {
-                          handleShowToast('Game launched successfully');
-                        } else {
-                          handleShowToast(
-                            `Failed to launch game: ${result?.error || 'Unknown error'}`,
-                          );
-                        }
-                      } catch (err) {
+                        await window.electron.invoke('reapply-patches');
+                      if (result.success) {
                         handleShowToast(
-                          `Error launching game: ${err instanceof Error ? err.message : 'Unknown error'}`,
+                          'Version reset to 1.0.0. Please restart the launcher and return to the home page to reapply patches.',
+                        );
+                      } else {
+                        handleShowToast(
+                          `Failed to reset version: ${result.error || 'Unknown error'}`,
                         );
                       }
-                    }}
-                  >
-                    Launch
-                  </button>
-                </Field>
-              </Row>
-              <Row>
-                <span className="hint" style={{ fontSize: '13px', color: 'var(--ink-soft)' }}>
-                  Attempt to launch the game regardless of the current play button state.
-                </span>
-              </Row>
-            </Card>
-          </>
+                    } catch {
+                      handleShowToast('Failed to reset version');
+                    }
+                  }}
+                  style={{ width: 'fit-content', minWidth: '100px' }}
+                >
+                  Reapply
+                </button>
+              </Field>
+            </Row>
+            <Row>
+              <span
+                className="hint"
+                style={{ fontSize: '13px', color: 'var(--ink-soft)' }}
+              >
+                Reset version to 1.0.0 and reapply all patches on next launch.
+              </span>
+            </Row>
+
+            <Row>
+              <Field
+                label="Force Start Game"
+                htmlFor="force-start"
+                tooltip="Bypass launcher checks and attempt to start the game immediately. Use this if the Play button is disabled incorrectly."
+              >
+                <button
+                  type="button"
+                  id="force-start"
+                  className="btn btn-primary"
+                  onClick={async () => {
+                    try {
+                      if (!window.electron?.launchGame) {
+                        handleShowToast('Launch API not available');
+                        return;
+                      }
+                      const result =
+                        await window.electron.launchGame(installDir);
+                      if (result && result.success) {
+                        handleShowToast('Game launched successfully');
+                      } else {
+                        handleShowToast(
+                          `Failed to launch game: ${result?.error || 'Unknown error'}`,
+                        );
+                      }
+                    } catch (err) {
+                      handleShowToast(
+                        `Error launching game: ${err instanceof Error ? err.message : 'Unknown error'}`,
+                      );
+                    }
+                  }}
+                  style={{ width: 'fit-content', minWidth: '100px' }}
+                >
+                  Launch
+                </button>
+              </Field>
+            </Row>
+            <Row>
+              <span
+                className="hint"
+                style={{ fontSize: '13px', color: 'var(--ink-soft)' }}
+              >
+                Attempt to launch the game regardless of the current play button
+                state.
+              </span>
+            </Row>
+          </Card>
         )}
       </section>
 

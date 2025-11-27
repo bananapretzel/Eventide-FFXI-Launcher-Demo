@@ -129,7 +129,7 @@ export const DEFAULT_ADDONS = [
   },
   {
     "name": "distance",
-    "description": "Displays the distance between you and your target.",
+    "description": "Displays the distance between you and your target in yalms.",
     "author": "atom0s",
     "version": "1.0",
     "link": "https://ashitaxi.com",
@@ -145,7 +145,7 @@ export const DEFAULT_ADDONS = [
   },
   {
     "name": "enternity",
-    "description": "Removes the need to press enter through npc dialog and cutscenes.",
+    "description": "Spams enter during cutscenes to make it go faster. Not recommended if you actually want to view the cutscenes.",
     "author": "Hypnotoad & atom0s",
     "version": "1.1",
     "link": "https://ashitaxi.com",
@@ -201,7 +201,7 @@ export const DEFAULT_ADDONS = [
   },
   {
     "name": "freemem",
-    "description": "Memory cleanup.",
+    "description": "Asks the OS to aggressively free up RAM that FFXI is holding onto but not actively using.",
     "author": "atom0s",
     "version": "1.0",
     "link": "https://ashitaxi.com",
@@ -264,7 +264,7 @@ export const DEFAULT_ADDONS = [
     "enabled": false
   },
   {
-    "name": "instantah",
+    "name": "InstantAH",
     "description": "Removes the delay from auction house interactions.",
     "author": "atom0s",
     "version": "1.0",
@@ -289,7 +289,7 @@ export const DEFAULT_ADDONS = [
   },
   {
     "name": "links",
-    "description": "Captures urls from the various text of the game and adds them to a ui window.",
+    "description": "Captures URLs from the various text of the game and adds them to a ui window.",
     "author": "atom0s",
     "version": "1.0",
     "link": "https://ashitaxi.com",
@@ -313,7 +313,7 @@ export const DEFAULT_ADDONS = [
   },
   {
     "name": "luashitacast",
-    "description": "A lua-based equipment swapping system for Ashita",
+    "description": "A lua-based equipment swapping system for Ashita.",
     "author": "Thorny",
     "version": "2.04",
     "link": "https://github.com/ThornyFFXI/LuAshitacast",
@@ -385,7 +385,7 @@ export const DEFAULT_ADDONS = [
   },
   {
     "name": "partybuffs",
-    "description": "Displays party buffs next to vanilla party list.",
+    "description": "Displays party buffs next to the vanilla party list.",
     "author": "Thorny",
     "version": "1.08",
     "link": "https://github.com/ThornyFFXI/MiscAshita4",
@@ -544,17 +544,17 @@ export const DEFAULT_PLUGINS = [
   },
   {
     "name": "Nameplate",
-    "description": "Corrects rendering issues in the nameplate",
+    "description": "Fixes the rendering issue for the names above players, mobs, and entitiies. ",
     "enabled": false
   },
   {
     "name": "PacketFlow",
-    "description": "Sends update requests to the server at a higher rate",
+    "description": "Cuts zoning times by over 3/4, and reduces dropped packets in instances by as much as 85%. Has been known to increase black-screening, use at your own discretion.",
     "enabled": false
   },
   {
     "name": "toon",
-    "description": "Adds a stylistic cell-shading visual effect to the game.",
+    "description": "Adds a stylistic cell-shading visual effect to the game. If the game's graphics look completely glitched, this should be the first thing to turn off.",
     "enabled": false
   }
 ];

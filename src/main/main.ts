@@ -891,9 +891,6 @@ ipcMain.handle('write-default-script', async () => {
     lines.push('');
     lines.push('#EVENTIDE_LAUNCHER_ADDONS_AND_PLUGINS_START');
     // Add user-enabled plugins
-    if (enabledPlugins.length > 0) {
-      lines.push('');
-    }
     enabledPlugins.forEach((plugin) => {
       lines.push(`/load ${plugin}`);
     });
@@ -935,7 +932,7 @@ ipcMain.handle('write-default-script', async () => {
     lines.push('########## END DO NOT MODIFY AREA ##########');
     lines.push('');
     lines.push('########## Custom user addons and plugins start here  ##########');
-
+    lines.push('');
     // Add preserved custom content
     if (customUserContent) {
       lines.push(customUserContent);
