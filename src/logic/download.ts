@@ -4,6 +4,7 @@ import { extractZip, verifyExtractedFiles } from '../core/fs';
 import { setClientVersion } from '../core/versions';
 import { join } from 'path';
 import { updateStorage } from '../core/storage';
+import { promises as fs } from 'fs';
 import log from 'electron-log';
 import chalk from 'chalk';
 
@@ -33,21 +34,65 @@ export async function downloadGame(
   const zipPath = join(downloadsDir, zipName);
 
   log.info(chalk.cyan(`[downloadGame] Downloading to: ${zipPath}`));
-  await downloadFile(url, zipPath, onProgress, 0, 0, expectedSize);
-  log.info(chalk.green('[downloadGame] Download complete'));
+
+  try {
+    await downloadFile(url, zipPath, onProgress, 0, 0, expectedSize);
+    log.info(chalk.green('[downloadGame] Download complete'));
+  } catch (downloadErr) {
+    log.error(chalk.red('[downloadGame] Download failed:'), downloadErr);
+
+    // Clean up partial/corrupted download
+    try {
+      await fs.unlink(zipPath);
+      log.info(chalk.cyan('[downloadGame] Cleaned up failed download'));
+    } catch (unlinkErr) {
+      log.warn(chalk.yellow('[downloadGame] Could not clean up partial download:'), unlinkErr);
+    }
+
+    throw downloadErr;
+  }
 
   await updateStorage(s => { s.GAME_UPDATER.baseGame.downloaded = true; });
 
   log.info(chalk.cyan('[downloadGame] Verifying checksum...'));
-  if (!(await verifySha256(zipPath, sha256))) {
+  const checksumValid = await verifySha256(zipPath, sha256);
+
+  if (!checksumValid) {
     log.error(chalk.red('[downloadGame] SHA256 mismatch!'));
-    throw new Error('SHA256 mismatch');
+
+    // Delete corrupted file
+    try {
+      await fs.unlink(zipPath);
+      log.info(chalk.cyan('[downloadGame] Deleted corrupted ZIP file'));
+    } catch (unlinkErr) {
+      log.warn(chalk.yellow('[downloadGame] Could not delete corrupted ZIP:'), unlinkErr);
+    }
+
+    await updateStorage(s => { s.GAME_UPDATER.baseGame.downloaded = false; });
+    throw new Error('SHA256 mismatch - downloaded file is corrupted. Please try downloading again.');
   }
+
   log.info(chalk.green('[downloadGame] Checksum verified'));
 
   log.info(chalk.cyan(`[downloadGame] Extracting to: ${installDir}`));
-  await extractZip(zipPath, installDir, onExtractProgress);
-  log.info(chalk.green('[downloadGame] Extraction complete'));
+
+  try {
+    await extractZip(zipPath, installDir, onExtractProgress);
+    log.info(chalk.green('[downloadGame] Extraction complete'));
+  } catch (extractErr) {
+    log.error(chalk.red('[downloadGame] Extraction failed:'), extractErr);
+
+    // If extraction fails, the ZIP might be corrupted - delete it
+    try {
+      await fs.unlink(zipPath);
+      log.info(chalk.cyan('[downloadGame] Deleted corrupted ZIP file after extraction failure'));
+      await updateStorage(s => { s.GAME_UPDATER.baseGame.downloaded = false; });
+    } catch (unlinkErr) {
+      log.warn(chalk.yellow('[downloadGame] Could not delete ZIP after extraction failure:'), unlinkErr);
+    }
+
+    throw new Error(`ZIP extraction failed: ${extractErr instanceof Error ? extractErr.message : String(extractErr)}. The file may be corrupted. Please try downloading again.`);
+  }
 
   // Verify extracted files (expect at least 100 files for a base game install)
   const verification = await verifyExtractedFiles(installDir, 100);

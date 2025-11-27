@@ -73,6 +73,9 @@ const electronHandler = {
     ipcRenderer.invoke('write-config', data),
   writeDefaultScript: () => ipcRenderer.invoke('write-default-script'),
   fetchPatchNotes: () => ipcRenderer.invoke('game:fetch-patch-notes'),
+  // Installation directory selection
+  selectInstallDirectory: () => ipcRenderer.invoke('select-install-directory'),
+  setInstallDirectory: (dirPath: string | null) => ipcRenderer.invoke('set-install-directory', dirPath),
   // Launcher self-update API
   launcherUpdate: {
     checkForUpdates: () => ipcRenderer.invoke('launcher:checkForUpdates'),

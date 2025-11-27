@@ -5,6 +5,7 @@ import { setClientVersion, getClientVersion } from '../core/versions';
 import { join } from 'path';
 import { PatchManifest } from '../core/manifest';
 import { updateStorage } from '../core/storage';
+import { promises as fs } from 'fs';
 import log from 'electron-log';
 import chalk from 'chalk';
 
@@ -97,29 +98,73 @@ export async function applyPatches(
     } else {
       // Download if not present, with size verification if available
       log.info(chalk.cyan(`[applyPatches] Downloading patch from: ${patch.fullUrl}`));
-      await downloadFile(
-        patch.fullUrl,
-        patchZipPath,
-        (dl, total) => onProgress?.(patch.to, dl, total),
-        0,
-        0,
-        patch.sizeBytes
-      );
-      await updateStorage(s => { s.GAME_UPDATER.updater.downloaded = patch.to; });
-      log.info(chalk.green(`[applyPatches] Download complete: ${patchZipName}`));
+
+      try {
+        await downloadFile(
+          patch.fullUrl,
+          patchZipPath,
+          (dl, total) => onProgress?.(patch.to, dl, total),
+          0,
+          0,
+          patch.sizeBytes
+        );
+        await updateStorage(s => { s.GAME_UPDATER.updater.downloaded = patch.to; });
+        log.info(chalk.green(`[applyPatches] Download complete: ${patchZipName}`));
+      } catch (downloadErr) {
+        log.error(chalk.red(`[applyPatches] Patch download failed for ${patch.to}:`), downloadErr);
+
+        // Clean up partial download
+        try {
+          await fs.unlink(patchZipPath);
+          log.info(chalk.cyan('[applyPatches] Cleaned up failed download'));
+        } catch (unlinkErr) {
+          log.warn(chalk.yellow('[applyPatches] Could not clean up partial download:'), unlinkErr);
+        }
+
+        throw new Error(`Patch download failed: ${downloadErr instanceof Error ? downloadErr.message : String(downloadErr)}`);
+      }
     }
 
     log.info(chalk.cyan('[applyPatches] Verifying checksum...'));
-    if (!(await verifySha256(patchZipPath, patch.sha256))) {
+    const checksumValid = await verifySha256(patchZipPath, patch.sha256);
+
+    if (!checksumValid) {
       log.error(chalk.red(`[applyPatches] SHA256 mismatch for patch ${patch.to}`));
-      throw new Error(`SHA256 mismatch for patch ${patch.to}`);
+
+      // Delete corrupted file
+      try {
+        await fs.unlink(patchZipPath);
+        log.info(chalk.cyan('[applyPatches] Deleted corrupted patch ZIP'));
+        await updateStorage(s => { s.GAME_UPDATER.updater.downloaded = String(currentVersion || ''); });
+      } catch (unlinkErr) {
+        log.warn(chalk.yellow('[applyPatches] Could not delete corrupted patch ZIP:'), unlinkErr);
+      }
+
+      throw new Error(`SHA256 mismatch for patch ${patch.to}. The file is corrupted. Please try again.`);
     }
+
     log.info(chalk.green('[applyPatches] Checksum verified'));
 
     const extractPath = installDir;
     log.info(chalk.cyan(`[applyPatches] Extracting to: ${extractPath}`));
-    await extractZip(patchZipPath, extractPath, onExtractProgress);
-    log.info(chalk.green('[applyPatches] Extraction complete'));
+
+    try {
+      await extractZip(patchZipPath, extractPath, onExtractProgress);
+      log.info(chalk.green('[applyPatches] Extraction complete'));
+    } catch (extractErr) {
+      log.error(chalk.red(`[applyPatches] Extraction failed for patch ${patch.to}:`), extractErr);
+
+      // If extraction fails, the ZIP is likely corrupted - delete it
+      try {
+        await fs.unlink(patchZipPath);
+        log.info(chalk.cyan('[applyPatches] Deleted corrupted patch ZIP'));
+        await updateStorage(s => { s.GAME_UPDATER.updater.downloaded = String(currentVersion || ''); });
+      } catch (unlinkErr) {
+        log.warn(chalk.yellow('[applyPatches] Could not delete corrupted patch ZIP:'), unlinkErr);
+      }
+
+      throw new Error(`Patch extraction failed: ${extractErr instanceof Error ? extractErr.message : String(extractErr)}. The ZIP file may be corrupted. Please try again.`);
+    }
 
     // Verify extracted files (patches should have at least 1 file)
     const verification = await verifyExtractedFiles(extractPath, 1);

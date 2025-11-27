@@ -20,6 +20,7 @@ export interface StorageJson {
   paths: {
     installPath: string;
     downloadPath: string;
+    customInstallDir?: string; // Custom base installation directory chosen by user
   };
   GAME_UPDATER: GameUpdaterState;
 }

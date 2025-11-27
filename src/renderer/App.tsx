@@ -24,10 +24,12 @@ export default function App() {
         let defaultInstallDir = '';
         if (window.electron?.invoke) {
           const res = await window.electron.invoke('eventide:get-paths');
-          if (res && res.success && res.data && res.data.gameRoot) {
+          // Only set installDir if user has already selected a directory
+          if (res && res.success && res.hasSelectedDir && res.data && res.data.gameRoot) {
             defaultInstallDir = res.data.gameRoot;
             setInstallDir(defaultInstallDir);
           }
+          // Otherwise leave installDir as empty string to indicate no selection made
         }
         if (!window.electron?.readConfig) {
           setError('Electron preload API not available.');

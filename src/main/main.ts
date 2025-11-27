@@ -254,7 +254,33 @@ async function extractBaseGameIfNeeded(
       g.mainWindow.webContents.send('extract:start');
     }
 
-    await extractZip(baseGameZipPath, gameRoot);
+    try {
+      await extractZip(baseGameZipPath, gameRoot);
+    } catch (extractErr) {
+      log.error(chalk.red('[startup] Extraction failed:'), extractErr);
+
+      // If extraction fails, the ZIP is likely corrupted - delete it
+      try {
+        fs.unlinkSync(baseGameZipPath);
+        log.info(chalk.cyan('[startup] Deleted corrupted ZIP file'));
+
+        // Update storage to reflect that download is incomplete
+        storageData.GAME_UPDATER.baseGame.downloaded = false;
+        storageData.GAME_UPDATER.baseGame.extracted = false;
+        await writeStorage(storageData);
+
+        // Notify renderer
+        if (g.mainWindow && g.mainWindow.webContents) {
+          g.mainWindow.webContents.send('extract:error', {
+            error: 'ZIP file is corrupted. Please download the game again.',
+          });
+        }
+      } catch (deleteErr) {
+        log.warn(chalk.yellow('[startup] Could not delete corrupted ZIP:'), deleteErr);
+      }
+
+      throw new Error(`Extraction failed: ${extractErr instanceof Error ? extractErr.message : String(extractErr)}. The ZIP file may be corrupted. Please download the game again.`);
+    }
 
     // Update storage atomically
     storageData.GAME_UPDATER.baseGame.extracted = true;
@@ -285,11 +311,7 @@ async function extractBaseGameIfNeeded(
 
 app.once('ready', async () => {
   try {
-    ensureDirs(); // Centralized directory creation
-    const paths = getEventidePaths();
-    const { gameRoot, dlRoot } = paths;
-
-    // Step 1: Read or initialize storage.json
+    // Step 1: Read or initialize storage.json FIRST (before ensureDirs)
     let storageData = await readStorage((msg) => log.warn(chalk.yellow(msg)));
     if (!storageData) {
       storageData = getDefaultStorage();
@@ -301,15 +323,66 @@ app.once('ready', async () => {
       );
     }
 
-    // Step 2: Ensure paths are set in storage
-    let changed = false;
-    if (!storageData.paths.installPath) {
-      storageData.paths.installPath = gameRoot;
-      changed = true;
+    // Step 2: Load custom installation directory from storage (if set)
+    const { setCustomInstallDir } = require('./paths');
+
+    // Validate custom installation directory - reject if it's directly in a root drive
+    // (e.g., C:\Eventide2) which suggests corrupted/old data
+    if (storageData.paths.customInstallDir) {
+      const customDir = storageData.paths.customInstallDir;
+      const parsed = path.parse(customDir);
+
+      // Check if the path is directly under a drive root (e.g., C:\SomeFolder)
+      // A valid custom path should be deeper, like C:\Users\...\EventideXI
+      const isRootLevelPath = parsed.dir.match(/^[A-Z]:\\?$/i);
+
+      if (isRootLevelPath) {
+        log.warn(
+          chalk.yellow(
+            `[startup] Invalid custom installation directory detected: ${customDir} (appears to be root-level path from old data)`
+          )
+        );
+        log.warn(
+          chalk.yellow(
+            '[startup] Resetting custom installation directory. User will need to select a new location.'
+          )
+        );
+        // Clear the invalid path
+        storageData.paths.customInstallDir = undefined;
+        storageData.paths.installPath = '';
+        storageData.paths.downloadPath = '';
+        await writeStorage(storageData);
+      } else {
+        setCustomInstallDir(customDir);
+        log.info(
+          chalk.cyan('[startup] Using custom installation directory:'),
+          customDir,
+        );
+      }
+    } else {
+      log.info(chalk.cyan('[startup] No custom installation directory set'));
     }
-    if (!storageData.paths.downloadPath) {
-      storageData.paths.downloadPath = dlRoot;
-      changed = true;
+
+    const hasCustomOrDefaultDir = !!storageData.paths.customInstallDir || !!storageData.paths.installPath;
+
+    // Step 3: Create essential directories (logs, userData) but NOT game directories on first launch
+    // Game directories will be created when user selects installation location
+    ensureDirs(hasCustomOrDefaultDir); // Only create game dirs if location was previously chosen
+    const paths = getEventidePaths();
+    const { gameRoot, dlRoot } = paths;
+
+    // Step 4: Only update storage paths if user has already chosen a location
+    // Don't auto-populate paths on first launch - wait for user to select directory
+    let changed = false;
+    if (hasCustomOrDefaultDir) {
+      if (!storageData.paths.installPath) {
+        storageData.paths.installPath = gameRoot;
+        changed = true;
+      }
+      if (!storageData.paths.downloadPath) {
+        storageData.paths.downloadPath = dlRoot;
+        changed = true;
+      }
     }
     if (changed) {
       await writeStorage(storageData);
@@ -650,9 +723,83 @@ ipcMain.handle('launcher:installUpdate', async () => {
 // IPC handler to expose all EventideXI paths to the renderer
 ipcMain.handle('eventide:get-paths', async () => {
   try {
-    const paths = getEventidePaths();
-    return { success: true, data: paths };
+    // Check if user has selected an installation directory
+    const storage = await readStorage();
+    const hasSelectedDir = !!(storage?.paths?.customInstallDir || storage?.paths?.installPath);
+
+    // Only return actual paths if user has selected a directory
+    // Otherwise return empty strings to indicate no selection made yet
+    const paths = getEventidePaths(hasSelectedDir);
+    return { success: true, data: paths, hasSelectedDir };
   } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+});
+
+// IPC handler to open directory picker for custom installation location
+ipcMain.handle('select-install-directory', async () => {
+  try {
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory', 'createDirectory'],
+      title: 'Select Parent Directory for EventideXI Installation',
+      buttonLabel: 'Select Directory',
+    });
+
+    if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+      return { success: false, canceled: true };
+    }
+
+    const selectedDir = result.filePaths[0];
+    // Automatically append 'EventideXI' to the selected directory
+    const finalInstallDir = path.join(selectedDir, 'EventideXI');
+
+    // Validate the final installation directory
+    const { validateInstallDirectory } = require('./paths');
+    const validation = await validateInstallDirectory(finalInstallDir, 10 * 1024 * 1024 * 1024); // 10GB minimum
+
+    if (!validation.valid) {
+      return { success: false, error: validation.error };
+    }
+
+    return { success: true, path: finalInstallDir };
+  } catch (error) {
+    log.error(chalk.red('[select-install-directory] Error:'), error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+});
+
+// IPC handler to set custom installation directory
+ipcMain.handle('set-install-directory', async (_event, dirPath: string | null) => {
+  try {
+    const { setCustomInstallDir, getEventidePaths } = require('./paths');
+
+    // Update the in-memory cache
+    setCustomInstallDir(dirPath);
+
+    // Update storage.json with custom dir and actual paths
+    await updateStorage((data: StorageJson) => {
+      data.paths.customInstallDir = dirPath || undefined;
+
+      // Update actual install and download paths now that user has chosen
+      const paths = getEventidePaths();
+      data.paths.installPath = paths.gameRoot;
+      data.paths.downloadPath = paths.dlRoot;
+    });
+
+    // Recreate directories at new location (including game directories)
+    ensureDirs(true);
+
+    log.info(chalk.cyan('[set-install-directory] Updated install directory to:'), dirPath || 'default');
+
+    return { success: true };
+  } catch (error) {
+    log.error(chalk.red('[set-install-directory] Error:'), error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
@@ -760,8 +907,8 @@ ipcMain.handle('write-settings', async (_event, data: any) => {
   try {
     const paths = getEventidePaths();
     const configPath = paths.config;
-    // Ensure all required directories exist before anything else
-    ensureDirs();
+    // Ensure essential directories exist (logs, userData) but not necessarily game dirs
+    ensureDirs(false);
     // Log the data to be written
     try {
       const json = JSON.stringify(data);
@@ -1291,8 +1438,8 @@ ipcMain.handle(
     try {
       const paths = getEventidePaths();
       const targetDir = installDir || paths.gameRoot;
-      // Ensure all required directories exist before anything else
-      ensureDirs();
+      // Ensure all directories exist including game dirs (needed for INI file)
+      ensureDirs(true);
       const iniPath = path.join(targetDir, 'config', 'boot', 'Eventide.ini');
       if (!fs.existsSync(iniPath)) {
         throw new Error(`INI file not found at: ${iniPath}`);
@@ -1423,7 +1570,7 @@ ipcMain.handle(
       const rememberCredentials = Boolean(data.rememberCredentials);
 
       const paths = getEventidePaths();
-      ensureDirs();
+      ensureDirs(false);
       const configPath = paths.config;
       // Read the existing config, but do NOT spread or copy any password field
       let existingConfig = {};
@@ -1622,6 +1769,56 @@ ipcMain.handle('reapply-patches', async () => {
       ),
     );
 
+    const paths = getEventidePaths();
+    const downloadsDir = paths.dlRoot;
+
+    // Fetch manifest to identify patch files
+    try {
+      const { release, patchManifest } = await getCachedManifests();
+      const patches = patchManifest.patches || [];
+      const baseZipName = release.game.fullUrl.split('/').pop();
+
+      log.info(
+        chalk.cyan(
+          `[reapply-patches] Deleting patch files from downloads (preserving base game: ${baseZipName})`,
+        ),
+      );
+
+      // Delete all patch ZIP files but preserve the base game ZIP
+      if (fs.existsSync(downloadsDir)) {
+        const files = await fs.readdir(downloadsDir);
+        for (const file of files) {
+          // Skip the base game ZIP
+          if (file === baseZipName) {
+            log.info(chalk.cyan(`[reapply-patches] Preserving base game: ${file}`));
+            continue;
+          }
+
+          // Check if this file is a patch ZIP
+          const isPatchFile = patches.some((patch: any) => {
+            const patchZipName = patch.fullUrl.split('/').pop();
+            return patchZipName === file;
+          });
+
+          if (isPatchFile) {
+            const filePath = path.join(downloadsDir, file);
+            try {
+              await fs.unlink(filePath);
+              log.info(chalk.cyan(`[reapply-patches] Deleted patch file: ${file}`));
+            } catch (unlinkErr) {
+              log.warn(chalk.yellow(`[reapply-patches] Failed to delete ${file}:`), unlinkErr);
+            }
+          }
+        }
+      }
+    } catch (manifestErr) {
+      log.warn(
+        chalk.yellow('[reapply-patches] Could not fetch manifest to identify patch files:'),
+        manifestErr,
+      );
+      log.warn(chalk.yellow('[reapply-patches] Continuing with version reset only'));
+    }
+
     // Update storage to reset version
     await updateStorage((data: StorageJson) => {
       data.GAME_UPDATER.currentVersion = '1.0.0';
@@ -1629,7 +1826,7 @@ ipcMain.handle('reapply-patches', async () => {
       data.GAME_UPDATER.updater.extracted = '1.0.0';
     });
 
-    log.info(chalk.green('[reapply-patches] Version reset successfully'));
+    log.info(chalk.green('[reapply-patches] Version reset and patch files deleted successfully'));
     return { success: true };
   } catch (error) {
     log.error(chalk.red('[reapply-patches] Error resetting version:'), error);
@@ -1664,8 +1861,8 @@ async function launchGameWithBatch(installDir: string, launchScript: string) {
       // Use logsRoot for launcher logs
       const paths = getEventidePaths();
       const logPath = path.join(paths.logsRoot, 'launcher-invoke-output.log');
-      // Ensure all required directories exist before anything else
-      ensureDirs();
+      // Ensure all directories exist including game dirs (game must be installed to launch)
+      ensureDirs(true);
       try {
         fs.appendFileSync(
           logPath,
@@ -2050,14 +2247,34 @@ ipcMain.handle('game:check', async () => {
 
     // If downloaded but not extracted, extract now
     if (baseDownloaded && !baseExtracted) {
-      await extractBaseGameIfNeeded(storage, paths.dlRoot, installDir);
-      // Update local state after extraction
-      const updatedStorage = await readStorage();
-      if (updatedStorage && updatedStorage.GAME_UPDATER) {
-        baseExtracted = !!updatedStorage.GAME_UPDATER.baseGame.extracted;
-        currentVersion = String(
-          updatedStorage.GAME_UPDATER.currentVersion ?? '0',
-        );
+      try {
+        await extractBaseGameIfNeeded(storage, paths.dlRoot, installDir);
+        // Update local state after extraction
+        const updatedStorage = await readStorage();
+        if (updatedStorage && updatedStorage.GAME_UPDATER) {
+          baseExtracted = !!updatedStorage.GAME_UPDATER.baseGame.extracted;
+          currentVersion = String(
+            updatedStorage.GAME_UPDATER.currentVersion ?? '0',
+          );
+        }
+      } catch (extractErr) {
+        log.error(chalk.red('[game:check] Auto-extraction failed:'), extractErr);
+
+        // Update state to reflect extraction failure
+        await updateStorage((data: StorageJson) => {
+          data.GAME_UPDATER.baseGame.extracted = false;
+          // If ZIP was corrupted and deleted, mark download as incomplete
+          const baseGameZipPath = path.join(paths.dlRoot, 'Eventide-test.zip');
+          if (!fs.existsSync(baseGameZipPath)) {
+            data.GAME_UPDATER.baseGame.downloaded = false;
+          }
+        });
+
+        return {
+          success: false,
+          error: `Extraction failed: ${extractErr instanceof Error ? extractErr.message : String(extractErr)}`,
+          needsRedownload: true,
+        };
       }
     }
 
@@ -2407,8 +2624,8 @@ ipcMain.handle('game:download', async () => {
 ipcMain.handle('game:import-existing', async () => {
   try {
     const paths = getEventidePaths();
-    // Ensure all required directories exist before anything else
-    ensureDirs();
+    // Ensure all directories exist including game dirs (importing existing game)
+    ensureDirs(true);
     const installDir = paths.gameRoot;
 
     if (!fs.existsSync(installDir)) {

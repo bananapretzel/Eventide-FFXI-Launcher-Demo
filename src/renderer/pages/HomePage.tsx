@@ -39,6 +39,20 @@ export default function HomePage(props: HomePageProps) {
   const [toastMessage, setToastMessage] = useState('');
   const [updateStatus, setUpdateStatus] = useState<string>('idle');
   const [updateInfo, setUpdateInfo] = useState<any>(null);
+  const [currentInstallDir, setCurrentInstallDir] =
+    useState<string>(installDir);
+  const [showInstallDirPicker, setShowInstallDirPicker] = useState(false);
+
+  // Helper to strip trailing /Game or \Game from a path
+  const stripGameSuffix = (path: string) => {
+    if (!path) return path;
+    return path.replace(/[\\/](Game)$/i, '');
+  };
+
+  // Update currentInstallDir when installDir prop changes, stripping /Game or \Game
+  useEffect(() => {
+    setCurrentInstallDir(stripGameSuffix(installDir));
+  }, [installDir]);
 
   // Toast helper function
   const handleShowToast = (message: string) => {
@@ -504,6 +518,42 @@ export default function HomePage(props: HomePageProps) {
     }
   };
 
+  // Handler to select installation directory
+  const handleSelectInstallDir = async () => {
+    try {
+      const result = await (window as any).electron.selectInstallDirectory();
+      if (result?.success && result.path) {
+        // Strip trailing /Game or \Game for display
+        const cleanedPath = stripGameSuffix(result.path);
+        const setResult = await (window as any).electron.setInstallDirectory(
+          cleanedPath,
+        );
+        if (setResult?.success) {
+          setCurrentInstallDir(cleanedPath);
+          handleShowToast('Installation directory updated successfully!');
+          // Refresh paths
+          const pathsResult = await (window as any).electron.invoke(
+            'eventide:get-paths',
+          );
+          if (pathsResult?.success && pathsResult.data?.gameRoot) {
+            setCurrentInstallDir(stripGameSuffix(pathsResult.data.gameRoot));
+          }
+        } else {
+          handleShowToast(
+            `Failed to set directory: ${setResult?.error || 'Unknown error'}`,
+          );
+        }
+      } else if (!result?.canceled) {
+        handleShowToast(
+          `Failed to select directory: ${result?.error || 'Unknown error'}`,
+        );
+      }
+    } catch (err) {
+      console.error('Failed to select installation directory:', err);
+      handleShowToast(`Error: ${String(err)}`);
+    }
+  };
+
   // Only require credentials for Play, not for Update/Download
   // (button 'disabled' prop is computed inline below)
 
@@ -542,6 +592,64 @@ export default function HomePage(props: HomePageProps) {
             />
             <span>Remember credentials</span>
           </label>
+
+          {/* Installation Directory Selector - Only show when missing or not downloaded yet */}
+          {(state.status === 'missing' || state.status === 'checking') && (
+            <div
+              style={{
+                marginTop: 12,
+                marginBottom: 12,
+                padding: '12px',
+                background: 'rgba(59, 130, 246, 0.1)',
+                borderRadius: '8px',
+                border: '1px solid rgba(59, 130, 246, 0.3)',
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 12,
+                  color: 'var(--muted)',
+                  marginBottom: 6,
+                  fontWeight: 500,
+                }}
+              >
+                Installation Directory
+              </div>
+              <div
+                style={{
+                  fontSize: 11,
+                  color: 'var(--muted)',
+                  marginBottom: 8,
+                  opacity: 0.8,
+                }}
+              >
+                {currentInstallDir}
+              </div>
+              <button
+                type="button"
+                onClick={handleSelectInstallDir}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  fontSize: 12,
+                  background: 'rgba(59, 130, 246, 0.2)',
+                  border: '1px solid rgba(59, 130, 246, 0.5)',
+                  borderRadius: 6,
+                  color: '#3b82f6',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(59, 130, 246, 0.3)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'rgba(59, 130, 246, 0.2)';
+                }}
+              >
+                📁 Choose Installation Directory
+              </button>
+            </div>
+          )}
 
           <button
             type="button"

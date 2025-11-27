@@ -62,6 +62,72 @@ export async function writeJson(path: string, data: any): Promise<void> {
   await fs.rename(tmp, path);
 }
 
+/**
+ * Validates that a file is a valid ZIP archive by checking for ZIP signature
+ * @param zipPath Path to the ZIP file
+ * @returns true if valid ZIP, false otherwise
+ */
+async function validateZipFile(zipPath: string): Promise<{ valid: boolean; error?: string }> {
+  try {
+    const stat = await fs.stat(zipPath);
+
+    // ZIP files must be at least 22 bytes (minimum for end of central directory record)
+    if (stat.size < 22) {
+      return {
+        valid: false,
+        error: `File too small to be a valid ZIP (${stat.size} bytes)`
+      };
+    }
+
+    // Read first 4 bytes to check for ZIP signature (PK\x03\x04 or PK\x05\x06)
+    const fd = await fs.open(zipPath, 'r');
+    const headerBuf = Buffer.alloc(4);
+    await fd.read(headerBuf, 0, 4, 0);
+
+    // Also read last 22 bytes to check for end of central directory signature
+    const eocdrBuf = Buffer.alloc(22);
+    await fd.read(eocdrBuf, 0, 22, stat.size - 22);
+    await fd.close();
+
+    // Check for ZIP local file header signature (0x04034b50)
+    const hasLocalFileHeader = headerBuf[0] === 0x50 && headerBuf[1] === 0x4b &&
+                                headerBuf[2] === 0x03 && headerBuf[3] === 0x04;
+
+    // Check for end of central directory signature (0x06054b50)
+    const hasEOCDR = eocdrBuf[0] === 0x50 && eocdrBuf[1] === 0x4b &&
+                     eocdrBuf[2] === 0x05 && eocdrBuf[3] === 0x06;
+
+    if (!hasLocalFileHeader && !hasEOCDR) {
+      // Not a ZIP file - might be HTML error page or corrupt download
+      const previewBuf = Buffer.alloc(Math.min(stat.size, 200));
+      const previewFd = await fs.open(zipPath, 'r');
+      await previewFd.read(previewBuf, 0, previewBuf.length, 0);
+      await previewFd.close();
+
+      const preview = previewBuf.toString('utf8').replace(/[^\x20-\x7E]/g, '.');
+
+      return {
+        valid: false,
+        error: `Not a valid ZIP file. File starts with: ${preview.substring(0, 100)}`
+      };
+    }
+
+    if (!hasEOCDR) {
+      return {
+        valid: false,
+        error: 'ZIP file is incomplete or corrupted (missing end of central directory record)'
+      };
+    }
+
+    return { valid: true };
+  } catch (error) {
+    return {
+      valid: false,
+      error: `Failed to validate ZIP: ${error instanceof Error ? error.message : String(error)}`
+    };
+  }
+}
+
 export async function extractZip(
   zipPath: string,
   dest: string,
@@ -69,6 +135,13 @@ export async function extractZip(
 ): Promise<void> {
   log.info(chalk.cyan(`[extractZip] Extracting archive: ${zipPath}`));
   log.info(chalk.cyan(`[extractZip] Destination: ${dest}`));
+
+  // Validate ZIP file before attempting extraction
+  const validation = await validateZipFile(zipPath);
+  if (!validation.valid) {
+    log.error(chalk.red(`[extractZip] ZIP validation failed: ${validation.error}`));
+    throw new Error(`Invalid ZIP file: ${validation.error}`);
+  }
 
   const extract = (await import('extract-zip')).default;
   await fs.mkdir(dest, { recursive: true });
@@ -78,42 +151,39 @@ export async function extractZip(
     const stat = await fs.stat(zipPath);
     const sizeMB = (stat.size / 1024 / 1024).toFixed(2);
     log.info(chalk.cyan(`[extractZip] Archive size: ${sizeMB} MB`));
-
-    if (stat.size < 2048) {
-      log.warn(chalk.yellow(`[extractZip] Warning: Archive is very small (${stat.size} bytes)`));
-      const buf = Buffer.alloc(Math.min(stat.size, 100));
-      const fd = await fs.open(zipPath, 'r');
-      await fd.read(buf, 0, buf.length, 0);
-      await fd.close();
-      log.warn(chalk.yellow(`[extractZip] First bytes: ${buf.toString('utf8')}`));
-    }
+    log.info(chalk.green(`[extractZip] ZIP validation passed`));
   } catch (e) {
-    log.error(chalk.red('[extractZip] Could not stat/read file:'), e);
+    log.error(chalk.red('[extractZip] Could not stat file:'), e);
     throw e;
   }
 
   log.info(chalk.cyan('[extractZip] Starting extraction...'));
 
-  // Use extract-zip with progress tracking
-  if (onProgress) {
-    // extract-zip doesn't provide built-in progress, so we'll use a workaround
-    // We'll track extraction by monitoring the extraction process
-    await extract(zipPath, {
-      dir: dest,
-      onEntry: (entry, zipfile) => {
-        // Report progress based on entry count
-        const totalEntries = zipfile.entryCount;
-        const currentEntry = zipfile.entriesRead || 0;
-        onProgress(currentEntry, totalEntries);
-      }
-    });
-    // Emit final progress
-    onProgress(100, 100);
-  } else {
-    await extract(zipPath, { dir: dest });
-  }
+  try {
+    // Use extract-zip with progress tracking
+    if (onProgress) {
+      // extract-zip doesn't provide built-in progress, so we'll use a workaround
+      // We'll track extraction by monitoring the extraction process
+      await extract(zipPath, {
+        dir: dest,
+        onEntry: (entry, zipfile) => {
+          // Report progress based on entry count
+          const totalEntries = zipfile.entryCount;
+          const currentEntry = zipfile.entriesRead || 0;
+          onProgress(currentEntry, totalEntries);
+        }
+      });
+      // Emit final progress
+      onProgress(100, 100);
+    } else {
+      await extract(zipPath, { dir: dest });
+    }
 
-  log.info(chalk.green('[extractZip] ✓ Extraction complete'));
+    log.info(chalk.green('[extractZip] ✓ Extraction complete'));
+  } catch (error) {
+    log.error(chalk.red('[extractZip] Extraction failed:'), error);
+    throw new Error(`ZIP extraction failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 /**
