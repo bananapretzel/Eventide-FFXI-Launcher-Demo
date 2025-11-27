@@ -1536,7 +1536,10 @@ ipcMain.handle(
       }
 
       const paths = getEventidePaths();
-      const extensionFolder = path.join(paths.gameRoot, 'config', folderType);
+      // Plugins are in gameRoot/plugins, addons are in gameRoot/config/addons
+      const extensionFolder = folderType === 'plugins'
+        ? path.join(paths.gameRoot, 'plugins')
+        : path.join(paths.gameRoot, 'config', folderType);
 
       // Ensure folder exists
       if (!fs.existsSync(extensionFolder)) {
@@ -1761,10 +1764,38 @@ async function validateZipFilesAndResetState(
   if (!baseZipExists) {
     log.warn(
       chalk.yellow(
-        '[validateZipFiles] Base game ZIP is missing! Resetting state to missing.',
+        '[validateZipFiles] Base game ZIP is missing.',
       ),
     );
-    // Reset entire state
+
+    // Check if game is already extracted and functional
+    const storage = await readStorage();
+    const isExtracted = storage?.GAME_UPDATER?.baseGame?.extracted ?? false;
+
+    if (isExtracted && currentVersion && currentVersion !== '0' && currentVersion !== '0.0.0') {
+      // Game is already extracted and has a valid version - just mark ZIP as not downloaded
+      // This prevents resetting the version when the base ZIP is deleted after successful extraction
+      log.info(
+        chalk.cyan(
+          `[validateZipFiles] Game is already extracted with version ${currentVersion}. Preserving state.`,
+        ),
+      );
+      await updateStorage((data: StorageJson) => {
+        data.GAME_UPDATER.baseGame.downloaded = false;
+      });
+      return {
+        currentVersion,
+        baseDownloaded: false,
+        baseExtracted: true,
+      };
+    }
+
+    // Game is not extracted yet - reset to missing state
+    log.warn(
+      chalk.yellow(
+        '[validateZipFiles] Game not extracted. Resetting state to missing.',
+      ),
+    );
     await updateStorage((data: StorageJson) => {
       data.GAME_UPDATER.currentVersion = '0.0.0';
       data.GAME_UPDATER.baseGame.downloaded = false;
@@ -1977,6 +2008,44 @@ ipcMain.handle('game:check', async () => {
       currentVersion = validated.currentVersion;
       baseDownloaded = validated.baseDownloaded;
       baseExtracted = validated.baseExtracted;
+    }
+
+    // Handle edge case: version is 0.0.0 but game is actually extracted
+    // This can happen after launcher updates if version tracking was disrupted
+    if (currentVersion === '0.0.0' && baseExtracted) {
+      log.warn(
+        chalk.yellow(
+          '[game:check] Version is 0.0.0 but game is marked as extracted. Attempting recovery...',
+        ),
+      );
+
+      // Check if game files actually exist
+      const exeName = process.platform === 'win32' ? 'ashita-cli.exe' : 'ashita-cli';
+      const mainExe = path.join(installDir, exeName);
+
+      if (fs.existsSync(mainExe)) {
+        // Game files exist - recover to base version to allow patching
+        const { baseVersion } = release.game;
+        log.info(
+          chalk.cyan(
+            `[game:check] Game executable found. Recovering version from 0.0.0 to ${baseVersion}`,
+          ),
+        );
+        await updateStorage((data: StorageJson) => {
+          data.GAME_UPDATER.currentVersion = baseVersion;
+        });
+        currentVersion = baseVersion;
+      } else {
+        log.warn(
+          chalk.yellow(
+            '[game:check] Version is 0.0.0 and no game files found. Resetting extraction flag.',
+          ),
+        );
+        await updateStorage((data: StorageJson) => {
+          data.GAME_UPDATER.baseGame.extracted = false;
+        });
+        baseExtracted = false;
+      }
     }
 
     // If downloaded but not extracted, extract now

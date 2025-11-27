@@ -33,6 +33,44 @@ export async function applyPatches(
     throw new Error('No client version found. Cannot apply patches.');
   }
 
+  // Handle edge case: version is 0.0.0 but game is already extracted
+  // This can happen if version was incorrectly reset during launcher update
+  if (currentVersion === '0.0.0') {
+    log.warn(chalk.yellow(`[applyPatches] Current version is 0.0.0. Checking if we should recover...`));
+
+    // Try to recover: check if we have game files
+    const fs = require('fs');
+    const exeName = process.platform === 'win32' ? 'ashita-cli.exe' : 'ashita-cli';
+    const mainExe = join(installDir, exeName);
+
+    if (fs.existsSync(mainExe)) {
+      // Game files exist - determine what version to recover to
+      // We'll check if any patch from a known version to latestVersion exists
+      const patches = manifest.patches || [];
+      let recoveryVersion: string | null = null;
+
+      // Try to find the earliest patch that leads to latestVersion
+      for (const patch of patches) {
+        if (patch.to === latestVersion || patches.some(p => p.from === patch.to)) {
+          recoveryVersion = patch.from;
+          break;
+        }
+      }
+
+      if (recoveryVersion) {
+        log.info(chalk.cyan(`[applyPatches] Game executable found. Recovering to version: ${recoveryVersion}`));
+        await setClientVersion(installDir, recoveryVersion);
+        currentVersion = recoveryVersion;
+      } else {
+        log.error(chalk.red('[applyPatches] Cannot determine recovery version from patch manifest.'));
+        throw new Error('Game version is 0.0.0 and cannot determine correct version. Please use "Reapply Patches" in Settings.');
+      }
+    } else {
+      log.error(chalk.red('[applyPatches] Version is 0.0.0 and no game files found. Cannot apply patches.'));
+      throw new Error('Game version is 0.0.0 and game files are missing. Please reinstall the base game.');
+    }
+  }
+
   log.info(chalk.cyan(`[applyPatches] Current version: ${currentVersion}`));
 
   const downloadsDir = join(installDir, '..', 'Downloads');

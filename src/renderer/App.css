@@ -78,7 +78,6 @@ body {
   background: rgba(255, 255, 255, 0.7);
   background-color: var(--bg-3);
   backdrop-filter: blur(8px);
-  border-radius: 18px 18px 0 0;
   -webkit-app-region: drag;
 }
 
@@ -174,7 +173,6 @@ body {
   overflow: hidden;
   /* Keep this hidden */
   background-color: var(--bg-3);
-  border-radius: 0px 0px 18px 18px;
 }
 
 /* Login Section */
@@ -504,7 +502,6 @@ body {
   gap: 16px;
   padding: 12px 48px 24px 48px;
   background-color: var(--bg-3);
-  border-radius: 0 0 18px 18px;
   min-height: 0;
   flex: 1;
   /* occupy remaining vertical space under header */
@@ -1112,7 +1109,6 @@ body {
   gap: 16px;
   padding: 24px;
   background-color: var(--bg-3);
-  border-radius: 0 0 18px 18px;
   min-height: 0;
   flex: 1;
 }

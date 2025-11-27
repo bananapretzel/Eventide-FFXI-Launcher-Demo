@@ -1148,7 +1148,7 @@ export default function SettingsPage() {
             <Row>
               <button
                 type="button"
-                className="btn btn-secondary"
+                className="btn"
                 onClick={async () => {
                   try {
                     const result =
@@ -1168,7 +1168,7 @@ export default function SettingsPage() {
             <Row>
               <button
                 type="button"
-                className="btn btn-secondary"
+                className="btn"
                 onClick={async () => {
                   try {
                     const result =
@@ -1195,7 +1195,7 @@ export default function SettingsPage() {
                 <button
                   type="button"
                   id="reapply-patches"
-                  className="btn btn-secondary"
+                  className="btn"
                   onClick={async () => {
                     try {
                       const result =

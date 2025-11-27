@@ -1,7 +1,7 @@
 {
   "name": "ffxi-eventide-launcher",
   "description": "A launcher for the private FFXI private server called Eventide.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "keywords": [
     "electron",
     "boilerplate",
@@ -215,7 +215,7 @@
     "webpack-merge": "^6.0.1"
   },
   "build": {
-    "productName": "Eventide FFXI Launcher",
+    "productName": "Eventide-FFXI-Launcher",
     "appId": "com.eventide.ffxi.launcher",
     "asar": true,
     "afterSign": ".erb/scripts/notarize.js",
@@ -269,7 +269,7 @@
       "uninstallerIcon": "assets/icon.ico",
       "installerHeaderIcon": "assets/icon.ico",
       "installerSidebar": "assets/installerSidebar.bmp",
-      "createDesktopShortcut": true,
+      "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
       "artifactName": "${productName}-Setup-${version}.${ext}",
       "include": "assets/installer.nsh",
