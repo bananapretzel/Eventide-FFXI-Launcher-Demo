@@ -292,6 +292,26 @@ body {
   background: #dc2626;
 }
 
+.play-btn.is-paused {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  border: 2px solid #f59e0b;
+  animation: pulse-paused 2s ease-in-out infinite;
+}
+
+.play-btn.is-paused:hover {
+  background: linear-gradient(135deg, #d97706, #b45309);
+}
+
+@keyframes pulse-paused {
+  0%, 100% {
+    box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+  }
+
+  50% {
+    box-shadow: 0 4px 20px rgba(245, 158, 11, 0.5);
+  }
+}
+
 @keyframes pulse-error {
   0%, 100% {
     box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);

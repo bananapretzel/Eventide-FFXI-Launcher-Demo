@@ -32,6 +32,11 @@ const electronHandler = {
     ipcRenderer.invoke('launcher:applyPatches', patchManifest, clientVersion, installDir),
   launchGame: (installDir: string) =>
     ipcRenderer.invoke('launcher:launchGame', installDir),
+  // Resumable download controls
+  pauseDownload: () => ipcRenderer.invoke('game:pause-download'),
+  resumeDownload: () => ipcRenderer.invoke('game:resume-download'),
+  cancelDownload: () => ipcRenderer.invoke('game:cancel-download'),
+  checkResumableDownload: () => ipcRenderer.invoke('game:check-resumable'),
   ipcRenderer: {
     sendMessage(channel: string, ...args: unknown[]) {
       ipcRenderer.send(channel, ...args);

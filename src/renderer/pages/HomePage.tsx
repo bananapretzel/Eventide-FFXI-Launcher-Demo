@@ -145,10 +145,14 @@ export default function HomePage(props: HomePageProps) {
     let interval: ReturnType<typeof setInterval> | null = null;
 
     if (state.status === 'downloading' || state.status === 'extracting') {
-      // Reset timer when transitioning between downloading and extracting
-      if (lastStatus !== state.status) {
+      // Reset timer when transitioning between downloading and extracting (but not from paused)
+      if (lastStatus !== state.status && lastStatus !== 'paused') {
         setDownloadStartTime(Date.now());
         setElapsedTime(0);
+        setLastStatus(state.status);
+      } else if (lastStatus === 'paused') {
+        // Resuming from pause - adjust start time to account for elapsed time
+        setDownloadStartTime(Date.now() - elapsedTime * 1000);
         setLastStatus(state.status);
       }
       // Update elapsed time every second
@@ -157,8 +161,12 @@ export default function HomePage(props: HomePageProps) {
           setElapsedTime(Math.floor((Date.now() - downloadStartTime) / 1000));
         }
       }, 1000);
+    } else if (state.status === 'paused') {
+      // Paused - keep the elapsed time but stop the timer
+      setLastStatus(state.status);
+      // Don't reset downloadStartTime or elapsedTime
     } else {
-      // Reset timer when not downloading/extracting
+      // Reset timer when not downloading/extracting/paused
       setDownloadStartTime(null);
       setElapsedTime(0);
       setLastStatus(null);
@@ -175,7 +183,7 @@ export default function HomePage(props: HomePageProps) {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [state.status, downloadStartTime, lastStatus]);
+  }, [state.status, downloadStartTime, lastStatus, elapsedTime]);
 
   // Format elapsed time as MM:SS
   const formatElapsedTime = (seconds: number): string => {
@@ -186,17 +194,23 @@ export default function HomePage(props: HomePageProps) {
 
   // Safely read progress from union-typed state
   const getProgress = (s: typeof state): number | undefined => {
-    if (s.status === 'downloading' || s.status === 'extracting') {
+    if (
+      s.status === 'downloading' ||
+      s.status === 'extracting' ||
+      s.status === 'paused'
+    ) {
       return s.progress;
     }
     return undefined;
   };
 
   const getDownloaded = (s: typeof state): number | undefined =>
-    s.status === 'downloading' ? s.downloaded : undefined;
+    s.status === 'downloading' || s.status === 'paused'
+      ? s.downloaded
+      : undefined;
 
   const getTotal = (s: typeof state): number | undefined =>
-    s.status === 'downloading' ? s.total : undefined;
+    s.status === 'downloading' || s.status === 'paused' ? s.total : undefined;
 
   const handleActionClick = async () => {
     log.debug('[HomePage] Play/Action button clicked, state:', state);
@@ -210,6 +224,45 @@ export default function HomePage(props: HomePageProps) {
         try {
           await safeInvoke('game:download');
           // main should emit game:status 'downloaded' -> ready
+        } catch (err) {
+          dispatch({
+            type: 'ERROR',
+            msg: String(err),
+            isRetryable: true,
+            lastOperation: 'download',
+          });
+        }
+      } else if (state.status === 'paused') {
+        // Resume download
+        dispatch({
+          type: 'SET',
+          state: {
+            status: 'downloading',
+            progress: getProgress(state) || 0,
+            downloaded: getDownloaded(state),
+            total: getTotal(state),
+          },
+        });
+        try {
+          await safeInvoke('game:resume-download');
+          // main should emit game:status based on result
+        } catch (err) {
+          dispatch({
+            type: 'ERROR',
+            msg: String(err),
+            isRetryable: true,
+            lastOperation: 'download',
+          });
+        }
+      } else if (state.status === 'needs-extraction') {
+        // Start extraction of existing ZIP
+        dispatch({
+          type: 'SET',
+          state: { status: 'extracting', progress: 0 },
+        });
+        try {
+          await safeInvoke('game:extract');
+          // main should emit game:status 'ready' or 'update-available'
         } catch (err) {
           dispatch({
             type: 'ERROR',
@@ -395,8 +448,12 @@ export default function HomePage(props: HomePageProps) {
         return 'Checking…';
       case 'missing':
         return 'Download';
+      case 'needs-extraction':
+        return 'Extract';
       case 'downloading':
         return 'Downloading...';
+      case 'paused':
+        return 'Resume';
       case 'extracting':
         return 'Extracting...';
       case 'update-available':
@@ -700,7 +757,7 @@ export default function HomePage(props: HomePageProps) {
 
           <button
             type="button"
-            className={`play-btn ${state.status === 'error' ? 'is-error' : ''}`}
+            className={`play-btn ${state.status === 'error' ? 'is-error' : ''} ${state.status === 'paused' ? 'is-paused' : ''}`}
             disabled={
               state.status === 'checking' ||
               state.status === 'downloading' ||
@@ -755,8 +812,87 @@ export default function HomePage(props: HomePageProps) {
                     return `${formatBytes(d)} downloaded`;
                   })()}
                 </span>
-                <span style={{ fontFamily: 'monospace' }}>
-                  ⏱️ {formatElapsedTime(elapsedTime)}
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontFamily: 'monospace' }}>
+                    ⏱️ {formatElapsedTime(elapsedTime)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await safeInvoke('game:pause-download');
+                        dispatch({
+                          type: 'PAUSE',
+                          p: getProgress(state) || 0,
+                          downloaded: getDownloaded(state),
+                          total: getTotal(state),
+                        });
+                      } catch (err) {
+                        log.error('[HomePage] Pause error:', err);
+                      }
+                    }}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: 4,
+                      fontSize: 16,
+                      opacity: 0.7,
+                      transition: 'opacity 0.2s',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.opacity = '1';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.opacity = '0.7';
+                    }}
+                    title="Pause download"
+                  >
+                    ⏸️
+                  </button>
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Paused state progress display */}
+          {state.status === 'paused' && (
+            <div style={{ marginTop: 8 }}>
+              <div
+                style={{
+                  width: '100%',
+                  height: 10,
+                  background: 'rgba(255,255,255,0.08)',
+                  borderRadius: 6,
+                  overflow: 'hidden',
+                }}
+                aria-hidden
+              >
+                <div
+                  style={{
+                    width: `${getProgress(state) ?? 0}%`,
+                    height: '100%',
+                    background: 'linear-gradient(90deg,#facc15,#eab308)',
+                    transition: 'width 200ms linear',
+                  }}
+                />
+              </div>
+              <div
+                style={{
+                  marginTop: 6,
+                  fontSize: 12,
+                  color: 'var(--muted)',
+                }}
+              >
+                <span>
+                  {(() => {
+                    const d = getDownloaded(state);
+                    const t = getTotal(state);
+                    if (typeof t === 'number' && t > 0) {
+                      return `⏸️ Paused: ${formatBytes(d)} / ${formatBytes(t)} (${getProgress(state) ?? 0}%)`;
+                    }
+                    return `⏸️ Paused: ${formatBytes(d)} downloaded`;
+                  })()}
                 </span>
               </div>
             </div>

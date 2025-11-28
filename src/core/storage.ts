@@ -1,6 +1,17 @@
 import { promises as fs } from 'fs';
 import { getEventidePaths } from '../main/paths';
 
+export interface DownloadProgress {
+  url: string;           // URL being downloaded
+  destPath: string;      // Destination file path
+  bytesDownloaded: number; // Bytes successfully downloaded
+  totalBytes: number;    // Total file size
+  sha256: string;        // Expected checksum for verification
+  isPaused: boolean;     // Whether download is paused
+  startedAt: number;     // Timestamp when download started
+  lastUpdatedAt: number; // Timestamp of last progress update
+}
+
 export interface GameUpdaterState {
   currentVersion: string;
   latestVersion: string;
@@ -12,6 +23,7 @@ export interface GameUpdaterState {
     downloaded: string;
     extracted: string;
   };
+  downloadProgress?: DownloadProgress; // Track resumable download state
 }
 
 
@@ -96,6 +108,64 @@ export function getDefaultStorage(): StorageJson {
       updater: { downloaded: "", extracted: "" },
     },
   };
+}
+
+// ============================================================================
+// Download Progress Management Functions
+// ============================================================================
+
+/**
+ * Save download progress to storage for resume capability
+ */
+export async function saveDownloadProgress(progress: DownloadProgress): Promise<void> {
+  await updateStorage(s => {
+    s.GAME_UPDATER.downloadProgress = {
+      ...progress,
+      lastUpdatedAt: Date.now(),
+    };
+  });
+}
+
+/**
+ * Get saved download progress, if any
+ */
+export async function getDownloadProgress(): Promise<DownloadProgress | null> {
+  const storage = await readStorage();
+  return storage?.GAME_UPDATER?.downloadProgress || null;
+}
+
+/**
+ * Clear download progress (call after successful completion or to cancel)
+ */
+export async function clearDownloadProgress(): Promise<void> {
+  await updateStorage(s => {
+    delete s.GAME_UPDATER.downloadProgress;
+  });
+}
+
+/**
+ * Update only the bytes downloaded (for frequent progress updates without full storage write)
+ * This is a lighter weight update for progress tracking
+ */
+export async function updateDownloadBytes(bytesDownloaded: number): Promise<void> {
+  await updateStorage(s => {
+    if (s.GAME_UPDATER.downloadProgress) {
+      s.GAME_UPDATER.downloadProgress.bytesDownloaded = bytesDownloaded;
+      s.GAME_UPDATER.downloadProgress.lastUpdatedAt = Date.now();
+    }
+  });
+}
+
+/**
+ * Set the paused state of the current download
+ */
+export async function setDownloadPaused(isPaused: boolean): Promise<void> {
+  await updateStorage(s => {
+    if (s.GAME_UPDATER.downloadProgress) {
+      s.GAME_UPDATER.downloadProgress.isPaused = isPaused;
+      s.GAME_UPDATER.downloadProgress.lastUpdatedAt = Date.now();
+    }
+  });
 }
 
 // Utility: check for required files in install dir

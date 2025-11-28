@@ -5,8 +5,15 @@ import log from '../logger';
 export type GameState =
   | { status: 'checking' }
   | { status: 'missing' }
+  | { status: 'needs-extraction' }
   | {
       status: 'downloading';
+      progress: number;
+      downloaded?: number;
+      total?: number;
+    }
+  | {
+      status: 'paused';
       progress: number;
       downloaded?: number;
       total?: number;
@@ -36,6 +43,7 @@ export type GameAction =
   | { type: 'SET'; state: GameState }
   | { type: 'PROGRESS'; p: number; downloaded?: number; total?: number }
   | { type: 'EXTRACT_PROGRESS'; p: number; current?: number; total?: number }
+  | { type: 'PAUSE'; p: number; downloaded?: number; total?: number }
   | {
       type: 'ERROR';
       msg: string;
@@ -60,6 +68,13 @@ function gameReducer(_: GameState, action: GameAction): GameState {
       case 'PROGRESS':
         return {
           status: 'downloading',
+          progress: action.p,
+          downloaded: action.downloaded,
+          total: action.total,
+        };
+      case 'PAUSE':
+        return {
+          status: 'paused',
           progress: action.p,
           downloaded: action.downloaded,
           total: action.total,
@@ -98,10 +113,25 @@ export function GameStateProvider({ children }: { children: ReactNode }) {
     const doCheck = async () => {
       dispatch({ type: 'CHECK' });
       try {
+        // First check if there's a resumable download
+        const resumable = await safeInvoke<any>('game:check-resumable');
+        if (resumable?.hasResumable) {
+          log.info('[GameStateProvider] Found resumable download:', resumable);
+          dispatch({
+            type: 'PAUSE',
+            p: resumable.percentComplete || 0,
+            downloaded: resumable.bytesDownloaded,
+            total: resumable.totalBytes,
+          });
+          return;
+        }
+
         const res = await safeInvoke<any>('game:check');
         const { launcherState, latestVersion, installedVersion } = res ?? {};
         if (launcherState === 'missing') {
           dispatch({ type: 'SET', state: { status: 'missing' } });
+        } else if (launcherState === 'needs-extraction') {
+          dispatch({ type: 'SET', state: { status: 'needs-extraction' } });
         } else if (launcherState === 'update-available') {
           dispatch({
             type: 'SET',
@@ -170,10 +200,19 @@ export function GameStateProvider({ children }: { children: ReactNode }) {
 
         unsubStatus = ipc.on('game:status', (_ev: any, payload: any) => {
           try {
-            const { status, remoteVersion, installedVersion, message } =
+            const { status, remoteVersion, installedVersion, message, bytesDownloaded, totalBytes } =
               payload ?? {};
             if (status === 'downloaded' || status === 'ready') {
               dispatch({ type: 'SET', state: { status: 'ready' } });
+            } else if (status === 'paused') {
+              // Handle paused status from main process
+              const progress = totalBytes ? Math.round((bytesDownloaded / totalBytes) * 100) : 0;
+              dispatch({
+                type: 'PAUSE',
+                p: progress,
+                downloaded: bytesDownloaded,
+                total: totalBytes,
+              });
             } else if (status === 'error') {
               dispatch({
                 type: 'ERROR',
@@ -189,6 +228,8 @@ export function GameStateProvider({ children }: { children: ReactNode }) {
                   installedVersion,
                 },
               });
+            } else if (status === 'missing') {
+              dispatch({ type: 'SET', state: { status: 'missing' } });
             }
           } catch (err) {
             log.error(

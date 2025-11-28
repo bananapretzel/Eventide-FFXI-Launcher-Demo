@@ -540,7 +540,18 @@ app.once('ready', async () => {
     const baseGameZipPath = path.join(dlRoot, baseGameZipName);
     const zipExists = fs.existsSync(baseGameZipPath);
 
-    if (zipExists && !filesExist) {
+    // Check if there's an incomplete download in progress (paused or interrupted)
+    // If so, the ZIP file is incomplete and should NOT be extracted
+    const downloadInProgress = storageData.GAME_UPDATER?.downloadProgress != null;
+    if (downloadInProgress) {
+      log.info(
+        chalk.yellow(
+          '[startup] Download in progress detected - skipping ZIP extraction (file may be incomplete)',
+        ),
+      );
+    }
+
+    if (zipExists && !filesExist && !downloadInProgress) {
       try {
         log.info(
           chalk.cyan(
@@ -1970,16 +1981,25 @@ ipcMain.handle('game:check', async () => {
 
     log.info(chalk.cyan('[game:check] Storage state - downloaded:'), baseDownloaded, 'extracted:', baseExtracted, 'version:', currentVersion);
 
-    // Simplified state determination based on storage.json flags:
-    // 1. If extracted=true -> Game is ready (or needs update if version differs)
-    // 2. If extracted=false -> Show download button (ZIP files may have been deleted by user to save space)
-    // Note: We don't check ZIP existence - the downloaded flag just indicates download completed at some point
+    // Check if ZIP file exists (for needs-extraction state)
+    const baseGameZipName = release?.game?.fullUrl?.split('/').pop() || 'Eventide-test.zip';
+    const baseGameZipPath = path.join(downloadsDir, baseGameZipName);
+    const zipExists = fs.existsSync(baseGameZipPath);
 
-    let launcherState: 'missing' | 'ready' | 'update-available' | 'downloaded';
+    // Check if there's a download in progress
+    const downloadInProgress = storage?.GAME_UPDATER?.downloadProgress != null;
+
+    log.info(chalk.cyan('[game:check] ZIP exists:'), zipExists, 'download in progress:', downloadInProgress);
+
+    // State determination:
+    // 1. If extracted=true -> Game is ready (or needs update if version differs)
+    // 2. If extracted=false but ZIP exists and no download in progress -> needs-extraction
+    // 3. Otherwise -> missing (need to download)
+
+    let launcherState: 'missing' | 'ready' | 'update-available' | 'needs-extraction';
 
     if (baseExtracted) {
       // Game has been extracted - it's either ready or needs an update
-      // No need to check file system - trust storage.json
       if (currentVersion === latestVersion) {
         launcherState = 'ready';
         log.info(chalk.green('[game:check] Game is ready - version matches latest'));
@@ -1987,9 +2007,12 @@ ipcMain.handle('game:check', async () => {
         launcherState = 'update-available';
         log.info(chalk.cyan(`[game:check] Update available - current: ${currentVersion}, latest: ${latestVersion}`));
       }
+    } else if (zipExists && !downloadInProgress) {
+      // ZIP exists but not extracted - offer extraction
+      launcherState = 'needs-extraction';
+      log.info(chalk.yellow('[game:check] ZIP exists but not extracted - showing extract button'));
     } else {
-      // Game not extracted - show download button
-      // Note: Even if downloaded=true, the ZIP may have been deleted by user, so we show download
+      // No ZIP or download in progress - show download button
       launcherState = 'missing';
       log.info(chalk.cyan('[game:check] Game not installed - showing download button'));
     }
@@ -2012,6 +2035,103 @@ ipcMain.handle('game:check', async () => {
   } catch (err) {
     log.error(chalk.red('[game:check] error:'), err);
     return { exists: false, updateAvailable: false, error: String(err) };
+  }
+});
+
+/**
+ * Extract an existing ZIP file (for when extraction was interrupted)
+ */
+ipcMain.handle('game:extract', async () => {
+  try {
+    log.info(chalk.cyan('[game:extract] Starting extraction of existing ZIP...'));
+
+    const paths = getEventidePaths();
+    const installDir = paths.gameRoot;
+    const downloadsDir = paths.dlRoot;
+
+    const { release, patchManifest } = await getCachedManifests();
+    const baseVersion = release.game.baseVersion;
+    const latestVersion = String(patchManifest.latestVersion ?? '0');
+
+    const baseGameZipName = release?.game?.fullUrl?.split('/').pop() || 'Eventide-test.zip';
+    const baseGameZipPath = path.join(downloadsDir, baseGameZipName);
+
+    if (!fs.existsSync(baseGameZipPath)) {
+      const errorMsg = 'ZIP file not found. Please download the game again.';
+      log.error(chalk.red(`[game:extract] ${errorMsg}`));
+      if (mainWindow) {
+        mainWindow.webContents.send('game:status', {
+          status: 'error',
+          message: errorMsg,
+        });
+      }
+      return { success: false, error: errorMsg };
+    }
+
+    // Send extraction start event
+    if (mainWindow) {
+      mainWindow.webContents.send('extract:start');
+    }
+
+    const onExtractProgress = (current: number, total: number) => {
+      if (mainWindow) {
+        mainWindow.webContents.send('extract:progress', { current, total });
+      }
+    };
+
+    try {
+      const { extractZip, verifyExtractedFiles } = require('../core/fs');
+      await extractZip(baseGameZipPath, installDir, onExtractProgress);
+
+      // Verify extracted files
+      const verification = await verifyExtractedFiles(installDir, 100);
+      if (!verification.success) {
+        throw new Error(`Extraction verification failed: expected at least 100 files, found ${verification.fileCount}`);
+      }
+
+      log.info(chalk.green(`[game:extract] Extraction complete - ${verification.fileCount} files extracted`));
+
+      // Update storage
+      await updateStorage((s: StorageJson) => {
+        s.GAME_UPDATER.baseGame.extracted = true;
+        s.GAME_UPDATER.currentVersion = baseVersion;
+      });
+
+      // Send completion status
+      if (mainWindow) {
+        mainWindow.webContents.send('extract:done');
+
+        // Check if update is needed
+        if (baseVersion !== latestVersion) {
+          mainWindow.webContents.send('game:status', {
+            status: 'update-available',
+            installedVersion: baseVersion,
+            remoteVersion: latestVersion,
+          });
+        } else {
+          mainWindow.webContents.send('game:status', { status: 'ready' });
+        }
+      }
+
+      return { success: true };
+    } catch (extractErr) {
+      log.error(chalk.red('[game:extract] Extraction failed:'), extractErr);
+
+      if (mainWindow) {
+        mainWindow.webContents.send('extract:error', {
+          error: String(extractErr),
+        });
+        mainWindow.webContents.send('game:status', {
+          status: 'error',
+          message: `Extraction failed: ${extractErr instanceof Error ? extractErr.message : String(extractErr)}`,
+        });
+      }
+
+      return { success: false, error: String(extractErr) };
+    }
+  } catch (err) {
+    log.error(chalk.red('[game:extract] Error:'), err);
+    return { success: false, error: String(err) };
   }
 });
 
@@ -2222,6 +2342,18 @@ ipcMain.handle('game:download', async () => {
       errorMessage = err.message;
     }
 
+    // Handle paused download (not an error)
+    if (errorMessage === 'DOWNLOAD_PAUSED') {
+      log.info(chalk.yellow('[game:download] Download was paused'));
+      if (mainWindow) {
+        mainWindow.webContents.send('game:status', {
+          status: 'paused',
+          message: 'Download paused',
+        });
+      }
+      return { success: true, paused: true };
+    }
+
     // Categorize common errors for better user feedback
     if (
       errorMessage.includes('ENOTFOUND') ||
@@ -2260,6 +2392,258 @@ ipcMain.handle('game:download', async () => {
       });
     }
     return { success: false, error: errorMessage };
+  }
+});
+
+// ============================================================================
+// RESUMABLE DOWNLOAD: Pause/Resume Handlers
+// ============================================================================
+
+// Import resumable download functions
+import { pauseDownload, checkForResumableDownload, cancelDownload, downloadGameResumable } from '../logic/download';
+import { getDownloadProgress, clearDownloadProgress, saveDownloadProgress, DownloadProgress } from '../core/storage';
+import { getPartialDownloadSize } from '../core/net';
+
+/**
+ * Pause the current download
+ */
+ipcMain.handle('game:pause-download', async () => {
+  try {
+    log.info(chalk.yellow('[game:pause-download] Pausing download...'));
+    pauseDownload();
+
+    // Get current download progress from storage
+    const progress = await getDownloadProgress();
+
+    if (progress) {
+      // Get actual file size from disk (most accurate source)
+      const actualBytes = getPartialDownloadSize(progress.destPath);
+      log.info(chalk.cyan(`[game:pause-download] Actual bytes on disk: ${actualBytes}`));
+
+      // If totalBytes is 0 or missing, try to get it from the release manifest
+      let totalBytes = progress.totalBytes || 0;
+      if (totalBytes === 0) {
+        try {
+          const { release } = await getCachedManifests();
+          totalBytes = release.game.sizeBytes || 0;
+          log.info(chalk.cyan(`[game:pause-download] Got totalBytes from manifest: ${totalBytes}`));
+        } catch (e) {
+          log.warn(chalk.yellow('[game:pause-download] Could not get size from manifest'));
+        }
+      }
+
+      // Update and save progress with actual file size
+      const updatedProgress = {
+        ...progress,
+        bytesDownloaded: actualBytes,
+        totalBytes: totalBytes,
+        isPaused: true,
+        lastUpdatedAt: Date.now(),
+      };
+      await saveDownloadProgress(updatedProgress);
+
+      if (mainWindow) {
+        mainWindow.webContents.send('game:status', {
+          status: 'paused',
+          message: 'Download paused',
+          bytesDownloaded: actualBytes,
+          totalBytes: totalBytes,
+        });
+      }
+    } else {
+      log.warn(chalk.yellow('[game:pause-download] No progress found in storage'));
+      if (mainWindow) {
+        mainWindow.webContents.send('game:status', {
+          status: 'paused',
+          message: 'Download paused',
+          bytesDownloaded: 0,
+          totalBytes: 0,
+        });
+      }
+    }
+
+    return { success: true };
+  } catch (err) {
+    log.error(chalk.red('[game:pause-download] Error:'), err);
+    return { success: false, error: String(err) };
+  }
+});
+
+/**
+ * Resume a paused download
+ */
+ipcMain.handle('game:resume-download', async () => {
+  try {
+    log.info(chalk.cyan('[game:resume-download] Checking for resumable download...'));
+
+    const progress = await checkForResumableDownload();
+    if (!progress) {
+      log.warn(chalk.yellow('[game:resume-download] No resumable download found'));
+      return { success: false, error: 'No download to resume' };
+    }
+
+    log.info(chalk.green(`[game:resume-download] Resuming download: ${progress.bytesDownloaded} / ${progress.totalBytes} bytes`));
+
+    const paths = getEventidePaths();
+    const installDir = paths.gameRoot;
+    const { release } = await getCachedManifests();
+
+    // Progress callbacks
+    const onDownloadProgress = (dl: number, total: number) => {
+      if (mainWindow) {
+        mainWindow.webContents.send('download:progress', { dl, total });
+      }
+    };
+
+    const onExtractProgress = (current: number, total: number) => {
+      if (mainWindow) {
+        mainWindow.webContents.send('extract:progress', { current, total });
+      }
+    };
+
+    // Send initial progress to show resuming state
+    if (mainWindow) {
+      mainWindow.webContents.send('download:progress', {
+        dl: progress.bytesDownloaded,
+        total: progress.totalBytes,
+      });
+    }
+
+    const result = await downloadGameResumable(
+      progress.url,
+      progress.sha256,
+      installDir,
+      paths.dlRoot,
+      release.game.baseVersion,
+      progress.totalBytes,
+      onDownloadProgress,
+      onExtractProgress,
+    );
+
+    if (result.wasPaused) {
+      log.info(chalk.yellow('[game:resume-download] Download paused again'));
+      if (mainWindow) {
+        mainWindow.webContents.send('game:status', {
+          status: 'paused',
+          message: 'Download paused',
+        });
+      }
+      return { success: true, paused: true };
+    }
+
+    // Download completed successfully
+    log.info(chalk.green('[game:resume-download] Download completed!'));
+
+    // Check for updates after download
+    invalidateManifestCache();
+    const { patchManifest: freshPatchManifest } = await getCachedManifests();
+    const latestVersion = String(freshPatchManifest.latestVersion ?? '0');
+    const currentVersion = release.game.baseVersion;
+
+    if (mainWindow) {
+      if (currentVersion !== latestVersion) {
+        mainWindow.webContents.send('game:status', {
+          status: 'update-available',
+          installedVersion: currentVersion,
+          remoteVersion: latestVersion,
+        });
+      } else {
+        mainWindow.webContents.send('game:status', { status: 'ready' });
+      }
+    }
+
+    return { success: true };
+  } catch (err) {
+    log.error(chalk.red('[game:resume-download] Error:'), err);
+
+    const errorMessage = err instanceof Error ? err.message : String(err);
+
+    // Don't report DOWNLOAD_PAUSED as an error
+    if (errorMessage === 'DOWNLOAD_PAUSED') {
+      if (mainWindow) {
+        mainWindow.webContents.send('game:status', {
+          status: 'paused',
+          message: 'Download paused',
+        });
+      }
+      return { success: true, paused: true };
+    }
+
+    if (mainWindow) {
+      mainWindow.webContents.send('game:status', {
+        status: 'error',
+        message: errorMessage,
+      });
+    }
+    return { success: false, error: errorMessage };
+  }
+});
+
+/**
+ * Check if there's a resumable download available
+ */
+ipcMain.handle('game:check-resumable', async () => {
+  try {
+    const progress = await checkForResumableDownload();
+    if (progress) {
+      // If totalBytes is 0 or missing, try to get it from the release manifest
+      let totalBytes = progress.totalBytes || 0;
+      if (totalBytes === 0) {
+        try {
+          const { release } = await getCachedManifests();
+          totalBytes = release.game.sizeBytes || 0;
+          log.info(chalk.cyan(`[game:check-resumable] Got totalBytes from manifest: ${totalBytes}`));
+
+          // Update progress with correct totalBytes
+          if (totalBytes > 0) {
+            await saveDownloadProgress({
+              ...progress,
+              totalBytes,
+            });
+          }
+        } catch (e) {
+          log.warn(chalk.yellow('[game:check-resumable] Could not get size from manifest'));
+        }
+      }
+
+      const bytesDownloaded = progress.bytesDownloaded || 0;
+      const percentComplete = totalBytes > 0 ? Math.round((bytesDownloaded / totalBytes) * 100) : 0;
+
+      log.info(chalk.cyan(`[game:check-resumable] Found resumable: ${bytesDownloaded} / ${totalBytes} (${percentComplete}%)`));
+      return {
+        hasResumable: true,
+        bytesDownloaded,
+        totalBytes,
+        percentComplete,
+        isPaused: progress.isPaused,
+      };
+    }
+    return { hasResumable: false };
+  } catch (err) {
+    log.error(chalk.red('[game:check-resumable] Error:'), err);
+    return { hasResumable: false, error: String(err) };
+  }
+});
+
+/**
+ * Cancel and clear a download (delete partial file)
+ */
+ipcMain.handle('game:cancel-download', async () => {
+  try {
+    log.info(chalk.yellow('[game:cancel-download] Canceling download...'));
+    await cancelDownload();
+
+    if (mainWindow) {
+      mainWindow.webContents.send('game:status', {
+        status: 'missing',
+        message: 'Download canceled',
+      });
+    }
+
+    return { success: true };
+  } catch (err) {
+    log.error(chalk.red('[game:cancel-download] Error:'), err);
+    return { success: false, error: String(err) };
   }
 });
 
