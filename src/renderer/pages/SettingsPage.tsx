@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import log from '../logger';
 
 interface Settings {
   ffxi?: {
@@ -930,8 +931,7 @@ export default function SettingsPage() {
             setInstallDir(res.data.gameRoot);
           }
         } catch (err) {
-          // eslint-disable-next-line no-console
-          console.error('Error fetching paths:', err);
+          log.error('Error fetching paths:', err);
         }
       }
     }

@@ -1,6 +1,7 @@
 import fs from 'fs-extra';
 import axios, { AxiosResponse } from 'axios';
 import path from 'path';
+import log from '../logger';
 
 /**
  * Fetch JSON from a remote URL.
@@ -14,11 +15,9 @@ export async function fetchJson<T = any>(url: string): Promise<T> {
     return response.data;
   } catch (err: any) {
     if (err.response) {
-      // eslint-disable-next-line no-console
-      console.error(`[fetchJson] Axios error for ${url}. Status: ${err.response.status}. Data:`, err.response.data);
+      log.error(`[fetchJson] Axios error for ${url}. Status: ${err.response.status}. Data:`, err.response.data);
     } else {
-      // eslint-disable-next-line no-console
-      console.error(`[fetchJson] Axios error for ${url}:`, err);
+      log.error(`[fetchJson] Axios error for ${url}:`, err);
     }
     throw new Error(`fetchJson failed for ${url}: ${err?.message || err}`);
   }

@@ -1,4 +1,5 @@
-import log from 'electron-log';
+import './logger'; // Initialize logger configuration
+import log from './logger';
 import chalk from 'chalk';
 import path from 'path';
 import fs from 'fs-extra';
@@ -230,11 +231,13 @@ async function extractBaseGameIfNeeded(
   storageData: any,
   dlRoot: string,
   gameRoot: string,
+  baseGameZipName?: string,
 ): Promise<boolean> {
   try {
     const { extractZip } = require('../core/fs');
-    const baseGameZipName = 'Eventide-test.zip'; // TODO: make dynamic if needed
-    const baseGameZipPath = path.join(dlRoot, baseGameZipName);
+    // Use provided ZIP name or fall back to default
+    const zipName = baseGameZipName || 'Eventide-test.zip';
+    const baseGameZipPath = path.join(dlRoot, zipName);
 
     if (!fs.existsSync(baseGameZipPath)) {
       log.info(
@@ -326,39 +329,13 @@ app.once('ready', async () => {
     // Step 2: Load custom installation directory from storage (if set)
     const { setCustomInstallDir } = require('./paths');
 
-    // Validate custom installation directory - reject if it's directly in a root drive
-    // (e.g., C:\Eventide2) which suggests corrupted/old data
     if (storageData.paths.customInstallDir) {
       const customDir = storageData.paths.customInstallDir;
-      const parsed = path.parse(customDir);
-
-      // Check if the path is directly under a drive root (e.g., C:\SomeFolder)
-      // A valid custom path should be deeper, like C:\Users\...\EventideXI
-      const isRootLevelPath = parsed.dir.match(/^[A-Z]:\\?$/i);
-
-      if (isRootLevelPath) {
-        log.warn(
-          chalk.yellow(
-            `[startup] Invalid custom installation directory detected: ${customDir} (appears to be root-level path from old data)`
-          )
-        );
-        log.warn(
-          chalk.yellow(
-            '[startup] Resetting custom installation directory. User will need to select a new location.'
-          )
-        );
-        // Clear the invalid path
-        storageData.paths.customInstallDir = undefined;
-        storageData.paths.installPath = '';
-        storageData.paths.downloadPath = '';
-        await writeStorage(storageData);
-      } else {
-        setCustomInstallDir(customDir);
-        log.info(
-          chalk.cyan('[startup] Using custom installation directory:'),
-          customDir,
-        );
-      }
+      setCustomInstallDir(customDir);
+      log.info(
+        chalk.cyan('[startup] Using custom installation directory:'),
+        customDir,
+      );
     } else {
       log.info(chalk.cyan('[startup] No custom installation directory set'));
     }
@@ -368,7 +345,7 @@ app.once('ready', async () => {
     // Step 3: Create essential directories (logs, userData) but NOT game directories on first launch
     // Game directories will be created when user selects installation location
     ensureDirs(hasCustomOrDefaultDir); // Only create game dirs if location was previously chosen
-    const paths = getEventidePaths();
+    const paths = getEventidePaths(hasCustomOrDefaultDir); // Only return actual game paths if dir was chosen
     const { gameRoot, dlRoot } = paths;
 
     // Step 4: Only update storage paths if user has already chosen a location
@@ -515,22 +492,12 @@ app.once('ready', async () => {
       );
     }
 
-    // Step 4: Verify game state from file system
-    const baseGameZipName = 'Eventide-test.zip';
-    const baseGameZipPath = path.join(dlRoot, baseGameZipName);
-    const zipExists = fs.existsSync(baseGameZipPath);
+    // Step 4: Check for required game files (extracted state)
     const filesExist = hasRequiredGameFiles(gameRoot);
-
-    // Step 5: Sync storage with actual file system state
     let needsUpdate = false;
-    if (storageData.GAME_UPDATER.baseGame.downloaded !== zipExists) {
-      storageData.GAME_UPDATER.baseGame.downloaded = zipExists;
-      needsUpdate = true;
-      log.info(
-        chalk.cyan(`[startup] Synced baseGame.downloaded to ${zipExists}`),
-      );
-    }
 
+    // Step 5: Sync extracted state with file system
+    // Note: We don't sync downloaded state - users may delete ZIP files to save space after extraction
     if (storageData.GAME_UPDATER.baseGame.extracted !== filesExist) {
       storageData.GAME_UPDATER.baseGame.extracted = filesExist;
       needsUpdate = true;
@@ -567,7 +534,12 @@ app.once('ready', async () => {
       // Continue with fallback values
     }
 
-    // Step 7: Auto-extract if downloaded but not extracted
+    // Step 7: Auto-extract if ZIP exists but game files don't
+    // Note: We don't sync downloaded state with ZIP existence - users may delete ZIPs to save space
+    const baseGameZipName = release?.game?.fullUrl?.split('/').pop() || 'Eventide-test.zip';
+    const baseGameZipPath = path.join(dlRoot, baseGameZipName);
+    const zipExists = fs.existsSync(baseGameZipPath);
+
     if (zipExists && !filesExist) {
       try {
         log.info(
@@ -575,7 +547,7 @@ app.once('ready', async () => {
             '[startup] Game zip exists but not extracted. Extracting now...',
           ),
         );
-        await extractBaseGameIfNeeded(storageData, dlRoot, gameRoot);
+        await extractBaseGameIfNeeded(storageData, dlRoot, gameRoot, baseGameZipName);
         // Re-check after extraction
         storageData.GAME_UPDATER.baseGame.extracted =
           hasRequiredGameFiles(gameRoot);
@@ -1140,12 +1112,7 @@ ipcMain.handle(
       );
 
       const onDownloadProgress = (dl: number, total: number) => {
-        log.info(chalk.cyan(`[download] Progress: ${dl} / ${total}`));
         if (mainWindow) {
-          log.info(chalk.cyan(`[ipc] Sending to renderer: download:progress`), {
-            dl,
-            total,
-          });
           mainWindow.webContents.send('download:progress', { dl, total });
         }
       };
@@ -1380,6 +1347,11 @@ ipcMain.on('window:close', () => {
   if (mainWindow) {
     mainWindow.close();
   }
+});
+
+// IPC handler to return launcher version
+ipcMain.handle('get-launcher-version', async () => {
+  return app.getVersion();
 });
 
 // IPC handler to return platform info
@@ -1933,156 +1905,6 @@ async function launchGameWithBatch(installDir: string, launchScript: string) {
 
 // fetchJson is now imported from utils/io
 
-/**
- * Validates that required ZIP files exist in the Downloads folder.
- * If base game ZIP is missing, resets the entire state to missing.
- * If patch ZIPs are missing, reverts version back to base version.
- */
-async function validateZipFilesAndResetState(
-  release: any,
-  patchManifest: any,
-  downloadsDir: string,
-  currentVersion: string,
-): Promise<{
-  currentVersion: string;
-  baseDownloaded: boolean;
-  baseExtracted: boolean;
-}> {
-  const baseZipName = release.game.fullUrl.split('/').pop();
-  const baseZipPath = baseZipName ? path.join(downloadsDir, baseZipName) : '';
-
-  log.info(
-    chalk.cyan(`[validateZipFiles] Checking for base game ZIP: ${baseZipPath}`),
-  );
-
-  // Check if base game ZIP exists
-  const baseZipExists = baseZipPath && fs.existsSync(baseZipPath);
-
-  if (!baseZipExists) {
-    log.warn(
-      chalk.yellow(
-        '[validateZipFiles] Base game ZIP is missing.',
-      ),
-    );
-
-    // Check if game is already extracted and functional
-    const storage = await readStorage();
-    const isExtracted = storage?.GAME_UPDATER?.baseGame?.extracted ?? false;
-
-    if (isExtracted && currentVersion && currentVersion !== '0' && currentVersion !== '0.0.0') {
-      // Game is already extracted and has a valid version - just mark ZIP as not downloaded
-      // This prevents resetting the version when the base ZIP is deleted after successful extraction
-      log.info(
-        chalk.cyan(
-          `[validateZipFiles] Game is already extracted with version ${currentVersion}. Preserving state.`,
-        ),
-      );
-      await updateStorage((data: StorageJson) => {
-        data.GAME_UPDATER.baseGame.downloaded = false;
-      });
-      return {
-        currentVersion,
-        baseDownloaded: false,
-        baseExtracted: true,
-      };
-    }
-
-    // Game is not extracted yet - reset to missing state
-    log.warn(
-      chalk.yellow(
-        '[validateZipFiles] Game not extracted. Resetting state to missing.',
-      ),
-    );
-    await updateStorage((data: StorageJson) => {
-      data.GAME_UPDATER.currentVersion = '0.0.0';
-      data.GAME_UPDATER.baseGame.downloaded = false;
-      data.GAME_UPDATER.baseGame.extracted = false;
-      data.GAME_UPDATER.updater.downloaded = '';
-      data.GAME_UPDATER.updater.extracted = '';
-    });
-    return {
-      currentVersion: '0.0.0',
-      baseDownloaded: false,
-      baseExtracted: false,
-    };
-  }
-
-  log.info(chalk.green('[validateZipFiles] Base game ZIP found'));
-
-  // If we have patches and current version is above base version, verify patch ZIPs
-  const { baseVersion } = release.game;
-  if (
-    currentVersion !== baseVersion &&
-    currentVersion !== '0' &&
-    currentVersion !== '0.0.0'
-  ) {
-    log.info(
-      chalk.cyan(
-        `[validateZipFiles] Current version (${currentVersion}) is above base version (${baseVersion}), checking patch ZIPs...`,
-      ),
-    );
-
-    const patches = patchManifest.patches || [];
-    let versionToRevertTo = baseVersion;
-    let allPatchZipsExist = true;
-
-    // Build the patch chain from base version to current version
-    let checkVersion = baseVersion;
-    while (checkVersion !== currentVersion) {
-      const patch = patches.find((p: any) => p.from === checkVersion);
-      if (!patch) {
-        log.warn(
-          chalk.yellow(
-            `[validateZipFiles] No patch found from ${checkVersion}, cannot verify further`,
-          ),
-        );
-        break;
-      }
-
-      const patchZipName = patch.fullUrl.split('/').pop();
-      const patchZipPath = patchZipName
-        ? path.join(downloadsDir, patchZipName)
-        : '';
-
-      if (!patchZipPath || !fs.existsSync(patchZipPath)) {
-        log.warn(
-          chalk.yellow(
-            `[validateZipFiles] Patch ZIP missing: ${patchZipName} (${checkVersion} → ${patch.to})`,
-          ),
-        );
-        allPatchZipsExist = false;
-        break;
-      }
-
-      log.info(
-        chalk.green(`[validateZipFiles] Patch ZIP found: ${patchZipName}`),
-      );
-      versionToRevertTo = patch.to;
-      checkVersion = patch.to;
-    }
-
-    if (!allPatchZipsExist) {
-      log.warn(
-        chalk.yellow(
-          `[validateZipFiles] Some patch ZIPs are missing. Reverting version from ${currentVersion} to ${versionToRevertTo}`,
-        ),
-      );
-      await updateStorage((data: StorageJson) => {
-        data.GAME_UPDATER.currentVersion = versionToRevertTo;
-      });
-      return {
-        currentVersion: versionToRevertTo,
-        baseDownloaded: true,
-        baseExtracted: true,
-      };
-    }
-
-    log.info(chalk.green('[validateZipFiles] All patch ZIPs verified'));
-  }
-
-  return { currentVersion, baseDownloaded: true, baseExtracted: true };
-}
-
 // IPC handler for fetching patch notes
 ipcMain.handle('game:fetch-patch-notes', async () => {
   try {
@@ -2108,255 +1930,76 @@ ipcMain.handle('game:fetch-patch-notes', async () => {
 
 ipcMain.handle('game:check', async () => {
   try {
-    const PATCH_MANIFEST_URL =
-      'https://raw.githubusercontent.com/bananapretzel/eventide-patch-manifest/refs/heads/main/patch-manifest.json';
-    const paths = getEventidePaths();
+    // Check if user has selected an installation directory
+    const storage = await readStorage();
+    const hasSelectedDir = !!(storage?.paths?.customInstallDir || storage?.paths?.installPath);
+
+    // If no directory selected, always return 'missing' state
+    if (!hasSelectedDir) {
+      log.info(chalk.cyan('[game:check] No installation directory selected yet'));
+      return {
+        exists: false,
+        launcherState: 'missing',
+        latestVersion: '0',
+        installedVersion: '0.0.0',
+        baseDownloaded: false,
+        baseExtracted: false,
+        needsDirectorySelection: true,
+      };
+    }
+
+    const paths = getEventidePaths(true); // Safe to use default since dir is selected
     const installDir = paths.gameRoot;
     const downloadsDir = paths.dlRoot;
 
     // Fetch release and patch manifest using cache
     const { release, patchManifest } = await getCachedManifests();
     const latestVersion = String(patchManifest.latestVersion ?? '0');
+    const { baseVersion } = release.game;
 
-    // Use storage.json for version/status
-    let currentVersion = '0';
+    // Read storage.json - this is the single source of truth for game state
+    let currentVersion = '0.0.0';
     let baseDownloaded = false;
     let baseExtracted = false;
-    let storage;
 
-    try {
-      storage = await readStorage();
-      if (storage && storage.GAME_UPDATER) {
-        currentVersion = String(storage.GAME_UPDATER.currentVersion ?? '0');
-        baseDownloaded = !!storage.GAME_UPDATER.baseGame.downloaded;
-        baseExtracted = !!storage.GAME_UPDATER.baseGame.extracted;
-      }
-    } catch (e) {
-      log.warn(chalk.yellow('[game:check] Could not read storage.json:'), e);
+    if (storage && storage.GAME_UPDATER) {
+      currentVersion = String(storage.GAME_UPDATER.currentVersion ?? '0.0.0');
+      baseDownloaded = !!storage.GAME_UPDATER.baseGame.downloaded;
+      baseExtracted = !!storage.GAME_UPDATER.baseGame.extracted;
     }
 
-    // Check if game folder is empty - if so, assume base game hasn't been extracted
-    try {
-      const gameFiles = await fs.readdir(installDir);
-      const hasFiles = gameFiles.length > 0;
+    log.info(chalk.cyan('[game:check] Storage state - downloaded:'), baseDownloaded, 'extracted:', baseExtracted, 'version:', currentVersion);
 
-      if (!hasFiles && (baseDownloaded || baseExtracted)) {
-        log.warn(
-          chalk.yellow(
-            '[game:check] Game folder is empty but storage indicates game was downloaded/extracted',
-          ),
-        );
-        log.warn(
-          chalk.yellow(
-            '[game:check] Checking for base game ZIP in Downloads...',
-          ),
-        );
+    // Simplified state determination based on storage.json flags:
+    // 1. If extracted=true -> Game is ready (or needs update if version differs)
+    // 2. If extracted=false -> Show download button (ZIP files may have been deleted by user to save space)
+    // Note: We don't check ZIP existence - the downloaded flag just indicates download completed at some point
 
-        const baseZipName = release.game.fullUrl.split('/').pop();
-        const baseZipPath = baseZipName
-          ? path.join(downloadsDir, baseZipName)
-          : '';
-        const baseZipExists = baseZipPath && fs.existsSync(baseZipPath);
+    let launcherState: 'missing' | 'ready' | 'update-available' | 'downloaded';
 
-        if (!baseZipExists) {
-          log.warn(
-            chalk.yellow(
-              '[game:check] Base game ZIP not found. Resetting to missing state.',
-            ),
-          );
-          await updateStorage((data: StorageJson) => {
-            data.GAME_UPDATER.currentVersion = '0.0.0';
-            data.GAME_UPDATER.baseGame.downloaded = false;
-            data.GAME_UPDATER.baseGame.extracted = false;
-            data.GAME_UPDATER.updater.downloaded = '';
-            data.GAME_UPDATER.updater.extracted = '';
-          });
-          currentVersion = '0.0.0';
-          baseDownloaded = false;
-          baseExtracted = false;
-        } else {
-          log.info(
-            chalk.cyan(
-              '[game:check] Base game ZIP found. Marking as downloaded but not extracted.',
-            ),
-          );
-          await updateStorage((data: StorageJson) => {
-            data.GAME_UPDATER.baseGame.downloaded = true;
-            data.GAME_UPDATER.baseGame.extracted = false;
-            data.GAME_UPDATER.currentVersion = '0.0.0';
-          });
-          currentVersion = '0.0.0';
-          baseDownloaded = true;
-          baseExtracted = false;
-        }
-      }
-    } catch (e) {
-      log.warn(chalk.yellow('[game:check] Could not check game folder:'), e);
-    }
-
-    // Validate ZIP files and reset state if necessary
-    if (baseDownloaded || baseExtracted) {
-      const validated = await validateZipFilesAndResetState(
-        release,
-        patchManifest,
-        downloadsDir,
-        currentVersion,
-      );
-      currentVersion = validated.currentVersion;
-      baseDownloaded = validated.baseDownloaded;
-      baseExtracted = validated.baseExtracted;
-    }
-
-    // Handle edge case: version is 0.0.0 but game is actually extracted
-    // This can happen after launcher updates if version tracking was disrupted
-    if (currentVersion === '0.0.0' && baseExtracted) {
-      log.warn(
-        chalk.yellow(
-          '[game:check] Version is 0.0.0 but game is marked as extracted. Attempting recovery...',
-        ),
-      );
-
-      // Check if game files actually exist
-      const exeName = process.platform === 'win32' ? 'ashita-cli.exe' : 'ashita-cli';
-      const mainExe = path.join(installDir, exeName);
-
-      if (fs.existsSync(mainExe)) {
-        // Game files exist - recover to base version to allow patching
-        const { baseVersion } = release.game;
-        log.info(
-          chalk.cyan(
-            `[game:check] Game executable found. Recovering version from 0.0.0 to ${baseVersion}`,
-          ),
-        );
-        await updateStorage((data: StorageJson) => {
-          data.GAME_UPDATER.currentVersion = baseVersion;
-        });
-        currentVersion = baseVersion;
+    if (baseExtracted) {
+      // Game has been extracted - it's either ready or needs an update
+      // No need to check file system - trust storage.json
+      if (currentVersion === latestVersion) {
+        launcherState = 'ready';
+        log.info(chalk.green('[game:check] Game is ready - version matches latest'));
       } else {
-        log.warn(
-          chalk.yellow(
-            '[game:check] Version is 0.0.0 and no game files found. Resetting extraction flag.',
-          ),
-        );
-        await updateStorage((data: StorageJson) => {
-          data.GAME_UPDATER.baseGame.extracted = false;
-        });
-        baseExtracted = false;
+        launcherState = 'update-available';
+        log.info(chalk.cyan(`[game:check] Update available - current: ${currentVersion}, latest: ${latestVersion}`));
       }
-    }
-
-    // If downloaded but not extracted, extract now
-    if (baseDownloaded && !baseExtracted) {
-      try {
-        await extractBaseGameIfNeeded(storage, paths.dlRoot, installDir);
-        // Update local state after extraction
-        const updatedStorage = await readStorage();
-        if (updatedStorage && updatedStorage.GAME_UPDATER) {
-          baseExtracted = !!updatedStorage.GAME_UPDATER.baseGame.extracted;
-          currentVersion = String(
-            updatedStorage.GAME_UPDATER.currentVersion ?? '0',
-          );
-        }
-      } catch (extractErr) {
-        log.error(chalk.red('[game:check] Auto-extraction failed:'), extractErr);
-
-        // Update state to reflect extraction failure
-        await updateStorage((data: StorageJson) => {
-          data.GAME_UPDATER.baseGame.extracted = false;
-          // If ZIP was corrupted and deleted, mark download as incomplete
-          const baseGameZipPath = path.join(paths.dlRoot, 'Eventide-test.zip');
-          if (!fs.existsSync(baseGameZipPath)) {
-            data.GAME_UPDATER.baseGame.downloaded = false;
-          }
-        });
-
-        return {
-          success: false,
-          error: `Extraction failed: ${extractErr instanceof Error ? extractErr.message : String(extractErr)}`,
-          needsRedownload: true,
-        };
-      }
-    }
-
-    // If base game is extracted but version is below latest, check if patches need to be reapplied
-    const { baseVersion } = release.game;
-    if (
-      baseExtracted &&
-      currentVersion !== latestVersion &&
-      currentVersion !== '0' &&
-      currentVersion !== '0.0.0'
-    ) {
-      log.info(
-        chalk.cyan(
-          `[game:check] Current version (${currentVersion}) is below latest (${latestVersion})`,
-        ),
-      );
-
-      // Check if we need to reapply patches (version is below what it should be based on available ZIPs)
-      const patches = patchManifest.patches || [];
-      let expectedVersion = baseVersion;
-
-      // Walk through available patches to determine what version we should be at
-      let checkVersion = baseVersion;
-      while (checkVersion !== latestVersion) {
-        const patch = patches.find((p: any) => p.from === checkVersion);
-        if (!patch) break;
-
-        const patchZipName = patch.fullUrl.split('/').pop();
-        const patchZipPath = patchZipName
-          ? path.join(downloadsDir, patchZipName)
-          : '';
-
-        if (patchZipPath && fs.existsSync(patchZipPath)) {
-          expectedVersion = patch.to;
-          checkVersion = patch.to;
-        } else {
-          break; // No more patches available
-        }
-      }
-
-      // If current version is below the expected version based on available patches, trigger reapplication
-      if (currentVersion !== expectedVersion) {
-        log.warn(
-          chalk.yellow(
-            `[game:check] Version mismatch detected. Current: ${currentVersion}, Expected based on available patches: ${expectedVersion}`,
-          ),
-        );
-        log.warn(
-          chalk.yellow(
-            `[game:check] Patches may have been deleted or version was rolled back. Setting state to update-available.`,
-          ),
-        );
-        // Don't auto-apply here, just report that updates are available
-      }
-    }
-
-    // Determine launcherState per requirements
-    let launcherState: 'missing' | 'ready' | 'update-available';
-    if (!baseDownloaded) {
-      launcherState = 'missing';
-    } else if (currentVersion === latestVersion) {
-      launcherState = 'ready';
-    } else if (baseExtracted && currentVersion !== latestVersion) {
-      launcherState = 'update-available';
     } else {
-      launcherState = 'missing'; // fallback
+      // Game not extracted - show download button
+      // Note: Even if downloaded=true, the ZIP may have been deleted by user, so we show download
+      launcherState = 'missing';
+      log.info(chalk.cyan('[game:check] Game not installed - showing download button'));
     }
 
     log.info(chalk.cyan('[game:check] currentVersion:'), currentVersion);
     log.info(chalk.cyan('[game:check] latestVersion:'), latestVersion);
-    log.info(
-      chalk.cyan(
-        '[game:check] The results of patch-manifest.json downloaded from GitHub:',
-      ),
-      JSON.stringify(patchManifest, null, 2),
-    );
     log.info(chalk.cyan('[game:check] launcherState:'), launcherState);
 
-    // For existence, check for a main executable in gameRoot (platform-specific)
-    const exeName = process.platform === 'win32' ? 'ashita-cli.exe' : 'ashita-cli';
-    const mainExe = path.join(installDir, exeName);
-    const exists = fs.existsSync(mainExe);
+    // For existence check, use the extracted flag from storage (trust storage.json)
+    const exists = baseExtracted;
 
     return {
       exists,

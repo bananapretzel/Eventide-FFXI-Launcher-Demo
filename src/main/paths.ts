@@ -1,6 +1,7 @@
 import { app } from "electron";
 import path from "path";
 import fs from "fs";
+import log from './logger';
 
 // In-memory cache for custom installation directory
 let customInstallDir: string | null = null;
@@ -85,8 +86,7 @@ export function ensureDirs(includeGameDirs: boolean = true) {
     try {
       fs.mkdirSync(dir, { recursive: true });
     } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error(`Failed to create directory: ${dir}`, e);
+      log.error(`Failed to create directory: ${dir}`, e);
     }
   });
 }

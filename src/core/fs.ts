@@ -173,8 +173,6 @@ export async function extractZip(
           onProgress(currentEntry, totalEntries);
         }
       });
-      // Emit final progress
-      onProgress(100, 100);
     } else {
       await extract(zipPath, { dir: dest });
     }

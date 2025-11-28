@@ -1,10 +1,11 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { siDiscord } from 'simple-icons';
 import { fetchPatchNotes } from '../data/feed';
 import type { Post } from '../types/feed';
 import { useGameState } from '../contexts/GameStateContext';
 import { safeInvoke } from '../utils/ipc';
 import { formatBytes } from '../utils/format';
+import log from '../logger';
 
 // Check update status on mount
 // (moved below imports)
@@ -37,11 +38,16 @@ export default function HomePage(props: HomePageProps) {
   const [posts, setPosts] = useState<Post[]>([]);
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
-  const [updateStatus, setUpdateStatus] = useState<string>('idle');
-  const [updateInfo, setUpdateInfo] = useState<any>(null);
+  const [, setUpdateStatus] = useState<string>('idle');
+  const [, setUpdateInfo] = useState<any>(null);
   const [currentInstallDir, setCurrentInstallDir] =
     useState<string>(installDir);
-  const [showInstallDirPicker, setShowInstallDirPicker] = useState(false);
+  const [downloadStartTime, setDownloadStartTime] = useState<number | null>(
+    null,
+  );
+  const [elapsedTime, setElapsedTime] = useState<number>(0);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [lastStatus, setLastStatus] = useState<string | null>(null);
 
   // Helper to strip trailing /Game or \Game from a path
   const stripGameSuffix = (path: string) => {
@@ -70,7 +76,7 @@ export default function HomePage(props: HomePageProps) {
         const patchNotes = await fetchPatchNotes();
         setPosts(patchNotes);
       } catch (error) {
-        console.error('[HomePage] Error loading patch notes:', error);
+        log.error('[HomePage] Error loading patch notes:', error);
         // Keep posts as empty array on error
       }
     };
@@ -126,20 +132,57 @@ export default function HomePage(props: HomePageProps) {
     return cleanup;
   }, []);
 
-  // Debug: log state and button status
+  // Debug: log significant state changes only (not progress updates)
   useEffect(() => {
-    // eslint-disable-next-line no-console
-    console.log(
-      '[HomePage] state:',
-      state,
-      'canPlay:',
-      canPlay,
-      'disabled:',
-      state.status === 'checking' ||
-        state.status === 'downloading' ||
-        state.status === 'launching',
-    );
-  }, [state, canPlay]);
+    // Only log non-progress states to avoid spam during download/extraction
+    if (state.status !== 'downloading' && state.status !== 'extracting') {
+      log.debug('[HomePage] state changed to:', state.status);
+    }
+  }, [state.status]);
+
+  // Timer effect for download/extraction duration
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval> | null = null;
+
+    if (state.status === 'downloading' || state.status === 'extracting') {
+      // Reset timer when transitioning between downloading and extracting
+      if (lastStatus !== state.status) {
+        setDownloadStartTime(Date.now());
+        setElapsedTime(0);
+        setLastStatus(state.status);
+      }
+      // Update elapsed time every second
+      interval = setInterval(() => {
+        if (downloadStartTime !== null) {
+          setElapsedTime(Math.floor((Date.now() - downloadStartTime) / 1000));
+        }
+      }, 1000);
+    } else {
+      // Reset timer when not downloading/extracting
+      setDownloadStartTime(null);
+      setElapsedTime(0);
+      setLastStatus(null);
+      // Reset isUpdating when we're done
+      if (
+        state.status === 'ready' ||
+        state.status === 'error' ||
+        state.status === 'missing'
+      ) {
+        setIsUpdating(false);
+      }
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [state.status, downloadStartTime, lastStatus]);
+
+  // Format elapsed time as MM:SS
+  const formatElapsedTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
 
   // Safely read progress from union-typed state
   const getProgress = (s: typeof state): number | undefined => {
@@ -156,7 +199,7 @@ export default function HomePage(props: HomePageProps) {
     s.status === 'downloading' ? s.total : undefined;
 
   const handleActionClick = async () => {
-    console.log('[HomePage] Play/Action button clicked, state:', state);
+    log.debug('[HomePage] Play/Action button clicked, state:', state);
     try {
       if (state.status === 'missing') {
         // start download
@@ -176,6 +219,7 @@ export default function HomePage(props: HomePageProps) {
           });
         }
       } else if (state.status === 'update-available') {
+        setIsUpdating(true);
         dispatch({
           type: 'SET',
           state: { status: 'downloading', progress: 0 },
@@ -250,19 +294,16 @@ export default function HomePage(props: HomePageProps) {
               window as any
             ).electron.writeDefaultScript();
             if (!scriptResult?.success) {
-              // eslint-disable-next-line no-console
-              console.warn(
+              log.warn(
                 '[HomePage] Failed to write default.txt:',
                 scriptResult?.error,
               );
               // Don't block launch on script write failure
             } else {
-              // eslint-disable-next-line no-console
-              console.log('[HomePage] Successfully wrote default.txt');
+              log.debug('[HomePage] Successfully wrote default.txt');
             }
           } catch (err) {
-            // eslint-disable-next-line no-console
-            console.warn('[HomePage] Error writing default.txt:', err);
+            log.warn('[HomePage] Error writing default.txt:', err);
             // Don't block launch on script write failure
           }
 
@@ -275,8 +316,7 @@ export default function HomePage(props: HomePageProps) {
               (window as any).electron?.windowControls?.close?.();
             }, 1000);
           } catch (launchErr) {
-            // eslint-disable-next-line no-console
-            console.error('[HomePage] Launch error:', launchErr);
+            log.error('[HomePage] Launch error:', launchErr);
             dispatch({
               type: 'ERROR',
               msg: String(launchErr),
@@ -284,8 +324,7 @@ export default function HomePage(props: HomePageProps) {
             });
           }
         } catch (err) {
-          // eslint-disable-next-line no-console
-          console.error('[HomePage] Ready status error:', err);
+          log.error('[HomePage] Ready status error:', err);
           dispatch({
             type: 'ERROR',
             msg: String(err),
@@ -310,6 +349,7 @@ export default function HomePage(props: HomePageProps) {
             });
           }
         } else if (state.lastOperation === 'update') {
+          setIsUpdating(true);
           dispatch({
             type: 'SET',
             state: { status: 'downloading', progress: 0 },
@@ -332,8 +372,7 @@ export default function HomePage(props: HomePageProps) {
         }
       }
     } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error('[handleActionClick] Error:', error);
+      log.error('[handleActionClick] Error:', error);
       dispatch({
         type: 'ERROR',
         msg: String(error),
@@ -343,15 +382,23 @@ export default function HomePage(props: HomePageProps) {
   };
 
   const renderLabel = () => {
+    // When updating, show simple "Updating..." for both download and extract phases
+    if (
+      isUpdating &&
+      (state.status === 'downloading' || state.status === 'extracting')
+    ) {
+      return 'Updating...';
+    }
+
     switch (state.status) {
       case 'checking':
         return 'Checking…';
       case 'missing':
         return 'Download';
       case 'downloading':
-        return `Downloading ${getProgress(state) ?? 0}%`;
+        return 'Downloading...';
       case 'extracting':
-        return `Extracting ${getProgress(state) ?? 0}%`;
+        return 'Extracting...';
       case 'update-available':
         return 'Update';
       case 'ready':
@@ -514,7 +561,7 @@ export default function HomePage(props: HomePageProps) {
     try {
       await (window as any).electron.invoke('open-log-file');
     } catch (err) {
-      console.error('Failed to open log file:', err);
+      log.error('Failed to open log file:', err);
     }
   };
 
@@ -549,7 +596,7 @@ export default function HomePage(props: HomePageProps) {
         );
       }
     } catch (err) {
-      console.error('Failed to select installation directory:', err);
+      log.error('Failed to select installation directory:', err);
       handleShowToast(`Error: ${String(err)}`);
     }
   };
@@ -659,14 +706,15 @@ export default function HomePage(props: HomePageProps) {
               state.status === 'downloading' ||
               state.status === 'extracting' ||
               state.status === 'launching' ||
-              (state.status === 'ready' && !canPlay)
+              (state.status === 'ready' && !canPlay) ||
+              (state.status === 'missing' && !currentInstallDir)
             }
             onClick={handleActionClick}
           >
             {renderLabel()}
           </button>
 
-          {state.status === 'downloading' && (
+          {state.status === 'downloading' && !isUpdating && (
             <div style={{ marginTop: 8 }}>
               <div
                 style={{
@@ -692,16 +740,76 @@ export default function HomePage(props: HomePageProps) {
                   marginTop: 6,
                   fontSize: 12,
                   color: 'var(--muted)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
                 }}
               >
-                {(() => {
-                  const d = getDownloaded(state);
-                  const t = getTotal(state);
-                  if (typeof t === 'number' && t > 0) {
-                    return `${formatBytes(d)} / ${formatBytes(t)} (${getProgress(state) ?? 0}%)`;
-                  }
-                  return `${formatBytes(d)} downloaded`;
-                })()}
+                <span>
+                  {(() => {
+                    const d = getDownloaded(state);
+                    const t = getTotal(state);
+                    if (typeof t === 'number' && t > 0) {
+                      return `${formatBytes(d)} / ${formatBytes(t)} (${getProgress(state) ?? 0}%)`;
+                    }
+                    return `${formatBytes(d)} downloaded`;
+                  })()}
+                </span>
+                <span style={{ fontFamily: 'monospace' }}>
+                  ⏱️ {formatElapsedTime(elapsedTime)}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {state.status === 'extracting' && !isUpdating && (
+            <div style={{ marginTop: 8 }}>
+              <div
+                style={{
+                  width: '100%',
+                  height: 10,
+                  background: 'rgba(255,255,255,0.08)',
+                  borderRadius: 6,
+                  overflow: 'hidden',
+                }}
+                aria-hidden
+              >
+                <div
+                  style={{
+                    width: `${getProgress(state) ?? 0}%`,
+                    height: '100%',
+                    background: 'linear-gradient(90deg,#a78bfa,#6366f1)',
+                    transition: 'width 200ms linear',
+                  }}
+                />
+              </div>
+              <div
+                style={{
+                  marginTop: 6,
+                  fontSize: 12,
+                  color: 'var(--muted)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <span>
+                  {(() => {
+                    const current =
+                      state.status === 'extracting'
+                        ? (state as any).current
+                        : 0;
+                    const total =
+                      state.status === 'extracting' ? (state as any).total : 0;
+                    if (typeof total === 'number' && total > 0) {
+                      return `${current?.toLocaleString() ?? 0} / ${total.toLocaleString()} files (${getProgress(state) ?? 0}%)`;
+                    }
+                    return `Extracting... ${getProgress(state) ?? 0}%`;
+                  })()}
+                </span>
+                <span style={{ fontFamily: 'monospace' }}>
+                  ⏱️ {formatElapsedTime(elapsedTime)}
+                </span>
               </div>
             </div>
           )}
@@ -739,8 +847,8 @@ export default function HomePage(props: HomePageProps) {
                       const errorInfo = categorizeError(
                         (state as any).message || 'Unknown error',
                       );
-                      return errorInfo.suggestions.map((suggestion, idx) => (
-                        <li key={idx}>{suggestion}</li>
+                      return errorInfo.suggestions.map((suggestion) => (
+                        <li key={suggestion}>{suggestion}</li>
                       ));
                     })()}
                   </ul>

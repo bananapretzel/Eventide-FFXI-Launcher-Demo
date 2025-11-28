@@ -1,5 +1,6 @@
 ﻿import React, { createContext, useContext, useReducer, useEffect, ReactNode } from 'react';
 import { safeInvoke } from '../utils/ipc';
+import log from '../logger';
 
 export type GameState =
   | { status: 'checking' }
@@ -81,7 +82,7 @@ function gameReducer(_: GameState, action: GameAction): GameState {
         return { status: 'checking' };
     }
   } catch (err) {
-    console.error('[GameStateContext reducer] Error:', err, action);
+    log.error('[GameStateContext reducer] Error:', err, action);
     return { status: 'error', message: String(err) };
   }
 }
@@ -116,7 +117,7 @@ export function GameStateProvider({ children }: { children: ReactNode }) {
           dispatch({ type: 'SET', state: { status: 'missing' } });
         }
       } catch (err) {
-        console.error('[GameStateProvider] doCheck error:', err);
+        log.error('[GameStateProvider] doCheck error:', err);
         dispatch({ type: 'ERROR', msg: String(err) });
       }
     };
@@ -129,7 +130,6 @@ export function GameStateProvider({ children }: { children: ReactNode }) {
           'download:progress',
           (_ev: any, payload: any) => {
             try {
-              console.log('[GameStateProvider] received download:progress', payload);
               const { dl, total } = payload ?? {};
               const percent = total ? Math.round((dl / total) * 100) : 0;
               dispatch({
@@ -139,7 +139,7 @@ export function GameStateProvider({ children }: { children: ReactNode }) {
                 total,
               });
             } catch (err) {
-              console.error(
+              log.error(
                 '[GameStateProvider] download:progress handler error:',
                 err,
               );
@@ -151,7 +151,6 @@ export function GameStateProvider({ children }: { children: ReactNode }) {
           'extract:progress',
           (_ev: any, payload: any) => {
             try {
-              console.log('[GameStateProvider] received extract:progress', payload);
               const { current, total } = payload ?? {};
               const percent = total ? Math.round((current / total) * 100) : 0;
               dispatch({
@@ -161,7 +160,7 @@ export function GameStateProvider({ children }: { children: ReactNode }) {
                 total,
               });
             } catch (err) {
-              console.error(
+              log.error(
                 '[GameStateProvider] extract:progress handler error:',
                 err,
               );
@@ -192,7 +191,7 @@ export function GameStateProvider({ children }: { children: ReactNode }) {
               });
             }
           } catch (err) {
-            console.error(
+            log.error(
               '[GameStateProvider] game:status handler error:',
               err,
             );
@@ -200,7 +199,7 @@ export function GameStateProvider({ children }: { children: ReactNode }) {
         });
       }
     } catch (err) {
-      console.error('[GameStateProvider] subscription error:', err);
+      log.error('[GameStateProvider] subscription error:', err);
     }
 
     doCheck();
@@ -211,21 +210,21 @@ export function GameStateProvider({ children }: { children: ReactNode }) {
           unsubProgress();
         }
       } catch (err) {
-        console.error('[GameStateProvider] unsubProgress error:', err);
+        log.error('[GameStateProvider] unsubProgress error:', err);
       }
       try {
         if (typeof unsubExtract === 'function') {
           unsubExtract();
         }
       } catch (err) {
-        console.error('[GameStateProvider] unsubExtract error:', err);
+        log.error('[GameStateProvider] unsubExtract error:', err);
       }
       try {
         if (typeof unsubStatus === 'function') {
           unsubStatus();
         }
       } catch (err) {
-        console.error('[GameStateProvider] unsubStatus error:', err);
+        log.error('[GameStateProvider] unsubStatus error:', err);
       }
     };
   }, []);

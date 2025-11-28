@@ -2,12 +2,67 @@ import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, NavLink } from 'react-router-dom';
 import { Home, Puzzle, Settings, Minus, X } from 'lucide-react';
 import './App.css';
+import log from './logger';
 import logo from '../../assets/slime2.png';
 import titleLogo from '../../assets/eventide-logo.png';
 import HomePage from './pages/HomePage';
 import ExtensionsPage from './pages/ExtensionsPage';
 import SettingsPage from './pages/SettingsPage';
 import { GameStateProvider } from './contexts/GameStateContext';
+
+// Version display component
+function VersionDisplay() {
+  const [launcherVersion, setLauncherVersion] = useState<string>('');
+  const [gameVersion, setGameVersion] = useState<string>('');
+
+  useEffect(() => {
+    const fetchVersions = async () => {
+      try {
+        // Get launcher version
+        if (window.electron?.getLauncherVersion) {
+          const version = await window.electron.getLauncherVersion();
+          setLauncherVersion(version || '');
+        }
+
+        // Get game version from game:check
+        if (window.electron?.invoke) {
+          const result = await window.electron.invoke('game:check');
+          if (
+            result &&
+            result.installedVersion &&
+            result.installedVersion !== '0.0.0'
+          ) {
+            setGameVersion(result.installedVersion);
+          }
+        }
+      } catch (err) {
+        log.error('Error fetching versions:', err);
+      }
+    };
+
+    fetchVersions();
+
+    // Also listen for game status updates to refresh game version
+    const unsubscribe = window.electron?.ipcRenderer?.on('game:status', () => {
+      fetchVersions();
+    });
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
+
+  const versionText = [
+    launcherVersion ? `Launcher v${launcherVersion}` : '',
+    gameVersion ? `Game v${gameVersion}` : '',
+  ]
+    .filter(Boolean)
+    .join(' | ');
+
+  if (!versionText) return null;
+
+  return <div className="version-display">{versionText}</div>;
+}
 
 export default function App() {
   const [username, setUsername] = useState('');
@@ -25,7 +80,13 @@ export default function App() {
         if (window.electron?.invoke) {
           const res = await window.electron.invoke('eventide:get-paths');
           // Only set installDir if user has already selected a directory
-          if (res && res.success && res.hasSelectedDir && res.data && res.data.gameRoot) {
+          if (
+            res &&
+            res.success &&
+            res.hasSelectedDir &&
+            res.data &&
+            res.data.gameRoot
+          ) {
             defaultInstallDir = res.data.gameRoot;
             setInstallDir(defaultInstallDir);
           }
@@ -59,8 +120,7 @@ export default function App() {
           }
         }
       } catch (err) {
-        // eslint-disable-next-line no-console
-        console.error('Error loading config or paths:', err);
+        log.error('Error loading config or paths:', err);
       }
     };
     loadConfigAndPaths();
@@ -167,6 +227,8 @@ export default function App() {
             <Route path="/settings" element={<SettingsPage />} />
           </Routes>
         </GameStateProvider>
+
+        <VersionDisplay />
       </div>
     </HashRouter>
   );

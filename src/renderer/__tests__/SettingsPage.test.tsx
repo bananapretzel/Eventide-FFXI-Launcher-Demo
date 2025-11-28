@@ -1,6 +1,12 @@
 // Settings Page Tests - Troubleshooting Features
 import React from 'react';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  act,
+} from '@testing-library/react';
 import '@testing-library/jest-dom';
 import SettingsPage from '../pages/SettingsPage';
 
@@ -76,18 +82,24 @@ describe('Settings Page - Troubleshooting Tab', () => {
   it('should render troubleshooting tab button', async () => {
     render(<SettingsPage />);
 
-    const troubleshootingTab = screen.getByRole('button', { name: /TROUBLESHOOTING/i });
+    const troubleshootingTab = screen.getByRole('button', {
+      name: /TROUBLESHOOTING/i,
+    });
     expect(troubleshootingTab).toBeInTheDocument();
   });
 
   it('should switch to troubleshooting tab when clicked', async () => {
     render(<SettingsPage />);
 
-    const troubleshootingTab = screen.getByRole('button', { name: /TROUBLESHOOTING/i });
+    const troubleshootingTab = screen.getByRole('button', {
+      name: /TROUBLESHOOTING/i,
+    });
     fireEvent.click(troubleshootingTab);
 
     await waitFor(() => {
-      const configButton = screen.getByRole('button', { name: /Open Configuration Folder/i });
+      const configButton = screen.getByRole('button', {
+        name: /Open Configuration Folder/i,
+      });
       expect(configButton).toBeInTheDocument();
     });
   });
@@ -95,11 +107,15 @@ describe('Settings Page - Troubleshooting Tab', () => {
   it('should render Open Configuration Folder button', async () => {
     render(<SettingsPage />);
 
-    const troubleshootingTab = screen.getByRole('button', { name: /TROUBLESHOOTING/i });
+    const troubleshootingTab = screen.getByRole('button', {
+      name: /TROUBLESHOOTING/i,
+    });
     fireEvent.click(troubleshootingTab);
 
     await waitFor(() => {
-      const button = screen.getByRole('button', { name: /Open Configuration Folder/i });
+      const button = screen.getByRole('button', {
+        name: /Open Configuration Folder/i,
+      });
       expect(button).toBeInTheDocument();
     });
   });
@@ -107,7 +123,9 @@ describe('Settings Page - Troubleshooting Tab', () => {
   it('should render Open Log File button', async () => {
     render(<SettingsPage />);
 
-    const troubleshootingTab = screen.getByRole('button', { name: /TROUBLESHOOTING/i });
+    const troubleshootingTab = screen.getByRole('button', {
+      name: /TROUBLESHOOTING/i,
+    });
     fireEvent.click(troubleshootingTab);
 
     await waitFor(() => {
@@ -119,7 +137,9 @@ describe('Settings Page - Troubleshooting Tab', () => {
   it('should call open-log-file when button clicked', async () => {
     render(<SettingsPage />);
 
-    const troubleshootingTab = screen.getByRole('button', { name: /TROUBLESHOOTING/i });
+    const troubleshootingTab = screen.getByRole('button', {
+      name: /TROUBLESHOOTING/i,
+    });
     fireEvent.click(troubleshootingTab);
 
     await waitFor(() => {
@@ -141,7 +161,9 @@ describe('Settings Page - Troubleshooting Tab', () => {
   it('should render Reapply Patches button', async () => {
     render(<SettingsPage />);
 
-    const troubleshootingTab = screen.getByRole('button', { name: /TROUBLESHOOTING/i });
+    const troubleshootingTab = screen.getByRole('button', {
+      name: /TROUBLESHOOTING/i,
+    });
     fireEvent.click(troubleshootingTab);
 
     await waitFor(() => {
@@ -153,7 +175,9 @@ describe('Settings Page - Troubleshooting Tab', () => {
   it('should call reapply-patches when button clicked', async () => {
     render(<SettingsPage />);
 
-    const troubleshootingTab = screen.getByRole('button', { name: /TROUBLESHOOTING/i });
+    const troubleshootingTab = screen.getByRole('button', {
+      name: /TROUBLESHOOTING/i,
+    });
     fireEvent.click(troubleshootingTab);
 
     await waitFor(() => {
@@ -175,7 +199,9 @@ describe('Settings Page - Troubleshooting Tab', () => {
   it('should render Force Start Game button', async () => {
     render(<SettingsPage />);
 
-    const troubleshootingTab = screen.getByRole('button', { name: /TROUBLESHOOTING/i });
+    const troubleshootingTab = screen.getByRole('button', {
+      name: /TROUBLESHOOTING/i,
+    });
     fireEvent.click(troubleshootingTab);
 
     await waitFor(() => {
@@ -189,7 +215,9 @@ describe('Settings Page - Troubleshooting Tab', () => {
 
     render(<SettingsPage />);
 
-    const troubleshootingTab = screen.getByRole('button', { name: /TROUBLESHOOTING/i });
+    const troubleshootingTab = screen.getByRole('button', {
+      name: /TROUBLESHOOTING/i,
+    });
     fireEvent.click(troubleshootingTab);
 
     await waitFor(() => {
@@ -224,7 +252,10 @@ describe('Settings Page - FFXI Tab', () => {
     });
 
     mockElectron.writeSettings.mockResolvedValue({ success: true });
-    mockElectron.getPlatform.mockResolvedValue({ success: true, data: 'win32' });
+    mockElectron.getPlatform.mockResolvedValue({
+      success: true,
+      data: 'win32',
+    });
   });
 
   it('should render FFXI category tab', async () => {
@@ -259,7 +290,10 @@ describe('Settings Page - PIVOT Tab', () => {
     });
 
     mockElectron.writeSettings.mockResolvedValue({ success: true });
-    mockElectron.getPlatform.mockResolvedValue({ success: true, data: 'win32' });
+    mockElectron.getPlatform.mockResolvedValue({
+      success: true,
+      data: 'win32',
+    });
   });
 
   it('should render PIVOT category tab', async () => {

@@ -240,7 +240,7 @@ The launcher itself runs natively on Linux, but Final Fantasy XI requires Window
 - **Launch Script**: The launcher creates `Launch_Eventide.sh` which should be configured to launch the game through Wine
   - See `Launch_Eventide.sh.example` in the project root for a template
   - See `LINUX_SETUP.md` for detailed Linux installation and configuration guide
-- **Default Paths**: Game files install to `~/.config/ffxi-eventide-launcher/Eventide/Game/`
+- **Default Paths**: Game files install to `~/.config/Eventide Launcherv2/Eventide/Game/`
 
 **Linux Installation:**
 ```bash
@@ -300,9 +300,9 @@ The application uses `electron-log` for logging:
 
 - **Development**: Logs appear in the console
 - **Production**: Logs are written to platform-specific locations:
-  - Windows: `%USERPROFILE%\AppData\Roaming\ffxi-eventide-launcher\logs\`
-  - macOS: `~/Library/Logs/ffxi-eventide-launcher/`
-  - Linux: `~/.config/ffxi-eventide-launcher/logs/`
+  - Windows: `%USERPROFILE%\AppData\Roaming\Eventide Launcherv2\logs\`
+  - macOS: `~/Library/Logs/Eventide Launcherv2/`
+  - Linux: `~/.config/Eventide Launcherv2/logs/`
 
 ### Common Issues
 

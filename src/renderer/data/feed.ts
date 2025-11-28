@@ -1,4 +1,5 @@
 import type { Post } from "../types/feed";
+import log from '../logger';
 
 interface PatchNote {
   name: string;
@@ -17,7 +18,7 @@ let cachedPosts: Post[] | null = null;
 export async function fetchPatchNotes(): Promise<Post[]> {
   // Return cached data if available
   if (cachedPosts) {
-    console.log('[feed] Returning cached patch notes');
+    log.debug('[feed] Returning cached patch notes');
     return cachedPosts;
   }
 
@@ -25,7 +26,7 @@ export async function fetchPatchNotes(): Promise<Post[]> {
     const result = await window.electron.fetchPatchNotes();
 
     if (!result || !result.success || !result.data) {
-      console.error('[feed] Failed to fetch patch notes:', result?.error);
+      log.error('[feed] Failed to fetch patch notes:', result?.error);
       // Return cached data if available, even if stale
       return cachedPosts || [];
     }
@@ -61,11 +62,11 @@ export async function fetchPatchNotes(): Promise<Post[]> {
 
     // Update cache
     cachedPosts = posts;
-    console.log('[feed] Cached patch notes updated');
+    log.debug('[feed] Cached patch notes updated');
 
     return posts;
   } catch (error) {
-    console.error('[feed] Error fetching patch notes:', error);
+    log.error('[feed] Error fetching patch notes:', error);
     // Return cached data if available, even if stale
     return cachedPosts || [];
   }

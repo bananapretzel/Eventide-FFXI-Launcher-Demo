@@ -1,11 +1,11 @@
 // Disable no-unused-vars, broken for spread args
 /* eslint no-unused-vars: off */
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
+import log from 'electron-log/preload';
 
 // Helpful runtime log to verify preload is loaded in the renderer process
 try {
-  // eslint-disable-next-line no-console
-  console.log('[preload] loaded');
+  log.info('[preload] loaded');
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 } catch (e) {
   // Silently fail
@@ -21,6 +21,7 @@ export type Channels =
 
 const electronHandler = {
   getPlatform: () => ipcRenderer.invoke('get-platform'),
+  getLauncherVersion: () => ipcRenderer.invoke('get-launcher-version'),
   getUpdateStatus: (installDir?: string) => ipcRenderer.invoke('get-update-status', installDir),
   // Launcher API for renderer
   bootstrap: (releaseUrl: string, installDir: string) =>

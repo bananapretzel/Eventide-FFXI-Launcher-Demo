@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import log from '../logger';
 
 type ExtensionItem = {
   id: string;
@@ -168,8 +169,7 @@ export default function ExtensionsPage() {
           }
         }
       } catch (error) {
-        // eslint-disable-next-line no-console
-        console.error('Failed to load extensions:', error);
+        log.error('Failed to load extensions:', error);
         setError('Failed to load extensions from config.');
       }
     };
@@ -201,8 +201,7 @@ export default function ExtensionsPage() {
         await window.electron.writeSettings(config);
       }
     } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error('Failed to update addon:', error);
+      log.error('Failed to update addon:', error);
     }
   };
 
@@ -230,8 +229,7 @@ export default function ExtensionsPage() {
         await window.electron.writeSettings(config);
       }
     } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error('Failed to update plugin:', error);
+      log.error('Failed to update plugin:', error);
     }
   };
 

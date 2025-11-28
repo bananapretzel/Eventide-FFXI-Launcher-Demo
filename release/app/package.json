@@ -1,12 +1,12 @@
 {
-  "name": "ffxi-eventide-launcher",
+  "name": "Eventide Launcherv2",
   "version": "0.3.0",
   "description": "A launcher for the private FFXI private server called Eventide.",
   "license": "MIT",
   "author": {
     "name": "Eventide Dev Team"
   },
-   "contributors": [
+  "contributors": [
     {
       "name": "bananapretzel",
       "url": "https://github.com/bananapretzel"

@@ -1603,3 +1603,18 @@ body {
   margin: 0;
   font-weight: 600;
 }
+
+/* Version Display */
+.version-display {
+  position: absolute;
+  bottom: 5px;
+  right: 12px;
+  font-size: 11px;
+  color: var(--ink-soft);
+  opacity: 0.5;
+  pointer-events: none;
+  user-select: none;
+  z-index: 100;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  letter-spacing: 0.02em;
+}

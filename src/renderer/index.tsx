@@ -1,22 +1,20 @@
 import { createRoot } from 'react-dom/client';
 import React from 'react';
 import App from './App';
+import log from './logger';
 // Debug: Log window.electron to confirm preload script injection
-// eslint-disable-next-line no-console
-console.log('window.electron:', window.electron);
+log.debug('window.electron:', window.electron);
 
 // Global error handlers to catch fatal errors
 window.addEventListener('error', (event) => {
-  // eslint-disable-next-line no-console
-  console.error(
+  log.error(
     '[Global Error Handler] Uncaught error:',
     event.error || event.message,
     event,
   );
 });
 window.addEventListener('unhandledrejection', (event) => {
-  // eslint-disable-next-line no-console
-  console.error(
+  log.error(
     '[Global Error Handler] Unhandled promise rejection:',
     event.reason,
     event,
@@ -37,23 +35,20 @@ window.addEventListener('keydown', (event) => {
     const zoomLevel = parseFloat(currentZoom);
     const newZoom = Math.min(zoomLevel + 10, 200); // Max 200%
     document.body.style.zoom = `${newZoom}%`;
-    // eslint-disable-next-line no-console
-    console.log(`[Zoom] Increased to ${newZoom}%`);
+    log.debug(`[Zoom] Increased to ${newZoom}%`);
   } else if (isNumpadMinus || isRegularZoomOut) {
     event.preventDefault();
     const currentZoom = (document.body.style.zoom as any) || '100%';
     const zoomLevel = parseFloat(currentZoom);
     const newZoom = Math.max(zoomLevel - 10, 50); // Min 50%
     document.body.style.zoom = `${newZoom}%`;
-    // eslint-disable-next-line no-console
-    console.log(`[Zoom] Decreased to ${newZoom}%`);
+    log.debug(`[Zoom] Decreased to ${newZoom}%`);
   }
 });
 
 const container = document.getElementById('root');
 if (!container) {
-  // eslint-disable-next-line no-console
-  console.error('Root container (#root) not found. Aborting React mount.');
+  log.error('Root container (#root) not found. Aborting React mount.');
 } else {
   const root = createRoot(container);
   root.render(
@@ -67,8 +62,7 @@ if (!container) {
 const ipc = window.electron?.ipcRenderer;
 if (ipc?.once) {
   ipc.once('ipc-example', (arg: unknown) => {
-    // eslint-disable-next-line no-console
-    console.log(arg);
+    log.debug(arg);
   });
 }
 if (ipc?.sendMessage) {
