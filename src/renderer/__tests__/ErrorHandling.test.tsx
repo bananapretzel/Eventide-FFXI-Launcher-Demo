@@ -1,4 +1,24 @@
 // Error Handling and Recovery Tests
+// Mock electron-log/renderer before any imports
+jest.mock('electron-log/renderer', () => {
+  const mockFn = jest.fn();
+  const mockLogger = {
+    info: mockFn,
+    warn: mockFn,
+    error: mockFn,
+    debug: mockFn,
+    verbose: mockFn,
+    silly: mockFn,
+    log: mockFn,
+    transports: {
+      file: { level: 'debug' },
+      console: { level: 'debug', format: '' },
+    },
+    scope: jest.fn(() => mockLogger),
+  };
+  return { default: mockLogger, __esModule: true };
+});
+
 import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import '@testing-library/jest-dom';

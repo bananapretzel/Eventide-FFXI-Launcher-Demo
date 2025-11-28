@@ -1,3 +1,28 @@
+// Mock electron-log before any imports
+jest.mock('electron-log', () => {
+  const mockFn = jest.fn();
+  const mockLogger = {
+    info: mockFn,
+    warn: mockFn,
+    error: mockFn,
+    debug: mockFn,
+    verbose: mockFn,
+    silly: mockFn,
+    log: mockFn,
+    transports: {
+      file: { level: 'debug', resolvePathFn: null, format: '', getFile: () => ({ path: '/mock' }) },
+      console: { level: 'debug', format: '' },
+      ipc: { level: 'debug' },
+      remote: { level: 'debug' },
+    },
+    functions: { log: mockFn, info: mockFn, warn: mockFn, error: mockFn },
+    catchErrors: mockFn,
+    initialize: mockFn,
+    scope: jest.fn(() => mockLogger),
+  };
+  return { default: mockLogger, __esModule: true };
+});
+
 import { ipcMain } from 'electron';
 import path from 'path';
 import { app } from 'electron';

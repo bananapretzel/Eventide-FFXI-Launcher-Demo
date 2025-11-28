@@ -1,4 +1,24 @@
 // HomePage component tests
+// Mock electron-log/renderer before any imports
+jest.mock('electron-log/renderer', () => {
+  const mockFn = jest.fn();
+  const mockLogger = {
+    info: mockFn,
+    warn: mockFn,
+    error: mockFn,
+    debug: mockFn,
+    verbose: mockFn,
+    silly: mockFn,
+    log: mockFn,
+    transports: {
+      file: { level: 'debug' },
+      console: { level: 'debug', format: '' },
+    },
+    scope: jest.fn(() => mockLogger),
+  };
+  return { default: mockLogger, __esModule: true };
+});
+
 import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
@@ -145,6 +165,7 @@ describe('HomePage Component', () => {
   });
 
   it('should show download progress during download', async () => {
+    // Mock game:download to return a pending promise that won't resolve immediately
     mockElectron.invoke.mockImplementation((channel: string) => {
       if (channel === 'game:check') {
         return Promise.resolve({
@@ -152,6 +173,10 @@ describe('HomePage Component', () => {
           latestVersion: '1.0.0',
           installedVersion: '0.0.0'
         });
+      }
+      if (channel === 'game:download') {
+        // Return a promise that stays pending so we can test progress updates
+        return new Promise(() => {});
       }
       return Promise.resolve({ success: true });
     });
@@ -163,18 +188,28 @@ describe('HomePage Component', () => {
       expect(button).toBeInTheDocument();
     });
 
-    // Simulate progress update
+    // Click the Download button to start the download (this sets state to 'downloading')
+    const downloadButton = screen.getByRole('button', { name: /Download/i });
+    await act(async () => {
+      fireEvent.click(downloadButton);
+    });
+
+    // Now emit progress update
     await act(async () => {
       mockElectron._emit('download:progress', { dl: 500000, total: 1000000 });
     });
 
+    // The button shows "Downloading..." and progress percentage is shown separately
     await waitFor(() => {
-      const button = screen.getByRole('button', { name: /Downloading.*50%/i });
+      const button = screen.getByRole('button', { name: /Downloading/i });
       expect(button).toBeInTheDocument();
+      // Check for progress percentage in the page content (shown separately from button)
+      expect(screen.getByText(/50%/)).toBeInTheDocument();
     });
   });
 
   it('should show extraction progress during extraction', async () => {
+    // Mock game:download to resolve and then game:extract to be pending
     mockElectron.invoke.mockImplementation((channel: string) => {
       if (channel === 'game:check') {
         return Promise.resolve({
@@ -182,6 +217,10 @@ describe('HomePage Component', () => {
           latestVersion: '1.0.0',
           installedVersion: '0.0.0'
         });
+      }
+      if (channel === 'game:download') {
+        // Return a promise that stays pending
+        return new Promise(() => {});
       }
       return Promise.resolve({ success: true });
     });
@@ -193,14 +232,23 @@ describe('HomePage Component', () => {
       expect(button).toBeInTheDocument();
     });
 
-    // Simulate extraction progress
+    // Click the Download button to start the download
+    const downloadButton = screen.getByRole('button', { name: /Download/i });
+    await act(async () => {
+      fireEvent.click(downloadButton);
+    });
+
+    // Now emit extraction progress (this will change state to extracting via the reducer)
     await act(async () => {
       mockElectron._emit('extract:progress', { current: 75, total: 100 });
     });
 
+    // The button shows "Extracting..." and progress percentage is shown separately
     await waitFor(() => {
-      const button = screen.getByRole('button', { name: /Extracting.*75%/i });
+      const button = screen.getByRole('button', { name: /Extracting/i });
       expect(button).toBeInTheDocument();
+      // Check for progress percentage in the page content (shown separately from button)
+      expect(screen.getByText(/75%/)).toBeInTheDocument();
     });
   });
 
