@@ -1,8 +1,41 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable no-underscore-dangle */
+/* eslint-disable react/jsx-props-no-spreading */
+/* eslint-disable no-plusplus */
+/* eslint-disable no-restricted-syntax */
+/* eslint-disable no-await-in-loop */
 // HomePage component tests
-// Mock electron-log/renderer before any imports
+
+import React from 'react';
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  act,
+} from '@testing-library/react';
+import '@testing-library/jest-dom';
+import HomePage from '../pages/HomePage';
+import { GameStateProvider } from '../contexts/GameStateContext';
+
+// Mock electron-log/renderer
 jest.mock('electron-log/renderer', () => {
   const mockFn = jest.fn();
-  const mockLogger = {
+  interface MockLogger {
+    info: jest.Mock;
+    warn: jest.Mock;
+    error: jest.Mock;
+    debug: jest.Mock;
+    verbose: jest.Mock;
+    silly: jest.Mock;
+    log: jest.Mock;
+    transports: {
+      file: { level: string };
+      console: { level: string; format: string };
+    };
+    scope: jest.Mock;
+  }
+  const mockLogger: MockLogger = {
     info: mockFn,
     warn: mockFn,
     error: mockFn,
@@ -14,16 +47,11 @@ jest.mock('electron-log/renderer', () => {
       file: { level: 'debug' },
       console: { level: 'debug', format: '' },
     },
-    scope: jest.fn(() => mockLogger),
+    scope: jest.fn(),
   };
+  mockLogger.scope.mockReturnValue(mockLogger);
   return { default: mockLogger, __esModule: true };
 });
-
-import React from 'react';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
-import '@testing-library/jest-dom';
-import HomePage from '../pages/HomePage';
-import { GameStateProvider } from '../contexts/GameStateContext';
 
 // Mock electron API with comprehensive IPC support
 const mockElectron = {
@@ -33,10 +61,10 @@ const mockElectron = {
   ipcRenderer: {
     on: jest.fn((channel: string, callback: any) => {
       // Store callback for manual triggering
-      const listeners = (mockElectron as any)._listeners || {};
+      const listeners = (mockElectron as any).listeners || {};
       if (!listeners[channel]) listeners[channel] = [];
       listeners[channel].push(callback);
-      (mockElectron as any)._listeners = listeners;
+      (mockElectron as any).listeners = listeners;
 
       // Return cleanup function
       return () => {
@@ -47,11 +75,11 @@ const mockElectron = {
     once: jest.fn(),
     sendMessage: jest.fn(),
   },
-  _listeners: {} as Record<string, Function[]>,
-  _emit: (channel: string, ...args: any[]) => {
-    const listeners = (mockElectron as any)._listeners[channel] || [];
+  listeners: {} as Record<string, Function[]>,
+  emit: (channel: string, ...args: any[]) => {
+    const listeners = (mockElectron as any).listeners[channel] || [];
     listeners.forEach((cb: Function) => cb({}, ...args));
-  }
+  },
 };
 
 beforeAll(() => {
@@ -67,26 +95,26 @@ const defaultProps = {
   remember: false,
   setRemember: jest.fn(),
   canPlay: false,
-  installDir: 'C:\\test\\game'
+  installDir: 'C:\\test\\game',
 };
 
 // Test wrapper to provide GameStateContext
-const TestWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <GameStateProvider>{children}</GameStateProvider>
-);
+function TestWrapper({ children }: { children: React.ReactNode }) {
+  return <GameStateProvider>{children}</GameStateProvider>;
+}
 
 const renderHomePage = (props = defaultProps) => {
   return render(
     <TestWrapper>
       <HomePage {...props} />
-    </TestWrapper>
+    </TestWrapper>,
   );
 };
 
 describe('HomePage Component', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockElectron._listeners = {};
+    mockElectron.listeners = {};
 
     // Default invoke response for game:check
     mockElectron.invoke.mockImplementation((channel: string) => {
@@ -94,7 +122,7 @@ describe('HomePage Component', () => {
         return Promise.resolve({
           launcherState: 'missing',
           latestVersion: '1.0.0',
-          installedVersion: '0.0.0'
+          installedVersion: '0.0.0',
         });
       }
       return Promise.resolve({ success: true });
@@ -102,12 +130,12 @@ describe('HomePage Component', () => {
   });
 
   it('should render the component', () => {
-    renderHomePage({...defaultProps});
+    renderHomePage({ ...defaultProps });
     expect(screen.getByText(/ACCOUNT LOGIN/i)).toBeInTheDocument();
   });
 
   it('should show checking state initially', () => {
-    renderHomePage({...defaultProps});
+    renderHomePage({ ...defaultProps });
     expect(screen.getByText(/Checking/i)).toBeInTheDocument();
   });
 
@@ -117,18 +145,21 @@ describe('HomePage Component', () => {
         return Promise.resolve({
           launcherState: 'missing',
           latestVersion: '1.0.0',
-          installedVersion: '0.0.0'
+          installedVersion: '0.0.0',
         });
       }
       return Promise.resolve({ success: true });
     });
 
-    renderHomePage({...defaultProps});
+    renderHomePage({ ...defaultProps });
 
-    await waitFor(() => {
-      const button = screen.getByRole('button', { name: /Download/i });
-      expect(button).toBeInTheDocument();
-    }, { timeout: 1000 });
+    await waitFor(
+      () => {
+        const button = screen.getByRole('button', { name: /Download/i });
+        expect(button).toBeInTheDocument();
+      },
+      { timeout: 1000 },
+    );
   });
 
   it('should trigger download when install button clicked', async () => {
@@ -137,7 +168,7 @@ describe('HomePage Component', () => {
         return Promise.resolve({
           launcherState: 'missing',
           latestVersion: '1.0.0',
-          installedVersion: '0.0.0'
+          installedVersion: '0.0.0',
         });
       }
       if (channel === 'game:download') {
@@ -146,7 +177,7 @@ describe('HomePage Component', () => {
       return Promise.resolve({ success: true });
     });
 
-    renderHomePage({...defaultProps});
+    renderHomePage({ ...defaultProps });
 
     await waitFor(() => {
       const button = screen.getByRole('button', { name: /Download/i });
@@ -171,7 +202,7 @@ describe('HomePage Component', () => {
         return Promise.resolve({
           launcherState: 'missing',
           latestVersion: '1.0.0',
-          installedVersion: '0.0.0'
+          installedVersion: '0.0.0',
         });
       }
       if (channel === 'game:download') {
@@ -181,7 +212,7 @@ describe('HomePage Component', () => {
       return Promise.resolve({ success: true });
     });
 
-    renderHomePage({...defaultProps});
+    renderHomePage({ ...defaultProps });
 
     await waitFor(() => {
       const button = screen.getByRole('button', { name: /Download/i });
@@ -196,7 +227,7 @@ describe('HomePage Component', () => {
 
     // Now emit progress update
     await act(async () => {
-      mockElectron._emit('download:progress', { dl: 500000, total: 1000000 });
+      mockElectron.emit('download:progress', { dl: 500000, total: 1000000 });
     });
 
     // The button shows "Downloading..." and progress percentage is shown separately
@@ -215,7 +246,7 @@ describe('HomePage Component', () => {
         return Promise.resolve({
           launcherState: 'missing',
           latestVersion: '1.0.0',
-          installedVersion: '0.0.0'
+          installedVersion: '0.0.0',
         });
       }
       if (channel === 'game:download') {
@@ -225,7 +256,7 @@ describe('HomePage Component', () => {
       return Promise.resolve({ success: true });
     });
 
-    renderHomePage({...defaultProps});
+    renderHomePage({ ...defaultProps });
 
     await waitFor(() => {
       const button = screen.getByRole('button', { name: /Download/i });
@@ -240,7 +271,7 @@ describe('HomePage Component', () => {
 
     // Now emit extraction progress (this will change state to extracting via the reducer)
     await act(async () => {
-      mockElectron._emit('extract:progress', { current: 75, total: 100 });
+      mockElectron.emit('extract:progress', { current: 75, total: 100 });
     });
 
     // The button shows "Extracting..." and progress percentage is shown separately
@@ -258,7 +289,7 @@ describe('HomePage Component', () => {
         return Promise.resolve({
           launcherState: 'missing',
           latestVersion: '1.0.0',
-          installedVersion: '0.0.0'
+          installedVersion: '0.0.0',
         });
       }
       if (channel === 'game:download') {
@@ -267,7 +298,7 @@ describe('HomePage Component', () => {
       return Promise.resolve({ success: true });
     });
 
-    renderHomePage({...defaultProps});
+    renderHomePage({ ...defaultProps });
 
     await waitFor(() => {
       const button = screen.getByRole('button', { name: /Download/i });
@@ -280,9 +311,12 @@ describe('HomePage Component', () => {
       fireEvent.click(downloadButton);
     });
 
-    await waitFor(() => {
-      expect(screen.getByText(/Download failed/i)).toBeInTheDocument();
-    }, { timeout: 2000 });
+    await waitFor(
+      () => {
+        expect(screen.getByText(/Download failed/i)).toBeInTheDocument();
+      },
+      { timeout: 2000 },
+    );
   });
 
   it('should show ready state when game is installed and up to date', async () => {
@@ -291,7 +325,7 @@ describe('HomePage Component', () => {
         return Promise.resolve({
           launcherState: 'ready',
           latestVersion: '1.0.0',
-          installedVersion: '1.0.0'
+          installedVersion: '1.0.0',
         });
       }
       return Promise.resolve({ success: true });
@@ -299,10 +333,13 @@ describe('HomePage Component', () => {
 
     renderHomePage({ ...defaultProps, canPlay: true });
 
-    await waitFor(() => {
-      const button = screen.getByRole('button', { name: /^Play$/i });
-      expect(button).toBeInTheDocument();
-    }, { timeout: 3000 });
+    await waitFor(
+      () => {
+        const button = screen.getByRole('button', { name: /^Play$/i });
+        expect(button).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
   });
 
   it('should show update-available state when update is needed', async () => {
@@ -311,18 +348,21 @@ describe('HomePage Component', () => {
         return Promise.resolve({
           launcherState: 'update-available',
           latestVersion: '2.0.0',
-          installedVersion: '1.0.0'
+          installedVersion: '1.0.0',
         });
       }
       return Promise.resolve({ success: true });
     });
 
-    renderHomePage({...defaultProps});
+    renderHomePage({ ...defaultProps });
 
-    await waitFor(() => {
-      const button = screen.getByRole('button', { name: /Update/i });
-      expect(button).toBeInTheDocument();
-    }, { timeout: 1000 });
+    await waitFor(
+      () => {
+        const button = screen.getByRole('button', { name: /Update/i });
+        expect(button).toBeInTheDocument();
+      },
+      { timeout: 1000 },
+    );
   });
 
   it('should trigger update when update button clicked', async () => {
@@ -331,7 +371,7 @@ describe('HomePage Component', () => {
         return Promise.resolve({
           launcherState: 'update-available',
           latestVersion: '2.0.0',
-          installedVersion: '1.0.0'
+          installedVersion: '1.0.0',
         });
       }
       if (channel === 'game:update') {
@@ -340,7 +380,7 @@ describe('HomePage Component', () => {
       return Promise.resolve({ success: true });
     });
 
-    renderHomePage({...defaultProps});
+    renderHomePage({ ...defaultProps });
 
     await waitFor(() => {
       const button = screen.getByRole('button', { name: /Update/i });
@@ -364,7 +404,7 @@ describe('HomePage Component', () => {
         return Promise.resolve({
           launcherState: 'ready',
           latestVersion: '1.0.0',
-          installedVersion: '1.0.0'
+          installedVersion: '1.0.0',
         });
       }
       if (channel === 'game:launch') {
@@ -380,10 +420,10 @@ describe('HomePage Component', () => {
       ...defaultProps,
       username: 'testuser',
       password: 'testpass',
-      canPlay: true
+      canPlay: true,
     };
 
-    renderHomePage({...props});
+    renderHomePage({ ...props });
 
     await waitFor(() => {
       const button = screen.getByRole('button', { name: /^Play$/i });
@@ -409,13 +449,13 @@ describe('HomePage Component', () => {
         return Promise.resolve({
           launcherState: 'missing',
           latestVersion: '1.0.0',
-          installedVersion: '0.0.0'
+          installedVersion: '0.0.0',
         });
       }
       return Promise.resolve({ success: true });
     });
 
-    renderHomePage({...defaultProps});
+    renderHomePage({ ...defaultProps });
 
     await waitFor(() => {
       const button = screen.getByRole('button', { name: /Download/i });
@@ -424,9 +464,9 @@ describe('HomePage Component', () => {
 
     // Emit error status
     await act(async () => {
-      mockElectron._emit('game:status', {
+      mockElectron.emit('game:status', {
         status: 'error',
-        message: 'Installation failed'
+        message: 'Installation failed',
       });
     });
 
@@ -441,7 +481,7 @@ describe('HomePage Component', () => {
         return Promise.resolve({
           launcherState: 'missing',
           latestVersion: '1.0.0',
-          installedVersion: '0.0.0'
+          installedVersion: '0.0.0',
         });
       }
       return Promise.resolve({ success: true });
@@ -456,8 +496,8 @@ describe('HomePage Component', () => {
 
     // Emit ready status
     await act(async () => {
-      mockElectron._emit('game:status', {
-        status: 'ready'
+      mockElectron.emit('game:status', {
+        status: 'ready',
       });
     });
 
@@ -473,7 +513,7 @@ describe('HomePage Component', () => {
         return Promise.resolve({
           launcherState: 'missing',
           latestVersion: '1.0.0',
-          installedVersion: '0.0.0'
+          installedVersion: '0.0.0',
         });
       }
       if (channel === 'game:download') {
@@ -482,7 +522,7 @@ describe('HomePage Component', () => {
       return Promise.resolve({ success: true });
     });
 
-    renderHomePage({...defaultProps});
+    renderHomePage({ ...defaultProps });
 
     await waitFor(() => {
       const button = screen.getByRole('button', { name: /Download/i });
@@ -505,7 +545,7 @@ describe('HomePage Component', () => {
         return Promise.resolve({
           launcherState: 'missing',
           latestVersion: '1.0.0',
-          installedVersion: '0.0.0'
+          installedVersion: '0.0.0',
         });
       }
       if (channel === 'game:download') {
@@ -516,7 +556,9 @@ describe('HomePage Component', () => {
 
     // Click the main retry button (the play button with emoji, not the "Retry Now" button in the error card)
     const retryButtons = screen.getAllByRole('button', { name: /Retry/i });
-    const mainRetryButton = retryButtons.find(btn => btn.classList.contains('play-btn'));
+    const mainRetryButton = retryButtons.find((btn) =>
+      btn.classList.contains('play-btn'),
+    );
 
     await act(async () => {
       fireEvent.click(mainRetryButton!);
@@ -533,7 +575,7 @@ describe('HomePage Component', () => {
         return Promise.resolve({
           launcherState: 'ready',
           latestVersion: '1.0.0',
-          installedVersion: '1.0.0'
+          installedVersion: '1.0.0',
         });
       }
       return Promise.resolve({ success: true });
@@ -554,7 +596,7 @@ describe('HomePage Component', () => {
     const setUsername = jest.fn();
     const props = { ...defaultProps, setUsername };
 
-    renderHomePage({...props});
+    renderHomePage({ ...props });
 
     const usernameInput = screen.getByPlaceholderText(/Username/i);
 
@@ -567,7 +609,7 @@ describe('HomePage Component', () => {
     const setPassword = jest.fn();
     const props = { ...defaultProps, setPassword };
 
-    renderHomePage({...props});
+    renderHomePage({ ...props });
 
     const passwordInput = screen.getByPlaceholderText(/Password/i);
 
@@ -580,9 +622,11 @@ describe('HomePage Component', () => {
     const setRemember = jest.fn();
     const props = { ...defaultProps, setRemember };
 
-    renderHomePage({...props});
+    renderHomePage({ ...props });
 
-    const rememberCheckbox = screen.getByRole('checkbox', { name: /Remember credentials/i });
+    const rememberCheckbox = screen.getByRole('checkbox', {
+      name: /Remember credentials/i,
+    });
 
     fireEvent.click(rememberCheckbox);
 
@@ -595,13 +639,13 @@ describe('HomePage Component', () => {
         return Promise.resolve({
           launcherState: 'missing',
           latestVersion: '1.0.0',
-          installedVersion: '0.0.0'
+          installedVersion: '0.0.0',
         });
       }
       return Promise.resolve({ success: true });
     });
 
-    renderHomePage({...defaultProps});
+    renderHomePage({ ...defaultProps });
 
     await waitFor(() => {
       const button = screen.getByRole('button', { name: /Download/i });
@@ -610,7 +654,10 @@ describe('HomePage Component', () => {
 
     // Simulate progress with specific byte values
     await act(async () => {
-      mockElectron._emit('download:progress', { dl: 524288000, total: 1048576000 }); // 500MB / 1000MB
+      mockElectron.emit('download:progress', {
+        dl: 524288000,
+        total: 1048576000,
+      }); // 500MB / 1000MB
     });
 
     await waitFor(() => {
@@ -625,22 +672,25 @@ describe('HomePage Component', () => {
         return Promise.resolve({
           launcherState: 'ready',
           latestVersion: '1.0.0',
-          installedVersion: '1.0.0'
+          installedVersion: '1.0.0',
         });
       }
       return Promise.resolve({ success: true });
     });
 
-    mockElectron.writeConfig.mockResolvedValue({ success: false, error: 'Write failed' });
+    mockElectron.writeConfig.mockResolvedValue({
+      success: false,
+      error: 'Write failed',
+    });
 
     const props = {
       ...defaultProps,
       username: 'testuser',
       password: 'testpass',
-      canPlay: true
+      canPlay: true,
     };
 
-    renderHomePage({...props});
+    renderHomePage({ ...props });
 
     await waitFor(() => {
       const button = screen.getByRole('button', { name: /^Play$/i });
@@ -664,23 +714,26 @@ describe('HomePage Component', () => {
         return Promise.resolve({
           launcherState: 'ready',
           latestVersion: '1.0.0',
-          installedVersion: '1.0.0'
+          installedVersion: '1.0.0',
         });
       }
       return Promise.resolve({ success: true });
     });
 
     mockElectron.writeConfig.mockResolvedValue({ success: true });
-    mockElectron.updateIniCredentials.mockResolvedValue({ success: false, error: 'INI update failed' });
+    mockElectron.updateIniCredentials.mockResolvedValue({
+      success: false,
+      error: 'INI update failed',
+    });
 
     const props = {
       ...defaultProps,
       username: 'testuser',
       password: 'testpass',
-      canPlay: true
+      canPlay: true,
     };
 
-    renderHomePage({...props});
+    renderHomePage({ ...props });
 
     await waitFor(() => {
       const button = screen.getByRole('button', { name: /^Play$/i });
@@ -705,7 +758,7 @@ describe('HomePage Component', () => {
           return Promise.resolve({
             launcherState: 'missing',
             latestVersion: '1.0.0',
-            installedVersion: '0.0.0'
+            installedVersion: '0.0.0',
           });
         }
         if (channel === 'game:download') {
@@ -714,10 +767,12 @@ describe('HomePage Component', () => {
         return Promise.resolve({ success: true });
       });
 
-      renderHomePage({...defaultProps});
+      renderHomePage({ ...defaultProps });
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: /Download/i }),
+        ).toBeInTheDocument();
       });
 
       const downloadButton = screen.getByRole('button', { name: /Download/i });
@@ -728,9 +783,15 @@ describe('HomePage Component', () => {
       await waitFor(() => {
         expect(screen.getByText(/Network Error/i)).toBeInTheDocument();
         expect(screen.getByText(/🌐/)).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: /Retry Now/i })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: /Clear Downloads/i })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: /View Log/i })).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: /Retry Now/i }),
+        ).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: /Clear Downloads/i }),
+        ).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: /View Log/i }),
+        ).toBeInTheDocument();
       });
     });
 
@@ -740,7 +801,7 @@ describe('HomePage Component', () => {
           return Promise.resolve({
             launcherState: 'missing',
             latestVersion: '1.0.0',
-            installedVersion: '0.0.0'
+            installedVersion: '0.0.0',
           });
         }
         if (channel === 'game:download') {
@@ -749,10 +810,12 @@ describe('HomePage Component', () => {
         return Promise.resolve({ success: true });
       });
 
-      renderHomePage({...defaultProps});
+      renderHomePage({ ...defaultProps });
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: /Download/i }),
+        ).toBeInTheDocument();
       });
 
       const downloadButton = screen.getByRole('button', { name: /Download/i });
@@ -763,7 +826,9 @@ describe('HomePage Component', () => {
       await waitFor(() => {
         const errorButtons = screen.getAllByRole('button', { name: /Retry/i });
         // The main play button (with class is-error) should be the first one
-        const mainErrorButton = errorButtons.find(btn => btn.classList.contains('is-error'));
+        const mainErrorButton = errorButtons.find((btn) =>
+          btn.classList.contains('is-error'),
+        );
         expect(mainErrorButton).toBeInTheDocument();
         expect(mainErrorButton).toHaveClass('is-error');
       });
@@ -775,7 +840,7 @@ describe('HomePage Component', () => {
           return Promise.resolve({
             launcherState: 'missing',
             latestVersion: '1.0.0',
-            installedVersion: '0.0.0'
+            installedVersion: '0.0.0',
           });
         }
         if (channel === 'game:download') {
@@ -787,10 +852,12 @@ describe('HomePage Component', () => {
         return Promise.resolve({ success: true });
       });
 
-      renderHomePage({...defaultProps});
+      renderHomePage({ ...defaultProps });
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: /Download/i }),
+        ).toBeInTheDocument();
       });
 
       const downloadButton = screen.getByRole('button', { name: /Download/i });
@@ -799,10 +866,14 @@ describe('HomePage Component', () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Clear Downloads/i })).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: /Clear Downloads/i }),
+        ).toBeInTheDocument();
       });
 
-      const clearButton = screen.getByRole('button', { name: /Clear Downloads/i });
+      const clearButton = screen.getByRole('button', {
+        name: /Clear Downloads/i,
+      });
       await act(async () => {
         fireEvent.click(clearButton);
       });
@@ -814,22 +885,38 @@ describe('HomePage Component', () => {
 
     it('should show different error categories correctly', async () => {
       const errorScenarios = [
-        { error: 'SHA256 mismatch', expectedTitle: 'Download Corrupted', expectedIcon: '🔍' },
-        { error: 'Extraction failed', expectedTitle: 'Extraction Failed', expectedIcon: '📦' },
-        { error: 'ENOSPC: no space', expectedTitle: 'Insufficient Disk Space', expectedIcon: '💾' },
-        { error: 'EACCES: permission denied', expectedTitle: 'Permission Denied', expectedIcon: '🔒' },
+        {
+          error: 'SHA256 mismatch',
+          expectedTitle: 'Download Corrupted',
+          expectedIcon: '🔍',
+        },
+        {
+          error: 'Extraction failed',
+          expectedTitle: 'Extraction Failed',
+          expectedIcon: '📦',
+        },
+        {
+          error: 'ENOSPC: no space',
+          expectedTitle: 'Insufficient Disk Space',
+          expectedIcon: '💾',
+        },
+        {
+          error: 'EACCES: permission denied',
+          expectedTitle: 'Permission Denied',
+          expectedIcon: '🔒',
+        },
       ];
 
       for (const scenario of errorScenarios) {
         jest.clearAllMocks();
-        mockElectron._listeners = {};
+        mockElectron.listeners = {};
 
         mockElectron.invoke.mockImplementation((channel: string) => {
           if (channel === 'game:check') {
             return Promise.resolve({
               launcherState: 'missing',
               latestVersion: '1.0.0',
-              installedVersion: '0.0.0'
+              installedVersion: '0.0.0',
             });
           }
           if (channel === 'game:download') {
@@ -838,19 +925,25 @@ describe('HomePage Component', () => {
           return Promise.resolve({ success: true });
         });
 
-        const { unmount } = renderHomePage({...defaultProps});
+        const { unmount } = renderHomePage({ ...defaultProps });
 
         await waitFor(() => {
-          expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
+          expect(
+            screen.getByRole('button', { name: /Download/i }),
+          ).toBeInTheDocument();
         });
 
-        const downloadButton = screen.getByRole('button', { name: /Download/i });
+        const downloadButton = screen.getByRole('button', {
+          name: /Download/i,
+        });
         await act(async () => {
           fireEvent.click(downloadButton);
         });
 
         await waitFor(() => {
-          expect(screen.getByText(new RegExp(scenario.expectedTitle, 'i'))).toBeInTheDocument();
+          expect(
+            screen.getByText(new RegExp(scenario.expectedTitle, 'i')),
+          ).toBeInTheDocument();
           expect(screen.getByText(scenario.expectedIcon)).toBeInTheDocument();
         });
 
@@ -865,7 +958,7 @@ describe('HomePage Component', () => {
           return Promise.resolve({
             launcherState: 'missing',
             latestVersion: '1.0.0',
-            installedVersion: '0.0.0'
+            installedVersion: '0.0.0',
           });
         }
         if (channel === 'game:download') {
@@ -875,17 +968,19 @@ describe('HomePage Component', () => {
           }
           // Success on third attempt
           setTimeout(() => {
-            mockElectron._emit('game:status', { status: 'ready' });
+            mockElectron.emit('game:status', { status: 'ready' });
           }, 100);
           return Promise.resolve({ success: true });
         }
         return Promise.resolve({ success: true });
       });
 
-      renderHomePage({...defaultProps});
+      renderHomePage({ ...defaultProps });
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: /Download/i }),
+        ).toBeInTheDocument();
       });
 
       // Attempt 1
@@ -915,11 +1010,12 @@ describe('HomePage Component', () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Play/i })).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: /Play/i }),
+        ).toBeInTheDocument();
       });
 
       expect(attemptCount).toBe(3);
     });
   });
 });
-

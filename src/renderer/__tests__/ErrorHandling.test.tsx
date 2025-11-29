@@ -1,8 +1,39 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable no-underscore-dangle */
+/* eslint-disable react/jsx-props-no-spreading */
+
 // Error Handling and Recovery Tests
+
+import React from 'react';
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  act,
+} from '@testing-library/react';
+import '@testing-library/jest-dom';
+import HomePage from '../pages/HomePage';
+import { GameStateProvider } from '../contexts/GameStateContext';
+
 // Mock electron-log/renderer before any imports
 jest.mock('electron-log/renderer', () => {
   const mockFn = jest.fn();
-  const mockLogger = {
+  interface MockLogger {
+    info: jest.Mock;
+    warn: jest.Mock;
+    error: jest.Mock;
+    debug: jest.Mock;
+    verbose: jest.Mock;
+    silly: jest.Mock;
+    log: jest.Mock;
+    transports: {
+      file: { level: string };
+      console: { level: string; format: string };
+    };
+    scope: jest.Mock;
+  }
+  const mockLogger: MockLogger = {
     info: mockFn,
     warn: mockFn,
     error: mockFn,
@@ -14,16 +45,11 @@ jest.mock('electron-log/renderer', () => {
       file: { level: 'debug' },
       console: { level: 'debug', format: '' },
     },
-    scope: jest.fn(() => mockLogger),
+    scope: jest.fn(),
   };
+  mockLogger.scope.mockReturnValue(mockLogger);
   return { default: mockLogger, __esModule: true };
 });
-
-import React from 'react';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
-import '@testing-library/jest-dom';
-import HomePage from '../pages/HomePage';
-import { GameStateProvider } from '../contexts/GameStateContext';
 
 // Mock electron API
 const mockElectron = {
@@ -34,10 +60,10 @@ const mockElectron = {
   fetchPatchNotes: jest.fn(),
   ipcRenderer: {
     on: jest.fn((channel: string, callback: any) => {
-      const listeners = (mockElectron as any)._listeners || {};
+      const listeners = (mockElectron as any).listeners || {};
       if (!listeners[channel]) listeners[channel] = [];
       listeners[channel].push(callback);
-      (mockElectron as any)._listeners = listeners;
+      (mockElectron as any).listeners = listeners;
       return () => {
         const idx = listeners[channel].indexOf(callback);
         if (idx >= 0) listeners[channel].splice(idx, 1);
@@ -46,9 +72,9 @@ const mockElectron = {
     once: jest.fn(),
     sendMessage: jest.fn(),
   },
-  _listeners: {} as Record<string, Function[]>,
-  _emit: (channel: string, ...args: any[]) => {
-    const listeners = (mockElectron as any)._listeners[channel] || [];
+  listeners: {} as Record<string, Function[]>,
+  emit: (channel: string, ...args: any[]) => {
+    const listeners = (mockElectron as any).listeners[channel] || [];
     listeners.forEach((cb: Function) => cb({}, ...args));
   },
 };
@@ -69,22 +95,22 @@ const defaultProps = {
 };
 
 // Test wrapper to provide GameStateContext
-const TestWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <GameStateProvider>{children}</GameStateProvider>
-);
+function TestWrapper({ children }: { children: React.ReactNode }) {
+  return <GameStateProvider>{children}</GameStateProvider>;
+}
 
 const renderHomePage = (props = defaultProps) => {
   return render(
     <TestWrapper>
       <HomePage {...props} />
-    </TestWrapper>
+    </TestWrapper>,
   );
 };
 
 describe('Error Display and Recovery', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockElectron._listeners = {};
+    mockElectron.listeners = {};
     mockElectron.fetchPatchNotes.mockResolvedValue({ success: true, data: [] });
   });
 
@@ -104,10 +130,12 @@ describe('Error Display and Recovery', () => {
         return Promise.resolve({ success: true });
       });
 
-      renderHomePage({...defaultProps});
+      renderHomePage({ ...defaultProps });
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: /Download/i }),
+        ).toBeInTheDocument();
       });
 
       const downloadButton = screen.getByRole('button', { name: /Download/i });
@@ -117,7 +145,9 @@ describe('Error Display and Recovery', () => {
 
       await waitFor(() => {
         expect(screen.getByText(/Network Error/i)).toBeInTheDocument();
-        expect(screen.getByText(/Check your internet connection/i)).toBeInTheDocument();
+        expect(
+          screen.getByText(/Check your internet connection/i),
+        ).toBeInTheDocument();
         expect(screen.getByText(/🌐/)).toBeInTheDocument();
       });
     });
@@ -137,10 +167,12 @@ describe('Error Display and Recovery', () => {
         return Promise.resolve({ success: true });
       });
 
-      renderHomePage({...defaultProps});
+      renderHomePage({ ...defaultProps });
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: /Download/i }),
+        ).toBeInTheDocument();
       });
 
       const downloadButton = screen.getByRole('button', { name: /Download/i });
@@ -170,10 +202,12 @@ describe('Error Display and Recovery', () => {
         return Promise.resolve({ success: true });
       });
 
-      renderHomePage({...defaultProps});
+      renderHomePage({ ...defaultProps });
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: /Download/i }),
+        ).toBeInTheDocument();
       });
 
       const downloadButton = screen.getByRole('button', { name: /Download/i });
@@ -203,10 +237,12 @@ describe('Error Display and Recovery', () => {
         return Promise.resolve({ success: true });
       });
 
-      renderHomePage({...defaultProps});
+      renderHomePage({ ...defaultProps });
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: /Download/i }),
+        ).toBeInTheDocument();
       });
 
       const downloadButton = screen.getByRole('button', { name: /Download/i });
@@ -215,7 +251,9 @@ describe('Error Display and Recovery', () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByText(/Insufficient Disk Space/i)).toBeInTheDocument();
+        expect(
+          screen.getByText(/Insufficient Disk Space/i),
+        ).toBeInTheDocument();
         expect(screen.getByText(/10 GB/i)).toBeInTheDocument();
         expect(screen.getByText(/💾/)).toBeInTheDocument();
       });
@@ -236,10 +274,12 @@ describe('Error Display and Recovery', () => {
         return Promise.resolve({ success: true });
       });
 
-      renderHomePage({...defaultProps});
+      renderHomePage({ ...defaultProps });
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: /Download/i }),
+        ).toBeInTheDocument();
       });
 
       const downloadButton = screen.getByRole('button', { name: /Download/i });
@@ -269,10 +309,12 @@ describe('Error Display and Recovery', () => {
         return Promise.resolve({ success: true });
       });
 
-      renderHomePage({...defaultProps});
+      renderHomePage({ ...defaultProps });
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Update/i })).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: /Update/i }),
+        ).toBeInTheDocument();
       });
 
       const updateButton = screen.getByRole('button', { name: /Update/i });
@@ -304,10 +346,12 @@ describe('Error Display and Recovery', () => {
         return Promise.resolve({ success: true });
       });
 
-      renderHomePage({...defaultProps});
+      renderHomePage({ ...defaultProps });
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: /Download/i }),
+        ).toBeInTheDocument();
       });
 
       const downloadButton = screen.getByRole('button', { name: /Download/i });
@@ -335,7 +379,7 @@ describe('Error Display and Recovery', () => {
           });
         }
         if (channel === 'game:download') {
-          attemptCount++;
+          attemptCount += 1;
           if (attemptCount === 1) {
             return Promise.reject(new Error('Network error'));
           }
@@ -344,10 +388,12 @@ describe('Error Display and Recovery', () => {
         return Promise.resolve({ success: true });
       });
 
-      renderHomePage({...defaultProps});
+      renderHomePage({ ...defaultProps });
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: /Download/i }),
+        ).toBeInTheDocument();
       });
 
       // First attempt - fails
@@ -390,10 +436,12 @@ describe('Error Display and Recovery', () => {
         return Promise.resolve({ success: true });
       });
 
-      renderHomePage({...defaultProps});
+      renderHomePage({ ...defaultProps });
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: /Download/i }),
+        ).toBeInTheDocument();
       });
 
       const downloadButton = screen.getByRole('button', { name: /Download/i });
@@ -405,7 +453,9 @@ describe('Error Display and Recovery', () => {
         expect(screen.getByText(/Download Corrupted/i)).toBeInTheDocument();
       });
 
-      const clearButton = screen.getByRole('button', { name: /Clear Downloads/i });
+      const clearButton = screen.getByRole('button', {
+        name: /Clear Downloads/i,
+      });
       await act(async () => {
         fireEvent.click(clearButton);
       });
@@ -433,10 +483,12 @@ describe('Error Display and Recovery', () => {
         return Promise.resolve({ success: true });
       });
 
-      renderHomePage({...defaultProps});
+      renderHomePage({ ...defaultProps });
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: /Download/i }),
+        ).toBeInTheDocument();
       });
 
       const downloadButton = screen.getByRole('button', { name: /Download/i });
@@ -476,10 +528,12 @@ describe('Error Display and Recovery', () => {
         return Promise.resolve({ success: true });
       });
 
-      renderHomePage({...defaultProps});
+      renderHomePage({ ...defaultProps });
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Update/i })).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: /Update/i }),
+        ).toBeInTheDocument();
       });
 
       const updateButton = screen.getByRole('button', { name: /Update/i });
@@ -488,7 +542,9 @@ describe('Error Display and Recovery', () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /⚠️ Retry/i })).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: /⚠️ Retry/i }),
+        ).toBeInTheDocument();
       });
 
       // Retry should call game:update again
@@ -513,23 +569,25 @@ describe('Error Display and Recovery', () => {
           });
         }
         if (channel === 'game:download') {
-          attemptCount++;
+          attemptCount += 1;
           if (attemptCount < 3) {
             return Promise.reject(new Error('Network error'));
           }
           // Emit success status on third attempt
           setTimeout(() => {
-            mockElectron._emit('game:status', { status: 'ready' });
+            mockElectron.emit('game:status', { status: 'ready' });
           }, 100);
           return Promise.resolve({ success: true });
         }
         return Promise.resolve({ success: true });
       });
 
-      renderHomePage({...defaultProps});
+      renderHomePage({ ...defaultProps });
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: /Download/i }),
+        ).toBeInTheDocument();
       });
 
       // First attempt
@@ -559,7 +617,9 @@ describe('Error Display and Recovery', () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Play/i })).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: /Play/i }),
+        ).toBeInTheDocument();
       });
     });
   });
@@ -580,10 +640,12 @@ describe('Error Display and Recovery', () => {
         return Promise.resolve({ success: true });
       });
 
-      renderHomePage({...defaultProps});
+      renderHomePage({ ...defaultProps });
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: /Download/i }),
+        ).toBeInTheDocument();
       });
 
       const downloadButton = screen.getByRole('button', { name: /Download/i });
@@ -600,4 +662,3 @@ describe('Error Display and Recovery', () => {
     });
   });
 });
-

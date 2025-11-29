@@ -21,22 +21,22 @@ window.addEventListener('unhandledrejection', (event) => {
   );
 });
 
-// Add numpad +/- zoom support for low resolution displays (e.g., 720p)
+// Add Ctrl + =/- and Ctrl + scroll zoom support for low resolution displays (e.g., 720p)
+// Zoom can only go down from 100%, not above
 window.addEventListener('keydown', (event) => {
-  // Check for numpad plus (107), numpad minus (109), or regular +/- with ctrl
-  const isNumpadPlus = event.keyCode === 107 || (event.key === '+' && event.location === 3);
-  const isNumpadMinus = event.keyCode === 109 || (event.key === '-' && event.location === 3);
-  const isRegularZoom = (event.key === '+' || event.key === '=') && event.ctrlKey;
-  const isRegularZoomOut = event.key === '-' && event.ctrlKey;
+  // Check for Ctrl + = or Ctrl + + (zoom in / scale up)
+  const isZoomIn = (event.key === '+' || event.key === '=') && event.ctrlKey;
+  // Check for Ctrl + - (zoom out / scale down)
+  const isZoomOut = event.key === '-' && event.ctrlKey;
 
-  if (isNumpadPlus || isRegularZoom) {
+  if (isZoomIn) {
     event.preventDefault();
     const currentZoom = (document.body.style.zoom as any) || '100%';
     const zoomLevel = parseFloat(currentZoom);
-    const newZoom = Math.min(zoomLevel + 10, 200); // Max 200%
+    const newZoom = Math.min(zoomLevel + 10, 100); // Max 100%
     document.body.style.zoom = `${newZoom}%`;
     log.debug(`[Zoom] Increased to ${newZoom}%`);
-  } else if (isNumpadMinus || isRegularZoomOut) {
+  } else if (isZoomOut) {
     event.preventDefault();
     const currentZoom = (document.body.style.zoom as any) || '100%';
     const zoomLevel = parseFloat(currentZoom);
@@ -45,6 +45,27 @@ window.addEventListener('keydown', (event) => {
     log.debug(`[Zoom] Decreased to ${newZoom}%`);
   }
 });
+
+// Add Ctrl + mouse scroll zoom support
+window.addEventListener('wheel', (event) => {
+  if (event.ctrlKey) {
+    event.preventDefault();
+    const currentZoom = (document.body.style.zoom as any) || '100%';
+    const zoomLevel = parseFloat(currentZoom);
+
+    if (event.deltaY < 0) {
+      // Scroll up = zoom in (scale up towards 100%)
+      const newZoom = Math.min(zoomLevel + 5, 100); // Max 100%
+      document.body.style.zoom = `${newZoom}%`;
+      log.debug(`[Zoom] Scroll increased to ${newZoom}%`);
+    } else if (event.deltaY > 0) {
+      // Scroll down = zoom out (scale down)
+      const newZoom = Math.max(zoomLevel - 5, 50); // Min 50%
+      document.body.style.zoom = `${newZoom}%`;
+      log.debug(`[Zoom] Scroll decreased to ${newZoom}%`);
+    }
+  }
+}, { passive: false });
 
 const container = document.getElementById('root');
 if (!container) {

@@ -6,8 +6,7 @@ import log from 'electron-log/preload';
 // Helpful runtime log to verify preload is loaded in the renderer process
 try {
   log.info('[preload] loaded');
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-} catch (e) {
+} catch {
   // Silently fail
 }
 

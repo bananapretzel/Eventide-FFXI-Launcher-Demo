@@ -1143,9 +1143,20 @@ export default function SettingsPage() {
 
         {category === 'troubleshooting' && (
           <Card title={undefined}>
+            {/* Launcher Updates Section */}
             <LauncherUpdatesCard handleShowToast={handleShowToast} />
 
-            <Row>
+            {/* Quick Access Buttons */}
+            <div
+              style={{
+                display: 'flex',
+                gap: '12px',
+                flexWrap: 'wrap',
+                marginTop: '16px',
+                paddingTop: '16px',
+                borderTop: '1px solid var(--border-soft, #e5e7eb)',
+              }}
+            >
               <button
                 type="button"
                 className="btn"
@@ -1160,12 +1171,10 @@ export default function SettingsPage() {
                     handleShowToast('Failed to open folder');
                   }
                 }}
-                style={{ width: 'fit-content', minWidth: '220px' }}
+                style={{ minWidth: '200px' }}
               >
                 📂 Open Configuration Folder
               </button>
-            </Row>
-            <Row>
               <button
                 type="button"
                 className="btn"
@@ -1180,18 +1189,64 @@ export default function SettingsPage() {
                     handleShowToast('Failed to open log file');
                   }
                 }}
-                style={{ width: 'fit-content', minWidth: '180px' }}
+                style={{ minWidth: '160px' }}
               >
                 📄 Open Log File
               </button>
-            </Row>
+            </div>
 
-            <Row>
-              <Field
-                label="Reapply Patches"
-                htmlFor="reapply-patches"
-                tooltip="Reset the game version to 1.0.0 and redownload all patches. Use this if game files are corrupted or updates have failed."
+            {/* Advanced Troubleshooting Section */}
+            <div
+              style={{
+                marginTop: '16px',
+                paddingTop: '16px',
+                borderTop: '1px solid var(--border-soft, #e5e7eb)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '16px',
+              }}
+            >
+              {/* Reapply Patches */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  justifyContent: 'space-between',
+                  gap: '16px',
+                }}
               >
+                <div style={{ flex: 1 }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      marginBottom: '4px',
+                    }}
+                  >
+                    <span style={{ fontWeight: 500, color: 'var(--ink)' }}>
+                      Reapply Patches
+                    </span>
+                    <span className="tooltip-wrapper">
+                      <span className="tooltip-icon">?</span>
+                      <span className="tooltip-content">
+                        Reset the game version to 1.0.0 and redownload all
+                        patches. Use this if game files are corrupted or updates
+                        have failed.
+                      </span>
+                    </span>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: '13px',
+                      color: 'var(--ink-soft)',
+                      lineHeight: '1.4',
+                    }}
+                  >
+                    Reset version to 1.0.0 and reapply all patches on next
+                    launch.
+                  </span>
+                </div>
                 <button
                   type="button"
                   id="reapply-patches"
@@ -1213,27 +1268,53 @@ export default function SettingsPage() {
                       handleShowToast('Failed to reset version');
                     }
                   }}
-                  style={{ width: 'fit-content', minWidth: '100px' }}
+                  style={{ minWidth: '100px', flexShrink: 0 }}
                 >
                   Reapply
                 </button>
-              </Field>
-            </Row>
-            <Row>
-              <span
-                className="hint"
-                style={{ fontSize: '13px', color: 'var(--ink-soft)' }}
-              >
-                Reset version to 1.0.0 and reapply all patches on next launch.
-              </span>
-            </Row>
+              </div>
 
-            <Row>
-              <Field
-                label="Force Start Game"
-                htmlFor="force-start"
-                tooltip="Bypass launcher checks and attempt to start the game immediately. Use this if the Play button is disabled incorrectly."
+              {/* Force Start Game */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  justifyContent: 'space-between',
+                  gap: '16px',
+                }}
               >
+                <div style={{ flex: 1 }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      marginBottom: '4px',
+                    }}
+                  >
+                    <span style={{ fontWeight: 500, color: 'var(--ink)' }}>
+                      Force Start Game
+                    </span>
+                    <span className="tooltip-wrapper">
+                      <span className="tooltip-icon">?</span>
+                      <span className="tooltip-content">
+                        Bypass launcher checks and attempt to start the game
+                        immediately. Use this if the Play button is disabled
+                        incorrectly.
+                      </span>
+                    </span>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: '13px',
+                      color: 'var(--ink-soft)',
+                      lineHeight: '1.4',
+                    }}
+                  >
+                    Attempt to launch the game regardless of the current play
+                    button state.
+                  </span>
+                </div>
                 <button
                   type="button"
                   id="force-start"
@@ -1259,21 +1340,12 @@ export default function SettingsPage() {
                       );
                     }
                   }}
-                  style={{ width: 'fit-content', minWidth: '100px' }}
+                  style={{ minWidth: '100px', flexShrink: 0 }}
                 >
                   Launch
                 </button>
-              </Field>
-            </Row>
-            <Row>
-              <span
-                className="hint"
-                style={{ fontSize: '13px', color: 'var(--ink-soft)' }}
-              >
-                Attempt to launch the game regardless of the current play button
-                state.
-              </span>
-            </Row>
+              </div>
+            </div>
           </Card>
         )}
       </section>

@@ -1269,7 +1269,7 @@ app.on('ready', () => {
     maxHeight,
     frame: !!isDev, // Remove Windows frame for custom UI
     transparent: true, // Enable transparency for borderless window
-    resizable: true,
+    resizable: false, // Disable drag resizing - use Ctrl+scroll or Ctrl+=/- to scale
     backgroundColor: '#00FFFFFF',
     titleBarStyle: !!isDev ? 'default' : 'hidden',
     webPreferences: {
