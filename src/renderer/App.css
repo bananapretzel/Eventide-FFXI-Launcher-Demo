@@ -158,6 +158,25 @@ body {
   border-bottom-color: var(--accent);
 }
 
+/* Website Link */
+.website-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  color: var(--ink-soft);
+  text-decoration: none;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+  -webkit-app-region: no-drag;
+}
+
+.website-link:hover {
+  color: var(--accent);
+  background: rgba(0, 121, 107, 0.1);
+}
+
 /* Meta Navigation */
 .meta-nav {
   display: flex;
@@ -892,7 +911,7 @@ body {
 .settings-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+
   margin-bottom: 12px;
 }
 

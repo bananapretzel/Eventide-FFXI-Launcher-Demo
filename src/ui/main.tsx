@@ -1,9 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import LauncherButton from './button';
 import { getLauncherState, LauncherState } from '../logic/state';
-
-const RELEASE_URL =
-  'https://pub-9064140a8f58435fb0d04461223da0f2.r2.dev/release.json';
+import { RELEASE_JSON_URL } from '../core/constants';
 // INSTALL_DIR is retrieved from IPC (eventide:get-paths) at runtime
 
 function Main() {
@@ -28,7 +26,7 @@ function Main() {
           throw new Error('Failed to get install paths from main process');
         }
         const installDir = pathsResult.data.gameRoot;
-        return window.electron.bootstrap(RELEASE_URL, installDir);
+        return window.electron.bootstrap(RELEASE_JSON_URL, installDir);
       })
       .then((result): void => {
         if (!result || typeof result !== 'object') {

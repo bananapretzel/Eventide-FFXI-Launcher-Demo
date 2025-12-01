@@ -63,6 +63,9 @@ const electronHandler = {
     close() {
       ipcRenderer.send('window:close');
     },
+    setSize(width: number, height: number) {
+      ipcRenderer.send('window:set-size', width, height);
+    },
   },
   readIniFile: () => ipcRenderer.invoke('read-ini-file'),
   updateIniCredentials: (username: string, password: string, installDir?: string) =>

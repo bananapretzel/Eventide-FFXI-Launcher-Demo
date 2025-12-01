@@ -89,11 +89,11 @@ function Column({
       const result = await window.electron.invoke('open-extension-folder', folderType);
       if (!result.success) {
         // eslint-disable-next-line no-alert
-        alert(`Failed to open ${title} folder`);
+        alert(`Failed to open ${title} folder${result.error ? `:\n\n${result.error}` : ''}`);
       }
     } catch (err) {
       // eslint-disable-next-line no-alert
-      alert(`Error opening ${title} folder`);
+      alert(`Error opening ${title} folder: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 

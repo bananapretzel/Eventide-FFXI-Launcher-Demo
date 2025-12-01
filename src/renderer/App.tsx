@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, NavLink } from 'react-router-dom';
-import { Home, Puzzle, Settings, Minus, X } from 'lucide-react';
+import { Home, Puzzle, Settings, Minus, X, Globe } from 'lucide-react';
 import './App.css';
 import log from './logger';
+import { EVENTIDE_WEBSITE_URL } from '../core/constants';
 import logo from '../../assets/slime2.png';
 import titleLogo from '../../assets/eventide-logo.png';
 import HomePage from './pages/HomePage';
@@ -197,6 +198,16 @@ export default function App() {
               <Settings size={24} /> SETTINGS
             </NavLink>
           </nav>
+
+          <a
+            href={EVENTIDE_WEBSITE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="website-link"
+            title="Visit Eventide Website"
+          >
+            <Globe size={20} />
+          </a>
         </header>
 
         {/* Error display */}

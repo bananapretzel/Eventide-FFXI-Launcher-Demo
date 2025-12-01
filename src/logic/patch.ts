@@ -4,10 +4,14 @@ import { extractZip, verifyExtractedFiles } from '../core/fs';
 import { setClientVersion, getClientVersion } from '../core/versions';
 import { join } from 'path';
 import { PatchManifest } from '../core/manifest';
-import { updateStorage } from '../core/storage';
+import { updateStorage, saveDownloadProgress, clearDownloadProgress } from '../core/storage';
 import { promises as fs } from 'fs';
 import log from 'electron-log';
 import chalk from 'chalk';
+
+// Throttle progress saves to avoid excessive disk writes
+let lastPatchProgressSaveTime = 0;
+const PATCH_PROGRESS_SAVE_INTERVAL_MS = 2000; // Save progress every 2 seconds
 
 export async function applyPatches(
   manifest: PatchManifest,
@@ -99,15 +103,46 @@ export async function applyPatches(
       // Download if not present, with size verification if available
       log.info(chalk.cyan(`[applyPatches] Downloading patch from: ${patch.fullUrl}`));
 
+      // Save initial download progress for pause/resume support
+      await saveDownloadProgress({
+        url: patch.fullUrl,
+        destPath: patchZipPath,
+        bytesDownloaded: 0,
+        totalBytes: patch.sizeBytes || 0,
+        sha256: patch.sha256,
+        isPaused: false,
+        startedAt: Date.now(),
+        lastUpdatedAt: Date.now(),
+      });
+
       try {
         await downloadFile(
           patch.fullUrl,
           patchZipPath,
-          (dl, total) => onProgress?.(patch.to, dl, total),
+          async (dl, total) => {
+            onProgress?.(patch.to, dl, total);
+            // Throttle progress saves to avoid excessive disk writes
+            const now = Date.now();
+            if (now - lastPatchProgressSaveTime >= PATCH_PROGRESS_SAVE_INTERVAL_MS) {
+              lastPatchProgressSaveTime = now;
+              await saveDownloadProgress({
+                url: patch.fullUrl,
+                destPath: patchZipPath,
+                bytesDownloaded: dl,
+                totalBytes: total || patch.sizeBytes || 0,
+                sha256: patch.sha256,
+                isPaused: false,
+                startedAt: Date.now(),
+                lastUpdatedAt: Date.now(),
+              });
+            }
+          },
           0,
           0,
           patch.sizeBytes
         );
+        // Clear progress after successful download
+        await clearDownloadProgress();
         await updateStorage(s => { s.GAME_UPDATER.updater.downloaded = patch.to; });
         log.info(chalk.green(`[applyPatches] Download complete: ${patchZipName}`));
       } catch (downloadErr) {

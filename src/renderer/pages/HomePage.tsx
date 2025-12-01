@@ -6,6 +6,7 @@ import { useGameState } from '../contexts/GameStateContext';
 import { safeInvoke } from '../utils/ipc';
 import { formatBytes } from '../utils/format';
 import log from '../logger';
+import { DISCORD_INVITE_URL } from '../../core/constants';
 
 // Check update status on mount
 // (moved below imports)
@@ -772,13 +773,18 @@ export default function HomePage(props: HomePageProps) {
                 style={{
                   width: '100%',
                   padding: '8px 12px',
-                  fontSize: 12,
+                  fontSize: '12px',
+                  fontFamily: 'inherit',
+                  fontWeight: 500,
                   background: 'rgba(59, 130, 246, 0.2)',
                   border: '1px solid rgba(59, 130, 246, 0.5)',
                   borderRadius: 6,
                   color: '#3b82f6',
                   cursor: 'pointer',
                   transition: 'all 0.2s',
+                  WebkitAppearance: 'none',
+                  MozAppearance: 'none',
+                  appearance: 'none',
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.background = 'rgba(59, 130, 246, 0.3)';
@@ -787,7 +793,7 @@ export default function HomePage(props: HomePageProps) {
                   e.currentTarget.style.background = 'rgba(59, 130, 246, 0.2)';
                 }}
               >
-                Choose Installation Directory
+                <span style={{ color: '#3b82f6' }}>Choose Installation Directory</span>
               </button>
             </div>
           )}
@@ -825,9 +831,7 @@ export default function HomePage(props: HomePageProps) {
                   style={{
                     width: `${getProgress(state) ?? 0}%`,
                     height: '100%',
-                    background: isUpdating
-                      ? 'linear-gradient(90deg,#facc15,#f97316)'
-                      : 'linear-gradient(90deg,#6ee7b7,#3b82f6)',
+                    background: 'linear-gradient(90deg,#6ee7b7,#3b82f6)',
                     transition: 'width 200ms linear',
                   }}
                 />
@@ -853,7 +857,7 @@ export default function HomePage(props: HomePageProps) {
                   })()}
                 </span>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontFamily: 'monospace' }}>
+                  <span style={{ fontFamily: "'Courier New', Courier, monospace", minWidth: '50px', textAlign: 'right' }}>
                     {formatElapsedTime(elapsedTime)}
                   </span>
                   <button
@@ -883,9 +887,17 @@ export default function HomePage(props: HomePageProps) {
                     onMouseLeave={(e) => {
                       e.currentTarget.style.opacity = '0.7';
                     }}
-                    title="Pause download"
+                    aria-label="Pause download"
                   >
-                    ⏸️
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 -960 960 960"
+                      fill="#3b82f6"
+                      aria-hidden="true"
+                    >
+                      <path d="M520-200v-560h240v560zm-320 0v-560h240v560zm400-80h80v-400h-80zm-320 0h80v-400h-80zm0-400v400zm320 0v400z" />
+                    </svg>
                   </button>
                 </span>
               </div>
@@ -934,7 +946,7 @@ export default function HomePage(props: HomePageProps) {
                   })()}
                 </span>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontFamily: 'monospace' }}>
+                  <span style={{ fontFamily: "'Courier New', Courier, monospace", minWidth: '50px', textAlign: 'right' }}>
                     {formatElapsedTime(elapsedTime)}
                   </span>
                   <button
@@ -976,9 +988,17 @@ export default function HomePage(props: HomePageProps) {
                     onMouseLeave={(e) => {
                       e.currentTarget.style.opacity = '0.7';
                     }}
-                    title="Resume download"
+                    aria-label="Resume download"
                   >
-                    ▶️
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 -960 960 960"
+                      fill="#3b82f6"
+                      aria-hidden="true"
+                    >
+                      <path d="M320-200v-560l440 280zm80-146 210-134-210-134z" />
+                    </svg>
                   </button>
                 </span>
               </div>
@@ -1001,9 +1021,7 @@ export default function HomePage(props: HomePageProps) {
                   style={{
                     width: `${getProgress(state) ?? 0}%`,
                     height: '100%',
-                    background: isUpdating
-                      ? 'linear-gradient(90deg,#facc15,#f97316)'
-                      : 'linear-gradient(90deg,#a78bfa,#6366f1)',
+                    background: 'linear-gradient(90deg,#a78bfa,#6366f1)',
                     transition: 'width 200ms linear',
                   }}
                 />
@@ -1032,7 +1050,7 @@ export default function HomePage(props: HomePageProps) {
                     return `Extracting... ${getProgress(state) ?? 0}%`;
                   })()}
                 </span>
-                <span style={{ fontFamily: 'monospace' }}>
+                <span style={{ fontFamily: "'Courier New', Courier, monospace", minWidth: '50px', textAlign: 'right' }}>
                   {formatElapsedTime(elapsedTime)}
                 </span>
               </div>
@@ -1097,7 +1115,7 @@ export default function HomePage(props: HomePageProps) {
           <h2 className="section-title">PATCH UPDATES</h2>
           <div className="social-links">
             <a
-              href="https://discord.gg/vT4UQU8z"
+              href={DISCORD_INVITE_URL}
               className="social-btn"
               title="Discord"
               target="_blank"

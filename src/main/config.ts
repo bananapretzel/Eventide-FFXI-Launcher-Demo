@@ -1,13 +1,14 @@
 import path from 'path';
 import { app } from 'electron';
 
+// Re-export shared constants for convenience
+export { RELEASE_JSON_URL } from '../core/constants';
+
 /**
  * Centralized configuration and constants for the main process.
  */
 export const IS_PROD = process.env.NODE_ENV === 'production';
 export const IS_DEV = !IS_PROD;
-
-export const RELEASE_JSON_URL = 'https://pub-9064140a8f58435fb0d04461223da0f2.r2.dev/release.json';
 
 export function getResourcePath(relPath: string): string {
   return IS_PROD

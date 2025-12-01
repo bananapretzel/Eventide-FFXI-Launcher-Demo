@@ -38,6 +38,14 @@ function windowsToUnixPath(winPath: string): string {
   if (winPath.match(/^[Zz]:\\/)) {
     return winPath.substring(2).replace(/\\/g, '/');
   }
+  // Handle other drive letters (C:, D:, etc.) - these map to ~/.wine/dosdevices/c: etc.
+  const driveMatch = winPath.match(/^([A-Za-z]):\\/);
+  if (driveMatch) {
+    const driveLetter = driveMatch[1].toLowerCase();
+    const winePrefix = process.env.WINEPREFIX || `${process.env.HOME}/.wine`;
+    const relativePath = winPath.substring(3).replace(/\\/g, '/');
+    return `${winePrefix}/dosdevices/${driveLetter}:/${relativePath}`;
+  }
   // For other drive letters, try to use winepath if available
   return winPath.replace(/\\/g, '/');
 }
@@ -45,33 +53,79 @@ function windowsToUnixPath(winPath: string): string {
 /**
  * Opens a file or folder path cross-platform, handling Wine/Linux correctly
  * On native Windows: uses shell.openPath
- * On Wine/Linux: uses xdg-open to open with the native Linux file manager
+ * On Wine/Linux: uses multiple methods to open with the native Linux file manager
  */
 export async function openPathCrossPlatform(targetPath: string): Promise<{ success: boolean; error?: string }> {
   try {
     if (isRunningUnderWine()) {
-      // Convert Windows path to Unix path for xdg-open
+      // Convert Windows path to Unix path
       const unixPath = windowsToUnixPath(targetPath);
       log.info(chalk.cyan(`[openPathCrossPlatform] Running under Wine, converting path: ${targetPath} -> ${unixPath}`));
 
+      // Try multiple methods to open the folder on Linux
       return new Promise((resolve) => {
-        // Use xdg-open which is the standard Linux way to open files/folders
-        exec(`xdg-open "${unixPath}"`, (error) => {
-          if (error) {
-            log.error(chalk.red('[openPathCrossPlatform] xdg-open failed:'), error);
-            // Fallback to shell.openPath
-            shell.openPath(targetPath).then((result) => {
-              if (result) {
-                resolve({ success: false, error: result });
-              } else {
-                resolve({ success: true });
-              }
-            });
-          } else {
-            log.info(chalk.green('[openPathCrossPlatform] Successfully opened with xdg-open'));
-            resolve({ success: true });
-          }
-        });
+        // Method 1: Use /bin/sh to break out of Wine and run xdg-open natively
+        // This spawns a native Linux shell process
+        const tryNativeShell = () => {
+          log.info(chalk.cyan('[openPathCrossPlatform] Trying native shell with xdg-open...'));
+          exec(`/bin/sh -c 'xdg-open "${unixPath}"'`, { env: { ...process.env, DISPLAY: process.env.DISPLAY || ':0' } }, (error) => {
+            if (error) {
+              log.warn(chalk.yellow('[openPathCrossPlatform] Native shell xdg-open failed:'), error.message);
+              tryWineStart();
+            } else {
+              log.info(chalk.green('[openPathCrossPlatform] Successfully opened with native xdg-open'));
+              resolve({ success: true });
+            }
+          });
+        };
+
+        // Method 2: Use Wine's 'start' command with /unix flag
+        const tryWineStart = () => {
+          log.info(chalk.cyan('[openPathCrossPlatform] Trying Wine start /unix...'));
+          exec(`start /unix "${unixPath}"`, (error) => {
+            if (error) {
+              log.warn(chalk.yellow('[openPathCrossPlatform] Wine start /unix failed:'), error.message);
+              tryWineExplorer();
+            } else {
+              log.info(chalk.green('[openPathCrossPlatform] Successfully opened with Wine start /unix'));
+              resolve({ success: true });
+            }
+          });
+        };
+
+        // Method 3: Use Wine's explorer with the Windows path
+        const tryWineExplorer = () => {
+          log.info(chalk.cyan('[openPathCrossPlatform] Trying Wine explorer...'));
+          exec(`explorer "${targetPath}"`, (error) => {
+            if (error) {
+              log.warn(chalk.yellow('[openPathCrossPlatform] Wine explorer failed:'), error.message);
+              tryShellOpen();
+            } else {
+              log.info(chalk.green('[openPathCrossPlatform] Successfully opened with Wine explorer'));
+              resolve({ success: true });
+            }
+          });
+        };
+
+        // Method 4: Fallback to Electron's shell.openPath
+        const tryShellOpen = () => {
+          log.info(chalk.cyan('[openPathCrossPlatform] Trying Electron shell.openPath fallback...'));
+          shell.openPath(targetPath).then((result) => {
+            if (result) {
+              log.error(chalk.red('[openPathCrossPlatform] All methods failed. Last error:'), result);
+              resolve({
+                success: false,
+                error: `Failed to open folder. Please navigate manually to: ${unixPath}`,
+              });
+            } else {
+              log.info(chalk.green('[openPathCrossPlatform] Successfully opened with shell.openPath'));
+              resolve({ success: true });
+            }
+          });
+        };
+
+        // Start the chain of attempts
+        tryNativeShell();
       });
     } else {
       // Native Windows - use shell.openPath

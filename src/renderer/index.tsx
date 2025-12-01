@@ -21,8 +21,67 @@ window.addEventListener('unhandledrejection', (event) => {
   );
 });
 
-// Add Ctrl + =/- and Ctrl + scroll zoom support for low resolution displays (e.g., 720p)
-// Zoom can only go down from 100%, not above
+// Base dimensions including margins
+const BASE_WIDTH = 1148;
+const BASE_HEIGHT = 673;
+
+// Save zoom level to config
+const saveZoomLevel = async (zoomLevel: number) => {
+  try {
+    if (window.electron?.writeConfig) {
+      // Read existing config first to preserve other settings
+      const existing = await window.electron.readConfig?.();
+      const existingData = existing?.success ? existing.data : {};
+      await window.electron.writeConfig({
+        ...existingData,
+        guiScale: zoomLevel,
+      });
+      log.debug(`[Zoom] Saved zoom level: ${zoomLevel}%`);
+    }
+  } catch (err) {
+    log.warn('[Zoom] Failed to save zoom level:', err);
+  }
+};
+
+const updateZoom = (newZoom: number, persist = true) => {
+  document.body.style.zoom = `${newZoom}%`;
+
+  // Resize window to match zoom level
+  if (window.electron?.windowControls?.setSize) {
+    const newWidth = Math.round(BASE_WIDTH * (newZoom / 100));
+    const newHeight = Math.round(BASE_HEIGHT * (newZoom / 100));
+    window.electron.windowControls.setSize(newWidth, newHeight);
+  }
+  log.debug(`[Zoom] Updated to ${newZoom}%`);
+
+  // Save to config (debounced to avoid too many writes)
+  if (persist) {
+    saveZoomLevel(newZoom);
+  }
+};
+
+// Load saved zoom level on startup
+const loadSavedZoom = async () => {
+  try {
+    if (window.electron?.readConfig) {
+      const result = await window.electron.readConfig();
+      if (result?.success && result.data?.guiScale) {
+        const savedZoom = Number(result.data.guiScale);
+        if (savedZoom >= 50 && savedZoom <= 150) {
+          log.debug(`[Zoom] Restoring saved zoom level: ${savedZoom}%`);
+          updateZoom(savedZoom, false); // Don't persist on load
+        }
+      }
+    }
+  } catch (err) {
+    log.warn('[Zoom] Failed to load saved zoom level:', err);
+  }
+};
+
+// Load saved zoom after a short delay to ensure electron is ready
+setTimeout(loadSavedZoom, 100);
+
+// Add Ctrl + =/- and Ctrl + scroll zoom support
 window.addEventListener('keydown', (event) => {
   // Check for Ctrl + = or Ctrl + + (zoom in / scale up)
   const isZoomIn = (event.key === '+' || event.key === '=') && event.ctrlKey;
@@ -33,39 +92,39 @@ window.addEventListener('keydown', (event) => {
     event.preventDefault();
     const currentZoom = (document.body.style.zoom as any) || '100%';
     const zoomLevel = parseFloat(currentZoom);
-    const newZoom = Math.min(zoomLevel + 10, 100); // Max 100%
-    document.body.style.zoom = `${newZoom}%`;
-    log.debug(`[Zoom] Increased to ${newZoom}%`);
+    const newZoom = Math.min(zoomLevel + 10, 150); // Max 150%
+    updateZoom(newZoom);
   } else if (isZoomOut) {
     event.preventDefault();
     const currentZoom = (document.body.style.zoom as any) || '100%';
     const zoomLevel = parseFloat(currentZoom);
     const newZoom = Math.max(zoomLevel - 10, 50); // Min 50%
-    document.body.style.zoom = `${newZoom}%`;
-    log.debug(`[Zoom] Decreased to ${newZoom}%`);
+    updateZoom(newZoom);
   }
 });
 
 // Add Ctrl + mouse scroll zoom support
-window.addEventListener('wheel', (event) => {
-  if (event.ctrlKey) {
-    event.preventDefault();
-    const currentZoom = (document.body.style.zoom as any) || '100%';
-    const zoomLevel = parseFloat(currentZoom);
+window.addEventListener(
+  'wheel',
+  (event) => {
+    if (event.ctrlKey) {
+      event.preventDefault();
+      const currentZoom = (document.body.style.zoom as any) || '100%';
+      const zoomLevel = parseFloat(currentZoom);
 
-    if (event.deltaY < 0) {
-      // Scroll up = zoom in (scale up towards 100%)
-      const newZoom = Math.min(zoomLevel + 5, 100); // Max 100%
-      document.body.style.zoom = `${newZoom}%`;
-      log.debug(`[Zoom] Scroll increased to ${newZoom}%`);
-    } else if (event.deltaY > 0) {
-      // Scroll down = zoom out (scale down)
-      const newZoom = Math.max(zoomLevel - 5, 50); // Min 50%
-      document.body.style.zoom = `${newZoom}%`;
-      log.debug(`[Zoom] Scroll decreased to ${newZoom}%`);
+      if (event.deltaY < 0) {
+        // Scroll up = zoom in
+        const newZoom = Math.min(zoomLevel + 5, 150); // Max 150%
+        updateZoom(newZoom);
+      } else if (event.deltaY > 0) {
+        // Scroll down = zoom out
+        const newZoom = Math.max(zoomLevel - 5, 50); // Min 50%
+        updateZoom(newZoom);
+      }
     }
-  }
-}, { passive: false });
+  },
+  { passive: false },
+);
 
 const container = document.getElementById('root');
 if (!container) {

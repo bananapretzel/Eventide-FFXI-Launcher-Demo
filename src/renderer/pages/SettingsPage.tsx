@@ -89,6 +89,7 @@ function Row({ children }: { children: React.ReactNode }) {
 /**
  * Reusable Tooltip component with proper positioning
  * Uses dynamic positioning to prevent issues with scrolling
+ * Accounts for CSS zoom for Wine/Linux compatibility
  */
 function Tooltip({
   content,
@@ -104,8 +105,12 @@ function Tooltip({
   const handleMouseEnter = () => {
     if (tooltipRef.current && iconRef.current) {
       const iconRect = iconRef.current.getBoundingClientRect();
-      tooltipRef.current.style.left = `${iconRect.left}px`;
-      tooltipRef.current.style.top = `${iconRect.bottom + 8}px`;
+      // Account for CSS zoom - get current zoom level from body
+      const zoomStr = document.body.style.zoom || '100%';
+      const zoom = parseFloat(zoomStr) / 100 || 1;
+      // Adjust coordinates for zoom (Wine/Linux compatibility)
+      tooltipRef.current.style.left = `${iconRect.left / zoom}px`;
+      tooltipRef.current.style.top = `${(iconRect.bottom + 8) / zoom}px`;
     }
   };
 
@@ -139,8 +144,12 @@ function Field({
   const handleMouseEnter = () => {
     if (tooltipRef.current && iconRef.current) {
       const iconRect = iconRef.current.getBoundingClientRect();
-      tooltipRef.current.style.left = `${iconRect.left}px`;
-      tooltipRef.current.style.top = `${iconRect.bottom + 8}px`;
+      // Account for CSS zoom - get current zoom level from body
+      const zoomStr = document.body.style.zoom || '100%';
+      const zoom = parseFloat(zoomStr) / 100 || 1;
+      // Adjust coordinates for zoom (Wine/Linux compatibility)
+      tooltipRef.current.style.left = `${iconRect.left / zoom}px`;
+      tooltipRef.current.style.top = `${(iconRect.bottom + 8) / zoom}px`;
     }
   };
 
@@ -296,7 +305,7 @@ function LauncherUpdatesCard({
   const getButtonConfig = () => {
     if (isChecking || updateStatus === 'checking') {
       return {
-        text: 'CHECKING...',
+        text: 'Checking...',
         action: handleCheckForUpdates,
         disabled: true,
         style: {},
@@ -304,7 +313,7 @@ function LauncherUpdatesCard({
     }
     if (updateStatus === 'available') {
       return {
-        text: isDownloading ? 'DOWNLOADING...' : 'DOWNLOAD UPDATE',
+        text: isDownloading ? 'Downloading...' : 'Download Update',
         action: handleDownloadUpdate,
         disabled: isDownloading,
         style: { background: 'var(--accent-dark)' },
@@ -312,7 +321,7 @@ function LauncherUpdatesCard({
     }
     if (updateStatus === 'downloading') {
       return {
-        text: `DOWNLOADING... ${downloadProgress.toFixed(0)}%`,
+        text: `Downloading...`,
         action: handleDownloadUpdate,
         disabled: true,
         style: { background: 'var(--accent-dark)' },
@@ -320,7 +329,7 @@ function LauncherUpdatesCard({
     }
     if (updateStatus === 'downloaded') {
       return {
-        text: 'INSTALL UPDATE & RESTART',
+        text: 'Install Update & Restart',
         action: handleInstallUpdate,
         disabled: false,
         style: { background: 'var(--success)' },
@@ -338,26 +347,32 @@ function LauncherUpdatesCard({
   const buttonConfig = getButtonConfig();
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-          marginBottom: '4px',
-        }}
-      >
-        <span style={{ fontWeight: 500, color: 'var(--ink)' }}>
-          Launcher Update
-        </span>
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-        <p
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        justifyContent: 'space-between',
+        gap: '16px',
+      }}
+    >
+      <div style={{ flex: 1 }}>
+        <div
           style={{
-            margin: 0,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            marginBottom: '4px',
+          }}
+        >
+          <span style={{ fontWeight: 500, color: 'var(--ink)' }}>
+            Launcher Update
+          </span>
+        </div>
+        <span
+          style={{
+            fontSize: '13px',
             color: 'var(--ink-soft)',
-            fontSize: '14px',
-            flex: 1,
+            lineHeight: '1.4',
           }}
         >
           {updateStatus === 'checking' && 'Checking for updates...'}
@@ -371,17 +386,17 @@ function LauncherUpdatesCard({
           {updateStatus === 'downloaded' && 'Update ready to install!'}
           {updateStatus === 'error' && 'Error checking for updates.'}
           {updateStatus === 'idle' && 'Check for launcher updates.'}
-        </p>
-        <button
-          type="button"
-          className="btn"
-          onClick={buttonConfig.action}
-          disabled={buttonConfig.disabled}
-          style={{ minWidth: '200px', width: 'auto', ...buttonConfig.style }}
-        >
-          {buttonConfig.text}
-        </button>
+        </span>
       </div>
+      <button
+        type="button"
+        className="btn"
+        onClick={buttonConfig.action}
+        disabled={buttonConfig.disabled}
+        style={{ minWidth: '200px', flexShrink: 0, ...buttonConfig.style }}
+      >
+        {buttonConfig.text}
+      </button>
     </div>
   );
 }

@@ -1293,8 +1293,6 @@ app.on('ready', () => {
 
   // Security: Prevent unauthorized window creation
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    log.warn(chalk.yellow(`[Security] Blocked attempt to open new window: ${url}`));
-
     // Only allow opening safe URLs in external browser
     if (isUrlSafeForExternal(url)) {
       shell.openExternal(url).catch(err =>
@@ -1362,6 +1360,19 @@ ipcMain.on('ipc-example', async (event, arg) => {
 ipcMain.on('window:minimize', () => {
   if (mainWindow) {
     mainWindow.minimize();
+  }
+});
+
+ipcMain.on('window:set-size', (event, width, height) => {
+  if (mainWindow) {
+    const bounds = mainWindow.getBounds();
+    const display = screen.getDisplayMatching(bounds);
+    const { width: maxWidth, height: maxHeight } = display.workAreaSize;
+
+    const newWidth = Math.min(Math.round(width), maxWidth);
+    const newHeight = Math.min(Math.round(height), maxHeight);
+
+    mainWindow.setSize(newWidth, newHeight);
   }
 });
 
@@ -1537,21 +1548,21 @@ ipcMain.handle(
   'write-config',
   async (
     _event,
-    data: { username: string; password: string; rememberCredentials: boolean },
+    data: { username?: string; password?: string; rememberCredentials?: boolean; guiScale?: number },
   ) => {
     try {
       // Sanitize inputs to remove control characters
-      const sanitizedUsername = sanitizeInput(data.username);
-      const sanitizedPassword = sanitizeInput(data.password);
+      const sanitizedUsername = data.username ? sanitizeInput(data.username) : '';
+      const sanitizedPassword = data.password ? sanitizeInput(data.password) : '';
 
       // Validate boolean input
-      const rememberCredentials = Boolean(data.rememberCredentials);
+      const rememberCredentials = data.rememberCredentials !== undefined ? Boolean(data.rememberCredentials) : undefined;
 
       const paths = getEventidePaths();
       ensureDirs(false);
       const configPath = paths.config;
       // Read the existing config, but do NOT spread or copy any password field
-      let existingConfig = {};
+      let existingConfig: Record<string, any> = {};
       if (fs.existsSync(configPath)) {
         try {
           existingConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
@@ -1569,32 +1580,44 @@ ipcMain.handle(
         if ('username' in existingConfig) delete existingConfig.username;
       }
       // Only store non-sensitive fields and preserve other settings (except credentials)
-      const configData = {
+      const configData: Record<string, any> = {
         ...existingConfig,
-        rememberCredentials: data.rememberCredentials,
         launcherVersion: app.getVersion(),
       };
-      // Handle both username and password in keytar only
-      if (rememberCredentials && sanitizedUsername && sanitizedPassword) {
-        log.info(chalk.cyan('[keytar] Saving credentials to keytar'));
-        await keytar.setPassword(
-          SERVICE_NAME,
-          KEYTAR_ACCOUNT_USERNAME,
-          sanitizedUsername,
-        );
-        await keytar.setPassword(
-          SERVICE_NAME,
-          KEYTAR_ACCOUNT_PASSWORD,
-          sanitizedPassword,
-        );
-        log.info(chalk.cyan('[keytar] Credentials saved'));
-      } else {
-        log.info(chalk.cyan('[keytar] Deleting credentials from keytar'));
-        // Add delay to prevent race conditions with password deletion
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        await keytar.deletePassword(SERVICE_NAME, KEYTAR_ACCOUNT_USERNAME);
-        await keytar.deletePassword(SERVICE_NAME, KEYTAR_ACCOUNT_PASSWORD);
-        log.info(chalk.cyan('[keytar] Credentials deleted'));
+
+      // Only update rememberCredentials if explicitly provided
+      if (rememberCredentials !== undefined) {
+        configData.rememberCredentials = rememberCredentials;
+      }
+
+      // Preserve or update guiScale
+      if (data.guiScale !== undefined && typeof data.guiScale === 'number') {
+        configData.guiScale = data.guiScale;
+      }
+
+      // Handle both username and password in keytar only (when credentials are being saved)
+      if (rememberCredentials !== undefined) {
+        if (rememberCredentials && sanitizedUsername && sanitizedPassword) {
+          log.info(chalk.cyan('[keytar] Saving credentials to keytar'));
+          await keytar.setPassword(
+            SERVICE_NAME,
+            KEYTAR_ACCOUNT_USERNAME,
+            sanitizedUsername,
+          );
+          await keytar.setPassword(
+            SERVICE_NAME,
+            KEYTAR_ACCOUNT_PASSWORD,
+            sanitizedPassword,
+          );
+          log.info(chalk.cyan('[keytar] Credentials saved'));
+        } else if (rememberCredentials === false) {
+          log.info(chalk.cyan('[keytar] Deleting credentials from keytar'));
+          // Add delay to prevent race conditions with password deletion
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          await keytar.deletePassword(SERVICE_NAME, KEYTAR_ACCOUNT_USERNAME);
+          await keytar.deletePassword(SERVICE_NAME, KEYTAR_ACCOUNT_PASSWORD);
+          log.info(chalk.cyan('[keytar] Credentials deleted'));
+        }
       }
       log.info(chalk.cyan('[config] Writing config file at'), configPath);
       await writeJson(configPath, configData);

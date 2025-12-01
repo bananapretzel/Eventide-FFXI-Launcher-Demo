@@ -1,7 +1,7 @@
 {
   "name": "Eventide-Launcherv2",
   "description": "A launcher for the private FFXI private server called Eventide.",
-  "version": "0.4.4",
+  "version": "0.4.8",
   "keywords": [
     "electron",
     "boilerplate",
