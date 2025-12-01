@@ -1,7 +1,7 @@
 {
   "name": "Eventide-Launcherv2",
   "description": "A launcher for the private FFXI private server called Eventide.",
-  "version": "0.4.0",
+  "version": "0.4.4",
   "keywords": [
     "electron",
     "boilerplate",
@@ -42,9 +42,7 @@
     "lint": "cross-env NODE_ENV=development eslint . --ext .js,.jsx,.ts,.tsx",
     "lint:fix": "cross-env NODE_ENV=development eslint . --ext .js,.jsx,.ts,.tsx --fix",
     "package": "ts-node ./.erb/scripts/clean.js dist && npm run build && electron-builder build --publish never && npm run build:dll",
-    "package:linux": "ts-node ./.erb/scripts/clean.js dist && npm run build && electron-builder --linux AppImage deb tar.gz --publish never && npm run build:dll",
     "publish:win": "ts-node ./.erb/scripts/clean.js dist && npm run build && electron-builder --win nsis --publish always && npm run build:dll",
-    "publish:linux": "ts-node ./.erb/scripts/clean.js dist && npm run build && electron-builder --linux AppImage deb tar.gz --publish always && npm run build:dll",
     "rebuild": "electron-rebuild --parallel --types prod,dev,optional --module-dir release/app",
     "prestart": "cross-env NODE_ENV=development TS_NODE_TRANSPILE_ONLY=true NODE_OPTIONS=\"-r ts-node/register --no-warnings\" webpack --config ./.erb/configs/webpack.config.main.dev.ts",
     "start": "ts-node ./.erb/scripts/check-port-in-use.js && npm run prestart && npm run start:renderer",
@@ -133,6 +131,7 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.3.0",
+    "react-select": "^5.10.2",
     "simple-icons": "^15.18.0",
     "unzipper": "^0.12.3"
   },
@@ -275,23 +274,6 @@
       "artifactName": "${productName}-Setup-${version}.${ext}",
       "include": "assets/installer.nsh",
       "deleteAppDataOnUninstall": false
-    },
-    "linux": {
-      "target": [
-        "AppImage",
-        "deb",
-        "tar.gz"
-      ],
-      "category": "Game",
-      "description": "A launcher for Final Fantasy XI - Eventide Server",
-      "maintainer": "Eventide Dev Team",
-      "desktop": {
-        "Name": "Eventide FFXI Launcher",
-        "Type": "Application",
-        "Categories": "Game;",
-        "Terminal": "false"
-      },
-      "icon": "assets/icon.png"
     },
     "directories": {
       "app": "release/app",

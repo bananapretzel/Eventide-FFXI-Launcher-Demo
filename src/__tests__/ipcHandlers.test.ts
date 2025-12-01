@@ -1,3 +1,7 @@
+import { ipcMain } from 'electron';
+import path from 'path';
+import { app } from 'electron';
+
 // Mock electron-log before any imports
 jest.mock('electron-log', () => {
   const mockFn = jest.fn();
@@ -23,9 +27,7 @@ jest.mock('electron-log', () => {
   return { default: mockLogger, __esModule: true };
 });
 
-import { ipcMain } from 'electron';
-import path from 'path';
-import { app } from 'electron';
+
 
 // Mock fs-extra with all needed methods
 const mockFsExtra = {

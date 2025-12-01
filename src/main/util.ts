@@ -5,6 +5,7 @@ import { app, shell } from 'electron';
 import fs from 'fs-extra';
 import log from 'electron-log';
 import chalk from 'chalk';
+import { exec } from 'child_process';
 
 export function resolveHtmlPath(htmlFileName: string) {
   if (process.env.NODE_ENV === 'development') {
@@ -17,80 +18,135 @@ export function resolveHtmlPath(htmlFileName: string) {
 }
 
 /**
- * Creates a desktop shortcut to the launcher
+ * Detects if running under Wine on Linux
+ */
+export function isRunningUnderWine(): boolean {
+  return !!(
+    process.env.WINEPREFIX ||
+    process.env.WINELOADER ||
+    process.env.WINEDEBUG !== undefined ||
+    process.env.WINE_LARGE_ADDRESS_AWARE !== undefined
+  );
+}
+
+/**
+ * Converts a Windows path to a Unix path for use with native Linux commands
+ * Wine paths like Z:\home\user\... map to /home/user/...
+ */
+function windowsToUnixPath(winPath: string): string {
+  // Handle Wine Z: drive mapping (root filesystem)
+  if (winPath.match(/^[Zz]:\\/)) {
+    return winPath.substring(2).replace(/\\/g, '/');
+  }
+  // For other drive letters, try to use winepath if available
+  return winPath.replace(/\\/g, '/');
+}
+
+/**
+ * Opens a file or folder path cross-platform, handling Wine/Linux correctly
+ * On native Windows: uses shell.openPath
+ * On Wine/Linux: uses xdg-open to open with the native Linux file manager
+ */
+export async function openPathCrossPlatform(targetPath: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (isRunningUnderWine()) {
+      // Convert Windows path to Unix path for xdg-open
+      const unixPath = windowsToUnixPath(targetPath);
+      log.info(chalk.cyan(`[openPathCrossPlatform] Running under Wine, converting path: ${targetPath} -> ${unixPath}`));
+
+      return new Promise((resolve) => {
+        // Use xdg-open which is the standard Linux way to open files/folders
+        exec(`xdg-open "${unixPath}"`, (error) => {
+          if (error) {
+            log.error(chalk.red('[openPathCrossPlatform] xdg-open failed:'), error);
+            // Fallback to shell.openPath
+            shell.openPath(targetPath).then((result) => {
+              if (result) {
+                resolve({ success: false, error: result });
+              } else {
+                resolve({ success: true });
+              }
+            });
+          } else {
+            log.info(chalk.green('[openPathCrossPlatform] Successfully opened with xdg-open'));
+            resolve({ success: true });
+          }
+        });
+      });
+    } else {
+      // Native Windows - use shell.openPath
+      const result = await shell.openPath(targetPath);
+      if (result) {
+        return { success: false, error: result };
+      }
+      return { success: true };
+    }
+  } catch (err) {
+    log.error(chalk.red('[openPathCrossPlatform] Error:'), err);
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Unknown error',
+    };
+  }
+}
+
+/**
+ * Creates a desktop shortcut to the launcher (Windows only)
  * This fixes the "desktop shortcuts not being created" bug
- * Supports Windows (.lnk) and Linux (.desktop)
+ *
+ * Note: When running under Wine on Linux, shortcut creation is skipped
+ * to avoid duplicates and Wine compatibility issues. Users should create
+ * shortcuts manually or use their desktop environment's tools.
  */
 export async function createDesktopShortcut(): Promise<{ success: boolean; error?: string }> {
   try {
+    // Only create shortcuts on native Windows, not under Wine
+    if (isRunningUnderWine()) {
+      log.info(chalk.cyan('[createDesktopShortcut] Running under Wine - skipping shortcut creation'));
+      log.info(chalk.cyan('[createDesktopShortcut] Users should create shortcuts manually via their Linux desktop environment'));
+      return { success: true };
+    }
+
+    // Windows shortcut (.lnk)
     const desktopPath = path.join(app.getPath('home'), 'Desktop');
 
-    if (process.platform === 'win32') {
-      // Windows shortcut (.lnk)
-      const shortcutPath = path.join(desktopPath, 'Eventide Launcher.lnk');
+    // Ensure desktop directory exists
+    if (!fs.existsSync(desktopPath)) {
+      log.info(chalk.yellow('[createDesktopShortcut] Desktop folder not found at:'), desktopPath);
+      return { success: true }; // Not an error, just no desktop folder
+    }
 
-      // Check if shortcut already exists
-      if (fs.existsSync(shortcutPath)) {
-        log.info(chalk.cyan('[createDesktopShortcut] Shortcut already exists at:'), shortcutPath);
-        return { success: true };
-      }
+    const shortcutPath = path.join(desktopPath, 'Eventide Launcher.lnk');
 
-      // Get the path to the launcher executable
-      const exePath = app.getPath('exe');
+    // Check if shortcut already exists
+    if (fs.existsSync(shortcutPath)) {
+      log.info(chalk.cyan('[createDesktopShortcut] Shortcut already exists at:'), shortcutPath);
+      return { success: true };
+    }
 
-      // Create the shortcut using Electron's shell.writeShortcutLink
-      const success = shell.writeShortcutLink(shortcutPath, {
-        target: exePath,
-        description: 'Eventide FFXI Launcher',
-        cwd: path.dirname(exePath),
-      });
+    // Also check for the alternative name that NSIS might create
+    const altShortcutPath = path.join(desktopPath, 'Eventide-FFXI-Launcher.lnk');
+    if (fs.existsSync(altShortcutPath)) {
+      log.info(chalk.cyan('[createDesktopShortcut] NSIS shortcut already exists at:'), altShortcutPath);
+      return { success: true };
+    }
 
-      if (success) {
-        log.info(chalk.green('[createDesktopShortcut] ✓ Desktop shortcut created successfully at:'), shortcutPath);
-        return { success: true };
-      } else {
-        log.warn(chalk.yellow('[createDesktopShortcut] Failed to create desktop shortcut'));
-        return { success: false, error: 'Failed to create shortcut (unknown reason)' };
-      }
-    } else if (process.platform === 'linux') {
-      // Linux .desktop file
-      const shortcutPath = path.join(desktopPath, 'eventide-launcher.desktop');
+    // Get the path to the launcher executable
+    const exePath = app.getPath('exe');
 
-      // Check if shortcut already exists
-      if (fs.existsSync(shortcutPath)) {
-        log.info(chalk.cyan('[createDesktopShortcut] Desktop file already exists at:'), shortcutPath);
-        return { success: true };
-      }
+    // Create the shortcut using Electron's shell.writeShortcutLink
+    const success = shell.writeShortcutLink(shortcutPath, {
+      target: exePath,
+      description: 'Eventide FFXI Launcher',
+      cwd: path.dirname(exePath),
+    });
 
-      // Get the path to the launcher executable
-      const exePath = app.getPath('exe');
-      const iconPath = path.join(path.dirname(exePath), 'resources', 'app', 'assets', 'icon.png');
-
-      // Create .desktop file content
-      const desktopFileContent = `[Desktop Entry]
-Version=1.0
-Type=Application
-Name=Eventide FFXI Launcher
-Comment=A launcher for Final Fantasy XI - Eventide Server
-Exec="${exePath}"
-Icon=${fs.existsSync(iconPath) ? iconPath : 'application-x-executable'}
-Terminal=false
-Categories=Game;
-StartupNotify=true
-`;
-
-      // Write the .desktop file
-      await fs.writeFile(shortcutPath, desktopFileContent, 'utf-8');
-
-      // Make it executable
-      await fs.chmod(shortcutPath, 0o755);
-
+    if (success) {
       log.info(chalk.green('[createDesktopShortcut] ✓ Desktop shortcut created successfully at:'), shortcutPath);
       return { success: true };
     } else {
-      // macOS or other platforms - not supported yet
-      log.info(chalk.yellow('[createDesktopShortcut] Platform not supported for desktop shortcut creation'));
-      return { success: true };
+      log.warn(chalk.yellow('[createDesktopShortcut] Failed to create desktop shortcut'));
+      return { success: false, error: 'Failed to create shortcut (unknown reason)' };
     }
   } catch (err) {
     log.error(chalk.red('[createDesktopShortcut] Error creating desktop shortcut:'), err);

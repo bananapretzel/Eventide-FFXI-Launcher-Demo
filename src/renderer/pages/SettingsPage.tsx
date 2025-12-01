@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import log from '../logger';
+import Select from '../components/Select';
 
 interface Settings {
   ffxi?: {
@@ -83,6 +84,41 @@ function Card({
 
 function Row({ children }: { children: React.ReactNode }) {
   return <div className="settings-row">{children}</div>;
+}
+
+/**
+ * Reusable Tooltip component with proper positioning
+ * Uses dynamic positioning to prevent issues with scrolling
+ */
+function Tooltip({
+  content,
+  iconStyle,
+}: {
+  content: string;
+  // eslint-disable-next-line react/require-default-props
+  iconStyle?: React.CSSProperties;
+}) {
+  const tooltipRef = React.useRef<HTMLSpanElement>(null);
+  const iconRef = React.useRef<HTMLSpanElement>(null);
+
+  const handleMouseEnter = () => {
+    if (tooltipRef.current && iconRef.current) {
+      const iconRect = iconRef.current.getBoundingClientRect();
+      tooltipRef.current.style.left = `${iconRect.left}px`;
+      tooltipRef.current.style.top = `${iconRect.bottom + 8}px`;
+    }
+  };
+
+  return (
+    <span className="tooltip-wrapper" onMouseEnter={handleMouseEnter}>
+      <span className="tooltip-icon" ref={iconRef}>
+        ?
+      </span>
+      <span className="tooltip-content" ref={tooltipRef}>
+        {content}
+      </span>
+    </span>
+  );
 }
 
 function Field({
@@ -256,8 +292,65 @@ function LauncherUpdatesCard({
     }
   };
 
+  // Determine button text and action based on current state
+  const getButtonConfig = () => {
+    if (isChecking || updateStatus === 'checking') {
+      return {
+        text: 'CHECKING...',
+        action: handleCheckForUpdates,
+        disabled: true,
+        style: {},
+      };
+    }
+    if (updateStatus === 'available') {
+      return {
+        text: isDownloading ? 'DOWNLOADING...' : 'DOWNLOAD UPDATE',
+        action: handleDownloadUpdate,
+        disabled: isDownloading,
+        style: { background: 'var(--accent-dark)' },
+      };
+    }
+    if (updateStatus === 'downloading') {
+      return {
+        text: `DOWNLOADING... ${downloadProgress.toFixed(0)}%`,
+        action: handleDownloadUpdate,
+        disabled: true,
+        style: { background: 'var(--accent-dark)' },
+      };
+    }
+    if (updateStatus === 'downloaded') {
+      return {
+        text: 'INSTALL UPDATE & RESTART',
+        action: handleInstallUpdate,
+        disabled: false,
+        style: { background: 'var(--success)' },
+      };
+    }
+    // Default: idle, up-to-date, or error - show check for updates
+    return {
+      text: 'Check For Updates',
+      action: handleCheckForUpdates,
+      disabled: false,
+      style: {},
+    };
+  };
+
+  const buttonConfig = getButtonConfig();
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+          marginBottom: '4px',
+        }}
+      >
+        <span style={{ fontWeight: 500, color: 'var(--ink)' }}>
+          Launcher Update
+        </span>
+      </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
         <p
           style={{
@@ -282,44 +375,13 @@ function LauncherUpdatesCard({
         <button
           type="button"
           className="btn"
-          onClick={handleCheckForUpdates}
-          disabled={
-            isChecking || isDownloading || updateStatus === 'downloading'
-          }
-          style={{ minWidth: '180px', width: 'auto' }}
+          onClick={buttonConfig.action}
+          disabled={buttonConfig.disabled}
+          style={{ minWidth: '200px', width: 'auto', ...buttonConfig.style }}
         >
-          {isChecking ? 'CHECKING...' : 'CHECK FOR UPDATES'}
+          {buttonConfig.text}
         </button>
       </div>
-      {updateStatus === 'available' && (
-        <button
-          type="button"
-          className="btn"
-          onClick={handleDownloadUpdate}
-          disabled={isDownloading}
-          style={{
-            background: '#3b82f6',
-            width: 'fit-content',
-            minWidth: '180px',
-          }}
-        >
-          {isDownloading ? 'DOWNLOADING...' : 'DOWNLOAD UPDATE'}
-        </button>
-      )}
-      {updateStatus === 'downloaded' && (
-        <button
-          type="button"
-          className="btn"
-          onClick={handleInstallUpdate}
-          style={{
-            background: '#10b981',
-            width: 'fit-content',
-            minWidth: '180px',
-          }}
-        >
-          INSTALL UPDATE & RESTART
-        </button>
-      )}
     </div>
   );
 }
@@ -354,18 +416,18 @@ function FFXIGeneralPanel({
             htmlFor="window-mode"
             tooltip="Choose how the game window is displayed: Fullscreen, Windowed, or Windowed Borderless."
           >
-            <select
+            <Select
               id="window-mode"
               value={settings.ffxi?.windowMode ?? 1}
-              onChange={(e) =>
-                updateSetting('ffxi.windowMode', Number(e.target.value))
+              onChange={(value) =>
+                updateSetting('ffxi.windowMode', Number(value))
               }
-              className="select"
-            >
-              <option value={0}>Fullscreen</option>
-              <option value={1}>Windowed</option>
-              <option value={2}>Windowed (Borderless)</option>
-            </select>
+              options={[
+                { value: 0, label: 'Fullscreen' },
+                { value: 1, label: 'Windowed' },
+                { value: 2, label: 'Windowed (Borderless)' },
+              ]}
+            />
           </Field>
         </Row>
 
@@ -574,18 +636,18 @@ function FFXIGraphicsPanel({
             htmlFor="tex-comp"
             tooltip="Texture Compression has three settings: High, Low, and Uncompressed. The only textures this setting actually affects are cloud and light flares. Honestly, whichever setting you choose, you will have a hard time telling the difference. The high setting compresses both flares and clouds, while the low setting uses compressed textures only for clouds."
           >
-            <select
+            <Select
               id="tex-comp"
               value={settings.ffxi?.textureCompression ?? 2}
-              onChange={(e) =>
-                updateSetting('ffxi.textureCompression', Number(e.target.value))
+              onChange={(value) =>
+                updateSetting('ffxi.textureCompression', Number(value))
               }
-              className="select"
-            >
-              <option value={0}>High</option>
-              <option value={1}>Low</option>
-              <option value={2}>Uncompressed</option>
-            </select>
+              options={[
+                { value: 0, label: 'High' },
+                { value: 1, label: 'Low' },
+                { value: 2, label: 'Uncompressed' },
+              ]}
+            />
           </Field>
         </Row>
         <Row>
@@ -594,17 +656,17 @@ function FFXIGraphicsPanel({
             htmlFor="map-comp"
             tooltip="Sets the level of quality for the game's map textures."
           >
-            <select
+            <Select
               id="map-comp"
               value={settings.ffxi?.mapCompression ?? 1}
-              onChange={(e) =>
-                updateSetting('ffxi.mapCompression', Number(e.target.value))
+              onChange={(value) =>
+                updateSetting('ffxi.mapCompression', Number(value))
               }
-              className="select"
-            >
-              <option value={0}>Low</option>
-              <option value={1}>High</option>
-            </select>
+              options={[
+                { value: 0, label: 'Low' },
+                { value: 1, label: 'High' },
+              ]}
+            />
           </Field>
         </Row>
         <Row>
@@ -613,18 +675,18 @@ function FFXIGraphicsPanel({
             htmlFor="font-comp"
             tooltip="Controls the quality of in-game text rendering. 99% of the time, you will want to set this to high."
           >
-            <select
+            <Select
               id="font-comp"
               value={settings.ffxi?.fontCompression ?? 2}
-              onChange={(e) =>
-                updateSetting('ffxi.fontCompression', Number(e.target.value))
+              onChange={(value) =>
+                updateSetting('ffxi.fontCompression', Number(value))
               }
-              className="select"
-            >
-              <option value={0}>Low</option>
-              <option value={1}>Medium</option>
-              <option value={2}>High</option>
-            </select>
+              options={[
+                { value: 0, label: 'Low' },
+                { value: 1, label: 'Medium' },
+                { value: 2, label: 'High' },
+              ]}
+            />
           </Field>
         </Row>
         <Row>
@@ -644,18 +706,18 @@ Smooth:
 
 This setting will not have a huge impact on gameplay, and turning the setting down will not free up many system resources. For that reason, it is advised to leave this on 2 (smooth). "
           >
-            <select
+            <Select
               id="env-animations"
               value={settings.ffxi?.envAnimations ?? 2}
-              onChange={(e) =>
-                updateSetting('ffxi.envAnimations', Number(e.target.value))
+              onChange={(value) =>
+                updateSetting('ffxi.envAnimations', Number(value))
               }
-              className="select"
-            >
-              <option value={0}>Off</option>
-              <option value={1}>Normal</option>
-              <option value={2}>Smooth</option>
-            </select>
+              options={[
+                { value: 0, label: 'Off' },
+                { value: 1, label: 'Normal' },
+                { value: 2, label: 'Smooth' },
+              ]}
+            />
           </Field>
         </Row>
       </Card>
@@ -667,22 +729,22 @@ This setting will not have a huge impact on gameplay, and turning the setting do
             htmlFor="mip-mapping"
             tooltip="MIP Mapping is the process of reducing large textures into smaller ones to optimize their display at a distance. Higher values reduce shimmer and improve visual quality at a distance, while alleviating strain on the GPU at the cost of using more VRAM."
           >
-            <select
+            <Select
               id="mip-mapping"
               value={settings.ffxi?.mipMapping ?? 6}
-              onChange={(e) =>
-                updateSetting('ffxi.mipMapping', Number(e.target.value))
+              onChange={(value) =>
+                updateSetting('ffxi.mipMapping', Number(value))
               }
-              className="select"
-            >
-              <option value={0}>Off</option>
-              <option value={1}>1</option>
-              <option value={2}>2</option>
-              <option value={3}>3</option>
-              <option value={4}>4</option>
-              <option value={5}>5</option>
-              <option value={6}>High</option>
-            </select>
+              options={[
+                { value: 0, label: 'Off' },
+                { value: 1, label: '1' },
+                { value: 2, label: '2' },
+                { value: 3, label: '3' },
+                { value: 4, label: '4' },
+                { value: 5, label: '5' },
+                { value: 6, label: 'High' },
+              ]}
+            />
           </Field>
         </Row>
         <Row>
@@ -709,18 +771,9 @@ This setting will not have a huge impact on gameplay, and turning the setting do
   );
 }
 
-function getDefaultFFXISavePath(platform: string) {
-  if (platform === 'win32') {
-    return 'C:\\Program Files (x86)\\Square Enix\\FINAL FANTASY XI';
-  }
-  if (platform === 'linux') {
-    // Example Linux default, adjust as needed
-    return '~/PlayOnLinux/FINAL FANTASY XI';
-  }
-  if (platform === 'darwin') {
-    return '/Applications/FINAL FANTASY XI';
-  }
-  return '';
+function getDefaultFFXISavePath(_platform: string) {
+  // Always use Windows path - Wine handles path translation
+  return 'C:\\Program Files (x86)\\Square Enix\\FINAL FANTASY XI';
 }
 
 function FFXIFeaturesPanel({
@@ -1132,7 +1185,7 @@ export default function SettingsPage() {
                     type="checkbox"
                     checked
                     disabled
-                    style={{ opacity: 0.6, cursor: 'not-allowed' }}
+                    style={{ background: '#cfd8dc' }}
                   />
                   <span aria-hidden />
                 </div>
@@ -1146,53 +1199,106 @@ export default function SettingsPage() {
             {/* Launcher Updates Section */}
             <LauncherUpdatesCard handleShowToast={handleShowToast} />
 
-            {/* Quick Access Buttons */}
+            {/* Quick Access Buttons - stacked on the right */}
             <div
               style={{
                 display: 'flex',
-                gap: '12px',
-                flexWrap: 'wrap',
+                alignItems: 'flex-start',
+                justifyContent: 'space-between',
+                gap: '16px',
                 marginTop: '16px',
                 paddingTop: '16px',
                 borderTop: '1px solid var(--border-soft, #e5e7eb)',
               }}
             >
-              <button
-                type="button"
-                className="btn"
-                onClick={async () => {
-                  try {
-                    const result =
-                      await window.electron.invoke('open-config-folder');
-                    if (!result.success) {
+              <div style={{ flex: 1 }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    marginBottom: '4px',
+                  }}
+                >
+                  <span style={{ fontWeight: 500, color: 'var(--ink)' }}>
+                    Quick Access
+                  </span>
+                </div>
+                <span
+                  style={{
+                    fontSize: '13px',
+                    color: 'var(--ink-soft)',
+                    lineHeight: '1.4',
+                  }}
+                >
+                  Open configuration files and logs for troubleshooting.
+                </span>
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px',
+                  flexShrink: 0,
+                }}
+              >
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={async () => {
+                    try {
+                      const result =
+                        await window.electron.invoke('open-config-folder');
+                      if (!result.success) {
+                        handleShowToast('Failed to open folder');
+                      }
+                    } catch {
                       handleShowToast('Failed to open folder');
                     }
-                  } catch {
-                    handleShowToast('Failed to open folder');
-                  }
-                }}
-                style={{ minWidth: '200px' }}
-              >
-                📂 Open Configuration Folder
-              </button>
-              <button
-                type="button"
-                className="btn"
-                onClick={async () => {
-                  try {
-                    const result =
-                      await window.electron.invoke('open-log-file');
-                    if (!result.success) {
+                  }}
+                  style={{ minWidth: '200px' }}
+                >
+                  Open Config Folder
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={async () => {
+                    try {
+                      const result =
+                        await window.electron.invoke('open-log-file');
+                      if (!result.success) {
+                        handleShowToast('Failed to open log file');
+                      }
+                    } catch {
                       handleShowToast('Failed to open log file');
                     }
-                  } catch {
-                    handleShowToast('Failed to open log file');
-                  }
-                }}
-                style={{ minWidth: '160px' }}
-              >
-                📄 Open Log File
-              </button>
+                  }}
+                  style={{ minWidth: '200px' }}
+                >
+                  Open Log File
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={async () => {
+                    try {
+                      const result =
+                        await window.electron.invoke('open-game-folder');
+                      if (!result.success) {
+                        handleShowToast(
+                          result.error || 'Failed to open game folder',
+                        );
+                      }
+                    } catch {
+                      handleShowToast('Failed to open game folder');
+                    }
+                  }}
+                  style={{ minWidth: '200px' }}
+                >
+                  Open Game Files
+                </button>
+              </div>
             </div>
 
             {/* Advanced Troubleshooting Section */}
@@ -1227,14 +1333,7 @@ export default function SettingsPage() {
                     <span style={{ fontWeight: 500, color: 'var(--ink)' }}>
                       Reapply Patches
                     </span>
-                    <span className="tooltip-wrapper">
-                      <span className="tooltip-icon">?</span>
-                      <span className="tooltip-content">
-                        Reset the game version to 1.0.0 and redownload all
-                        patches. Use this if game files are corrupted or updates
-                        have failed.
-                      </span>
-                    </span>
+                    <Tooltip content="Reset the game version to 1.0.0 and redownload all patches. Use this if game files are corrupted or updates have failed." />
                   </div>
                   <span
                     style={{
@@ -1281,6 +1380,8 @@ export default function SettingsPage() {
                   alignItems: 'flex-start',
                   justifyContent: 'space-between',
                   gap: '16px',
+                  paddingTop: '16px',
+                  borderTop: '1px solid var(--border-soft, #e5e7eb)',
                 }}
               >
                 <div style={{ flex: 1 }}>
@@ -1295,14 +1396,7 @@ export default function SettingsPage() {
                     <span style={{ fontWeight: 500, color: 'var(--ink)' }}>
                       Force Start Game
                     </span>
-                    <span className="tooltip-wrapper">
-                      <span className="tooltip-icon">?</span>
-                      <span className="tooltip-content">
-                        Bypass launcher checks and attempt to start the game
-                        immediately. Use this if the Play button is disabled
-                        incorrectly.
-                      </span>
-                    </span>
+                    <Tooltip content="Bypass launcher checks and attempt to start the game immediately. Use this if the Play button is disabled incorrectly." />
                   </div>
                   <span
                     style={{
@@ -1343,6 +1437,93 @@ export default function SettingsPage() {
                   style={{ minWidth: '100px', flexShrink: 0 }}
                 >
                   Launch
+                </button>
+              </div>
+
+              {/* Uninstall Section */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  justifyContent: 'space-between',
+                  gap: '16px',
+                  paddingTop: '16px',
+                  borderTop: '1px solid var(--border-soft, #e5e7eb)',
+                }}
+              >
+                <div style={{ flex: 1 }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      marginBottom: '4px',
+                    }}
+                  >
+                    <span style={{ fontWeight: 500, color: '#dc2626' }}>
+                      Uninstall
+                    </span>
+                    <Tooltip
+                      content="This will permanently delete all game files, downloads, and launcher data. This action cannot be undone."
+                      iconStyle={{ color: '#dc2626', borderColor: '#dc2626' }}
+                    />
+                  </div>
+                  <span
+                    style={{
+                      fontSize: '13px',
+                      color: 'var(--ink-soft)',
+                      lineHeight: '1.4',
+                    }}
+                  >
+                    Remove all game files, downloads, and launcher
+                    configuration.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  id="uninstall-game"
+                  className="btn"
+                  onClick={async () => {
+                    const confirmed = window.confirm(
+                      'Are you sure you want to uninstall?\n\n' +
+                        'This will permanently delete:\n' +
+                        '• All game files\n' +
+                        '• Downloaded content\n' +
+                        '• Launcher configuration\n\n' +
+                        'This action cannot be undone.',
+                    );
+                    if (!confirmed) return;
+
+                    try {
+                      const result =
+                        await window.electron.invoke('uninstall-game');
+                      if (result.success) {
+                        handleShowToast(
+                          'Uninstall complete. The launcher will now close.',
+                        );
+                        setTimeout(() => {
+                          window.electron?.windowControls?.close?.();
+                        }, 2000);
+                      } else {
+                        handleShowToast(
+                          `Failed to uninstall: ${result.error || 'Unknown error'}`,
+                        );
+                      }
+                    } catch (err) {
+                      handleShowToast(
+                        `Error during uninstall: ${err instanceof Error ? err.message : 'Unknown error'}`,
+                      );
+                    }
+                  }}
+                  style={{
+                    minWidth: '100px',
+                    flexShrink: 0,
+                    background: '#dc2626',
+                    borderColor: '#dc2626',
+                    color: 'white',
+                  }}
+                >
+                  Uninstall
                 </button>
               </div>
             </div>

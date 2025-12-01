@@ -1,4 +1,8 @@
 // Mock electron-log/renderer before any imports
+import '@testing-library/jest-dom';
+import { render } from '@testing-library/react';
+import App from '../renderer/App';
+
 jest.mock('electron-log/renderer', () => {
   const mockFn = jest.fn();
   const mockLogger = {
@@ -17,10 +21,6 @@ jest.mock('electron-log/renderer', () => {
   };
   return { default: mockLogger, __esModule: true };
 });
-
-import '@testing-library/jest-dom';
-import { render } from '@testing-library/react';
-import App from '../renderer/App';
 
 // Mock the electron API
 const mockElectron = {

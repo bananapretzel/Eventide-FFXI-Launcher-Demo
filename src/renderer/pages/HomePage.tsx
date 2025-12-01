@@ -421,7 +421,36 @@ export default function HomePage(props: HomePageProps) {
         } else {
           // Default: re-check status
           dispatch({ type: 'CHECK' });
-          await safeInvoke('game:check');
+          try {
+            const res = await safeInvoke<any>('game:check');
+            const { launcherState, latestVersion, installedVersion } =
+              res ?? {};
+            if (launcherState === 'missing') {
+              dispatch({ type: 'SET', state: { status: 'missing' } });
+            } else if (launcherState === 'needs-extraction') {
+              dispatch({ type: 'SET', state: { status: 'needs-extraction' } });
+            } else if (launcherState === 'update-available') {
+              dispatch({
+                type: 'SET',
+                state: {
+                  status: 'update-available',
+                  remoteVersion: latestVersion,
+                  installedVersion,
+                },
+              });
+            } else if (launcherState === 'ready') {
+              dispatch({ type: 'SET', state: { status: 'ready' } });
+            } else {
+              dispatch({ type: 'SET', state: { status: 'missing' } });
+            }
+          } catch (checkErr) {
+            dispatch({
+              type: 'ERROR',
+              msg: String(checkErr),
+              isRetryable: true,
+              lastOperation: 'check',
+            });
+          }
         }
       }
     } catch (error) {
@@ -453,7 +482,7 @@ export default function HomePage(props: HomePageProps) {
       case 'downloading':
         return 'Downloading...';
       case 'paused':
-        return 'Resume';
+        return 'Paused';
       case 'extracting':
         return 'Extracting...';
       case 'update-available':
@@ -463,7 +492,7 @@ export default function HomePage(props: HomePageProps) {
       case 'launching':
         return 'Launching…';
       case 'error':
-        return '⚠️ Retry';
+        return 'Retry';
       default:
         return 'Play';
     }
@@ -491,7 +520,19 @@ export default function HomePage(props: HomePageProps) {
           'Server may be temporarily offline',
           'Try again in a few minutes',
         ],
-        icon: '🌐',
+      };
+    }
+
+    // HTTP 416 Range Not Satisfiable - resume download issue
+    if (msg.includes('416') || msg.includes('range not satisfiable')) {
+      return {
+        title: 'Download Resume Error',
+        message: 'Unable to resume the download from where it left off.',
+        suggestions: [
+          'Click "Clear Downloads" to start fresh',
+          'The partial download may have become corrupted',
+          'The server file may have been updated',
+        ],
       };
     }
 
@@ -510,7 +551,6 @@ export default function HomePage(props: HomePageProps) {
           'Try clearing downloads and downloading again',
           'Check available disk space',
         ],
-        icon: '🔍',
       };
     }
 
@@ -525,7 +565,6 @@ export default function HomePage(props: HomePageProps) {
           'Check that antivirus is not blocking extraction',
           'Try clearing downloads and re-downloading',
         ],
-        icon: '📦',
       };
     }
 
@@ -542,7 +581,6 @@ export default function HomePage(props: HomePageProps) {
           'Free up at least 10 GB of disk space',
           'Choose a different installation directory',
         ],
-        icon: '💾',
       };
     }
 
@@ -560,7 +598,6 @@ export default function HomePage(props: HomePageProps) {
           'Check folder permissions',
           'Choose a different installation directory',
         ],
-        icon: '🔒',
       };
     }
 
@@ -574,7 +611,6 @@ export default function HomePage(props: HomePageProps) {
           'Check your internet connection',
           'Contact support if the issue persists',
         ],
-        icon: '🔧',
       };
     }
 
@@ -587,7 +623,6 @@ export default function HomePage(props: HomePageProps) {
         'Check the log file for details',
         'Contact support if the issue persists',
       ],
-      icon: '⚠️',
     };
   };
 
@@ -697,8 +732,8 @@ export default function HomePage(props: HomePageProps) {
             <span>Remember credentials</span>
           </label>
 
-          {/* Installation Directory Selector - Only show when missing or not downloaded yet */}
-          {(state.status === 'missing' || state.status === 'checking') && (
+          {/* Installation Directory Selector - Only show when missing, not during checking */}
+          {state.status === 'missing' && (
             <div
               style={{
                 marginTop: 12,
@@ -722,12 +757,14 @@ export default function HomePage(props: HomePageProps) {
               <div
                 style={{
                   fontSize: 11,
-                  color: 'var(--muted)',
+                  color: currentInstallDir ? 'var(--muted)' : '#ef4444',
                   marginBottom: 8,
                   opacity: 0.8,
+                  fontStyle: currentInstallDir ? 'normal' : 'italic',
                 }}
               >
-                {currentInstallDir}
+                {currentInstallDir ||
+                  'No directory selected - please choose a location below'}
               </div>
               <button
                 type="button"
@@ -750,19 +787,20 @@ export default function HomePage(props: HomePageProps) {
                   e.currentTarget.style.background = 'rgba(59, 130, 246, 0.2)';
                 }}
               >
-                📁 Choose Installation Directory
+                Choose Installation Directory
               </button>
             </div>
           )}
 
           <button
             type="button"
-            className={`play-btn ${state.status === 'error' ? 'is-error' : ''} ${state.status === 'paused' ? 'is-paused' : ''}`}
+            className={`play-btn ${state.status === 'error' ? 'is-error' : ''}`}
             disabled={
               state.status === 'checking' ||
               state.status === 'downloading' ||
               state.status === 'extracting' ||
               state.status === 'launching' ||
+              state.status === 'paused' ||
               (state.status === 'ready' && !canPlay) ||
               (state.status === 'missing' && !currentInstallDir)
             }
@@ -771,7 +809,7 @@ export default function HomePage(props: HomePageProps) {
             {renderLabel()}
           </button>
 
-          {state.status === 'downloading' && !isUpdating && (
+          {state.status === 'downloading' && (
             <div style={{ marginTop: 8 }}>
               <div
                 style={{
@@ -787,7 +825,9 @@ export default function HomePage(props: HomePageProps) {
                   style={{
                     width: `${getProgress(state) ?? 0}%`,
                     height: '100%',
-                    background: 'linear-gradient(90deg,#6ee7b7,#3b82f6)',
+                    background: isUpdating
+                      ? 'linear-gradient(90deg,#facc15,#f97316)'
+                      : 'linear-gradient(90deg,#6ee7b7,#3b82f6)',
                     transition: 'width 200ms linear',
                   }}
                 />
@@ -814,19 +854,16 @@ export default function HomePage(props: HomePageProps) {
                 </span>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ fontFamily: 'monospace' }}>
-                    ⏱️ {formatElapsedTime(elapsedTime)}
+                    {formatElapsedTime(elapsedTime)}
                   </span>
                   <button
                     type="button"
                     onClick={async () => {
                       try {
+                        // Just call pause - the main process will send game:status event
+                        // with accurate bytesDownloaded/totalBytes from disk
                         await safeInvoke('game:pause-download');
-                        dispatch({
-                          type: 'PAUSE',
-                          p: getProgress(state) || 0,
-                          downloaded: getDownloaded(state),
-                          total: getTotal(state),
-                        });
+                        // Don't dispatch locally - let the game:status event from main update state
                       } catch (err) {
                         log.error('[HomePage] Pause error:', err);
                       }
@@ -873,7 +910,6 @@ export default function HomePage(props: HomePageProps) {
                     width: `${getProgress(state) ?? 0}%`,
                     height: '100%',
                     background: 'linear-gradient(90deg,#facc15,#eab308)',
-                    transition: 'width 200ms linear',
                   }}
                 />
               </div>
@@ -882,6 +918,9 @@ export default function HomePage(props: HomePageProps) {
                   marginTop: 6,
                   fontSize: 12,
                   color: 'var(--muted)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
                 }}
               >
                 <span>
@@ -889,16 +928,64 @@ export default function HomePage(props: HomePageProps) {
                     const d = getDownloaded(state);
                     const t = getTotal(state);
                     if (typeof t === 'number' && t > 0) {
-                      return `⏸️ Paused: ${formatBytes(d)} / ${formatBytes(t)} (${getProgress(state) ?? 0}%)`;
+                      return `Paused: ${formatBytes(d)} / ${formatBytes(t)} (${getProgress(state) ?? 0}%)`;
                     }
-                    return `⏸️ Paused: ${formatBytes(d)} downloaded`;
+                    return `Paused: ${formatBytes(d)} downloaded`;
                   })()}
+                </span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontFamily: 'monospace' }}>
+                    {formatElapsedTime(elapsedTime)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        dispatch({
+                          type: 'SET',
+                          state: {
+                            status: 'downloading',
+                            progress: getProgress(state) || 0,
+                            downloaded: getDownloaded(state),
+                            total: getTotal(state),
+                          },
+                        });
+                        await safeInvoke('game:resume-download');
+                      } catch (err) {
+                        log.error('[HomePage] Resume error:', err);
+                        dispatch({
+                          type: 'ERROR',
+                          msg: String(err),
+                          isRetryable: true,
+                          lastOperation: 'download',
+                        });
+                      }
+                    }}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: 4,
+                      fontSize: 16,
+                      opacity: 0.7,
+                      transition: 'opacity 0.2s',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.opacity = '1';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.opacity = '0.7';
+                    }}
+                    title="Resume download"
+                  >
+                    ▶️
+                  </button>
                 </span>
               </div>
             </div>
           )}
 
-          {state.status === 'extracting' && !isUpdating && (
+          {state.status === 'extracting' && (
             <div style={{ marginTop: 8 }}>
               <div
                 style={{
@@ -914,7 +1001,9 @@ export default function HomePage(props: HomePageProps) {
                   style={{
                     width: `${getProgress(state) ?? 0}%`,
                     height: '100%',
-                    background: 'linear-gradient(90deg,#a78bfa,#6366f1)',
+                    background: isUpdating
+                      ? 'linear-gradient(90deg,#facc15,#f97316)'
+                      : 'linear-gradient(90deg,#a78bfa,#6366f1)',
                     transition: 'width 200ms linear',
                   }}
                 />
@@ -944,7 +1033,7 @@ export default function HomePage(props: HomePageProps) {
                   })()}
                 </span>
                 <span style={{ fontFamily: 'monospace' }}>
-                  ⏱️ {formatElapsedTime(elapsedTime)}
+                  {formatElapsedTime(elapsedTime)}
                 </span>
               </div>
             </div>
@@ -953,14 +1042,6 @@ export default function HomePage(props: HomePageProps) {
           {state.status === 'error' && (
             <div className="error-card">
               <div className="error-header">
-                <div className="error-icon">
-                  {(() => {
-                    const errorInfo = categorizeError(
-                      (state as any).message || 'Unknown error',
-                    );
-                    return errorInfo.icon;
-                  })()}
-                </div>
                 <div className="error-content">
                   <h4 className="error-title">
                     {(() => {
@@ -991,13 +1072,6 @@ export default function HomePage(props: HomePageProps) {
                 </div>
               </div>
               <div className="error-actions">
-                <button
-                  type="button"
-                  className="error-btn"
-                  onClick={handleActionClick}
-                >
-                  Retry Now
-                </button>
                 <button
                   type="button"
                   className="error-btn secondary"

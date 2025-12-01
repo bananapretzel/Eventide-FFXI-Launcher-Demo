@@ -782,7 +782,6 @@ describe('HomePage Component', () => {
 
       await waitFor(() => {
         expect(screen.getByText(/Network Error/i)).toBeInTheDocument();
-        expect(screen.getByText(/🌐/)).toBeInTheDocument();
         expect(
           screen.getByRole('button', { name: /Retry Now/i }),
         ).toBeInTheDocument();
@@ -888,22 +887,18 @@ describe('HomePage Component', () => {
         {
           error: 'SHA256 mismatch',
           expectedTitle: 'Download Corrupted',
-          expectedIcon: '🔍',
         },
         {
           error: 'Extraction failed',
           expectedTitle: 'Extraction Failed',
-          expectedIcon: '📦',
         },
         {
           error: 'ENOSPC: no space',
           expectedTitle: 'Insufficient Disk Space',
-          expectedIcon: '💾',
         },
         {
           error: 'EACCES: permission denied',
           expectedTitle: 'Permission Denied',
-          expectedIcon: '🔒',
         },
       ];
 
@@ -944,7 +939,6 @@ describe('HomePage Component', () => {
           expect(
             screen.getByText(new RegExp(scenario.expectedTitle, 'i')),
           ).toBeInTheDocument();
-          expect(screen.getByText(scenario.expectedIcon)).toBeInTheDocument();
         });
 
         unmount();

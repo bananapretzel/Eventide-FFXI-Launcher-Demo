@@ -288,12 +288,14 @@ export async function downloadFileResumable(
       const abortHandler = () => {
         log.info(chalk.yellow(`[downloadFileResumable] Download paused/aborted at ${dl} bytes`));
         req.destroy();
-        file.end();
-        resolve({
-          completed: false,
-          bytesDownloaded: dl,
-          totalBytes: total,
-          wasPaused: true,
+        // Wait for file to close before resolving to ensure bytes are flushed to disk
+        file.end(() => {
+          resolve({
+            completed: false,
+            bytesDownloaded: dl,
+            totalBytes: total,
+            wasPaused: true,
+          });
         });
       };
 
@@ -352,6 +354,11 @@ export async function downloadFileResumable(
       res.on('error', (err) => {
         if (signal) {
           signal.removeEventListener('abort', abortHandler);
+        }
+        // Don't log or reject if this was an intentional abort/pause
+        if (signal?.aborted) {
+          log.info(chalk.yellow('[downloadFileResumable] Response closed due to pause/abort'));
+          return; // Already resolved in abortHandler
         }
         log.error(chalk.red('[downloadFileResumable] Response error:'), err);
         reject(err);

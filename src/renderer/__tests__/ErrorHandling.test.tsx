@@ -148,7 +148,6 @@ describe('Error Display and Recovery', () => {
         expect(
           screen.getByText(/Check your internet connection/i),
         ).toBeInTheDocument();
-        expect(screen.getByText(/🌐/)).toBeInTheDocument();
       });
     });
 
@@ -183,7 +182,6 @@ describe('Error Display and Recovery', () => {
       await waitFor(() => {
         expect(screen.getByText(/Download Corrupted/i)).toBeInTheDocument();
         expect(screen.getByText(/verification/i)).toBeInTheDocument();
-        expect(screen.getByText(/🔍/)).toBeInTheDocument();
       });
     });
 
@@ -218,7 +216,6 @@ describe('Error Display and Recovery', () => {
       await waitFor(() => {
         expect(screen.getByText(/Extraction Failed/i)).toBeInTheDocument();
         expect(screen.getByText(/antivirus/i)).toBeInTheDocument();
-        expect(screen.getByText(/📦/)).toBeInTheDocument();
       });
     });
 
@@ -255,7 +252,6 @@ describe('Error Display and Recovery', () => {
           screen.getByText(/Insufficient Disk Space/i),
         ).toBeInTheDocument();
         expect(screen.getByText(/10 GB/i)).toBeInTheDocument();
-        expect(screen.getByText(/💾/)).toBeInTheDocument();
       });
     });
 
@@ -290,7 +286,6 @@ describe('Error Display and Recovery', () => {
       await waitFor(() => {
         expect(screen.getByText(/Permission Denied/i)).toBeInTheDocument();
         expect(screen.getByText(/administrator/i)).toBeInTheDocument();
-        expect(screen.getByText(/🔒/)).toBeInTheDocument();
       });
     });
 
@@ -325,7 +320,6 @@ describe('Error Display and Recovery', () => {
       await waitFor(() => {
         expect(screen.getByText(/Patching Failed/i)).toBeInTheDocument();
         expect(screen.getByText(/Reapply Patches/i)).toBeInTheDocument();
-        expect(screen.getByText(/🔧/)).toBeInTheDocument();
       });
     });
   });
@@ -360,7 +354,7 @@ describe('Error Display and Recovery', () => {
       });
 
       await waitFor(() => {
-        const retryButton = screen.getByRole('button', { name: /⚠️ Retry/i });
+        const retryButton = screen.getByRole('button', { name: /Retry/i });
         expect(retryButton).toBeInTheDocument();
         expect(retryButton).toHaveClass('is-error');
       });
@@ -543,12 +537,12 @@ describe('Error Display and Recovery', () => {
 
       await waitFor(() => {
         expect(
-          screen.getByRole('button', { name: /⚠️ Retry/i }),
+          screen.getByRole('button', { name: /Retry/i }),
         ).toBeInTheDocument();
       });
 
       // Retry should call game:update again
-      const retryButton = screen.getByRole('button', { name: /⚠️ Retry/i });
+      const retryButton = screen.getByRole('button', { name: /Retry/i });
       await act(async () => {
         fireEvent.click(retryButton);
       });

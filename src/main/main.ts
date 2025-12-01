@@ -10,7 +10,7 @@ import ini from 'ini';
 import { app, BrowserWindow, ipcMain, shell, dialog, screen } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import { getEventidePaths, ensureDirs } from './paths';
-import { resolveHtmlPath } from './util';
+import { resolveHtmlPath, openPathCrossPlatform } from './util';
 import { RELEASE_JSON_URL } from './config';
 import { getClientVersion } from '../core/versions';
 import {
@@ -1147,8 +1147,14 @@ ipcMain.handle(
       log.info(chalk.cyan('[download] Download completed successfully'));
       return { success: true };
     } catch (err) {
-      log.error(chalk.red(`[download] Download failed: ${String(err)}`));
-      return { success: false, error: String(err) };
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      // Handle paused download (not an error)
+      if (errorMessage === 'DOWNLOAD_PAUSED') {
+        log.info(chalk.yellow('[download] Download was paused'));
+        return { success: true, paused: true };
+      }
+      log.error(chalk.red(`[download] Download failed: ${errorMessage}`));
+      return { success: false, error: errorMessage };
     }
   },
 );
@@ -1203,13 +1209,8 @@ ipcMain.handle(
 
 ipcMain.handle('launcher:launchGame', async (_event, installDir: string) => {
   try {
-    let launchScript: string;
-    if (process.platform === 'win32') {
-      launchScript = path.join(installDir, 'Launch_Eventide.bat');
-    } else {
-      // Linux and other Unix-like systems
-      launchScript = path.join(installDir, 'Launch_Eventide.sh');
-    }
+    // Always use Windows batch file - on Linux, Wine will handle it
+    const launchScript = path.join(installDir, 'Launch_Eventide.bat');
     log.info(
       chalk.cyan(`[launch] Attempting to launch game using: ${launchScript}`),
     );
@@ -1235,6 +1236,16 @@ let mainWindow: BrowserWindow | null = null;
 if (!(global as any).mainWindow) {
   (global as any).mainWindow = null;
 }
+
+// ============================================================================
+// APP LIFECYCLE: Quit when all windows are closed
+// ============================================================================
+// This is critical for Linux/Wine - without it, the process lingers after window close
+app.on('window-all-closed', () => {
+  // Always quit when all windows are closed (Windows and Wine)
+  log.info(chalk.cyan('[app] All windows closed, quitting application'));
+  app.quit();
+});
 
 // Ensure mainWindow is initialized on app ready
 app.on('ready', () => {
@@ -1393,25 +1404,9 @@ ipcMain.handle(
   'update-ini-auth-and-run',
   async (_event, username: string, password: string, installDir?: string) => {
     // Sanitize inputs to remove control characters
-    const sanitizedUsername = sanitizeInput(username);
-    const sanitizedPassword = sanitizeInput(password);
-
-    // Validate inputs are not empty
-    if (sanitizedUsername.length === 0) {
-      log.error(chalk.red('[INI] Username cannot be empty'));
-      return {
-        success: false,
-        error: 'Username cannot be empty',
-      };
-    }
-
-    if (sanitizedPassword.length === 0) {
-      log.error(chalk.red('[INI] Password cannot be empty'));
-      return {
-        success: false,
-        error: 'Password cannot be empty',
-      };
-    }
+    // Note: Empty username/password is allowed - the game can be played without credentials
+    const sanitizedUsername = username ? sanitizeInput(username) : '';
+    const sanitizedPassword = password ? sanitizeInput(password) : '';
 
     log.info(
       chalk.cyan(
@@ -1621,8 +1616,8 @@ ipcMain.handle('open-config-folder', async () => {
     const paths = getEventidePaths();
     const configFolder = paths.userData;
 
-    await shell.openPath(configFolder);
-    return { success: true };
+    const result = await openPathCrossPlatform(configFolder);
+    return result;
   } catch (error) {
     log.error(chalk.red('[open-config-folder] Error:'), error);
     return {
@@ -1641,10 +1636,87 @@ ipcMain.handle('open-log-file', async () => {
       ? logFile
       : path.join(paths.logsRoot, 'launcher-invoke-output.log');
 
-    await shell.openPath(fileToOpen);
-    return { success: true };
+    const result = await openPathCrossPlatform(fileToOpen);
+    return result;
   } catch (error) {
     log.error(chalk.red('[open-log-file] Error:'), error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+});
+
+ipcMain.handle('open-game-folder', async () => {
+  try {
+    const paths = getEventidePaths();
+    const gameFolder = paths.gameRoot;
+
+    if (!gameFolder) {
+      return {
+        success: false,
+        error: 'No installation directory configured. Please select an installation directory first.',
+      };
+    }
+
+    if (!fs.existsSync(gameFolder)) {
+      return {
+        success: false,
+        error: 'Game folder does not exist. The game may not be installed yet.',
+      };
+    }
+
+    const result = await openPathCrossPlatform(gameFolder);
+    return result;
+  } catch (error) {
+    log.error(chalk.red('[open-game-folder] Error:'), error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+});
+
+ipcMain.handle('uninstall-game', async () => {
+  try {
+    log.info(chalk.yellow('[uninstall-game] Starting uninstallation...'));
+    const paths = getEventidePaths();
+
+    // Delete game folder
+    if (paths.gameRoot && fs.existsSync(paths.gameRoot)) {
+      log.info(chalk.cyan(`[uninstall-game] Deleting game folder: ${paths.gameRoot}`));
+      fs.rmSync(paths.gameRoot, { recursive: true, force: true });
+    }
+
+    // Delete downloads folder
+    if (paths.dlRoot && fs.existsSync(paths.dlRoot)) {
+      log.info(chalk.cyan(`[uninstall-game] Deleting downloads folder: ${paths.dlRoot}`));
+      fs.rmSync(paths.dlRoot, { recursive: true, force: true });
+    }
+
+    // Delete the parent Eventide/EventideXI folder if empty or only contains Game/Downloads
+    const parentDir = path.dirname(paths.gameRoot);
+    if (parentDir && fs.existsSync(parentDir)) {
+      const remainingFiles = fs.readdirSync(parentDir);
+      if (remainingFiles.length === 0) {
+        log.info(chalk.cyan(`[uninstall-game] Deleting empty parent folder: ${parentDir}`));
+        fs.rmSync(parentDir, { recursive: true, force: true });
+      }
+    }
+
+    // Reset storage.json to defaults
+    const { getDefaultStorage, writeStorage } = require('../core/storage');
+    await writeStorage(getDefaultStorage());
+    log.info(chalk.cyan('[uninstall-game] Reset storage.json to defaults'));
+
+    // Clear custom install directory
+    const { setCustomInstallDir } = require('./paths');
+    setCustomInstallDir(null);
+
+    log.info(chalk.green('[uninstall-game] Uninstallation complete'));
+    return { success: true };
+  } catch (error) {
+    log.error(chalk.red('[uninstall-game] Error:'), error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
@@ -1676,8 +1748,8 @@ ipcMain.handle(
         fs.mkdirSync(extensionFolder, { recursive: true });
       }
 
-      await shell.openPath(extensionFolder);
-      return { success: true };
+      const result = await openPathCrossPlatform(extensionFolder);
+      return result;
     } catch (error) {
       log.error(
         chalk.red(`[open-extension-folder] Error opening ${folderType}:`),
@@ -1694,15 +1766,7 @@ ipcMain.handle(
 // IPC handler to open gamepad config executable
 ipcMain.handle('open-gamepad-config', async () => {
   try {
-    // Note: This feature is Windows-only. On Linux, users would need to configure
-    // the gamepad through Wine/Proton's control panel or other tools.
-    if (process.platform !== 'win32') {
-      return {
-        success: false,
-        error: 'Gamepad configuration is only available on Windows. On Linux, please use Wine/Proton configuration tools.',
-      };
-    }
-
+    // Gamepad config is a Windows executable - Wine will handle it on Linux
     const paths = getEventidePaths();
     const installDir = paths.gameRoot;
     const gamepadConfigPath = path.join(
@@ -2334,8 +2398,6 @@ ipcMain.handle('game:download', async () => {
 
     return { success: true };
   } catch (err) {
-    log.error(chalk.red('Download failed:'), err);
-
     // Provide more specific error messages
     let errorMessage = String(err);
     if (err instanceof Error) {
@@ -2353,6 +2415,9 @@ ipcMain.handle('game:download', async () => {
       }
       return { success: true, paused: true };
     }
+
+    // Log actual errors (after checking for pause)
+    log.error(chalk.red('Download failed:'), err);
 
     // Categorize common errors for better user feedback
     if (
@@ -2411,6 +2476,10 @@ ipcMain.handle('game:pause-download', async () => {
   try {
     log.info(chalk.yellow('[game:pause-download] Pausing download...'));
     pauseDownload();
+
+    // Wait a short time for the file stream to flush to disk
+    // This ensures getPartialDownloadSize returns accurate bytes
+    await new Promise(resolve => setTimeout(resolve, 200));
 
     // Get current download progress from storage
     const progress = await getDownloadProgress();
@@ -2854,9 +2923,8 @@ ipcMain.handle('game:launch', async () => {
   try {
     const paths = getEventidePaths();
     const installDir = paths.gameRoot;
-    const launchScript = process.platform === 'win32'
-      ? path.join(installDir, 'Launch_Eventide.bat')
-      : path.join(installDir, 'Launch_Eventide.sh');
+    // Always use Windows batch file - on Linux, Wine will handle it
+    const launchScript = path.join(installDir, 'Launch_Eventide.bat');
 
     if (mainWindow) {
       log.info(chalk.cyan(`[ipc] Sending to renderer: game:status`), {
