@@ -1,5 +1,5 @@
 import { promises as fs, createWriteStream, statfsSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { tmpdir } from 'os';
 import log from 'electron-log';
 import chalk from 'chalk';
@@ -53,13 +53,25 @@ export async function readJson<T>(path: string): Promise<T | null> {
   }
 }
 
-export async function writeJson(path: string, data: any): Promise<void> {
-  // Ensure the file is writable before writing
-  await ensureFileWritable(path);
+export async function writeJson(destPath: string, data: any): Promise<void> {
+  // Ensure parent directory exists
+  const parentDir = dirname(destPath);
+  await fs.mkdir(parentDir, { recursive: true });
 
-  const tmp = join(tmpdir(), `tmp-${Date.now()}.json`);
+  // Ensure the file is writable before writing
+  await ensureFileWritable(destPath);
+
+  // Use atomic write with a unique temp file to prevent race conditions
+  const tmp = join(tmpdir(), `tmp-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
   await fs.writeFile(tmp, JSON.stringify(data, null, 2), 'utf-8');
-  await fs.rename(tmp, path);
+
+  try {
+    await fs.rename(tmp, destPath);
+  } catch (renameErr) {
+    // If rename fails (e.g., cross-device), fall back to copy + delete
+    await fs.copyFile(tmp, destPath);
+    await fs.unlink(tmp).catch(() => {}); // Clean up temp file, ignore errors
+  }
 }
 
 /**

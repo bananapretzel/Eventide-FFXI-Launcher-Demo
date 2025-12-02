@@ -809,6 +809,46 @@ async function readConfigHandler() {
     const configContent = fs.readFileSync(configPath, 'utf-8');
     const config = JSON.parse(configContent);
 
+    // Merge new addons/plugins from defaults (preserves user's enabled state for existing ones)
+    const defaultAddons = getDefaultAddonsObject();
+    const defaultPlugins = getDefaultPluginsObject();
+    let configUpdated = false;
+
+    if (!config.addons) {
+      config.addons = {};
+    }
+    if (!config.plugins) {
+      config.plugins = {};
+    }
+
+    // Add any new addons that don't exist in user's config
+    for (const [name, addonData] of Object.entries(defaultAddons)) {
+      if (!(name in config.addons)) {
+        config.addons[name] = addonData;
+        configUpdated = true;
+        log.info(chalk.cyan(`[config] Added new addon: ${name}`));
+      }
+    }
+
+    // Add any new plugins that don't exist in user's config
+    for (const [name, pluginData] of Object.entries(defaultPlugins)) {
+      if (!(name in config.plugins)) {
+        config.plugins[name] = pluginData;
+        configUpdated = true;
+        log.info(chalk.cyan(`[config] Added new plugin: ${name}`));
+      }
+    }
+
+    // Save config if new extensions were added
+    if (configUpdated) {
+      try {
+        await writeJson(configPath, config);
+        log.info(chalk.cyan('[config] Saved config with new extensions'));
+      } catch (err) {
+        log.warn(chalk.yellow('[config] Failed to save updated config:'), err);
+      }
+    }
+
     // Migration: Handle old structure with extensions.addons/plugins arrays
     if (config.extensions && !config.addons && !config.plugins) {
       log.info(

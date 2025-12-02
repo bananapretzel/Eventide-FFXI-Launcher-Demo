@@ -30,7 +30,8 @@ export const iniMappings: Record<string, IniMapping> = {
   'ffxi.menuWidth': { section: 'ffxi.registry', keys: '0037', transform: (v) => String(v) },
   'ffxi.menuHeight': { section: 'ffxi.registry', keys: '0038', transform: (v) => String(v) },
   'ffxi.graphicsStabilization': { section: 'ffxi.registry', keys: '0040', transform: (v) => (v ? '1' : '0') },
-  'ffxi.savePath': { section: 'ffxi.registry', keys: '0042', transform: (v) => String(v) },
+  'ffxi.screenshotPath': { section: 'ffxi.registry', keys: '0042', transform: (v) => String(v) },
+  'ffxi.screenshotResolution': { section: 'ffxi.registry', keys: '0043', transform: (v) => (v ? '1' : '0') },
   'ffxi.aspectRatio': { section: 'ffxi.registry', keys: '0044', transform: (v) => (v ? '1' : '0') },
 };
 

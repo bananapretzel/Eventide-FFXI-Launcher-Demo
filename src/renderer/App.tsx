@@ -1,11 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, NavLink } from 'react-router-dom';
-import { Home, Puzzle, Settings, Minus, X, Globe } from 'lucide-react';
+import {
+  Home,
+  Puzzle,
+  Settings,
+  Minus,
+  X,
+  Globe,
+  Moon,
+  Sun,
+} from 'lucide-react';
 import './App.css';
 import log from './logger';
 import { EVENTIDE_WEBSITE_URL } from '../core/constants';
 import logo from '../../assets/slime2.png';
-import titleLogo from '../../assets/eventide-logo.png';
+import titleLogo from '../../assets/eventideXI.png';
 import HomePage from './pages/HomePage';
 import ExtensionsPage from './pages/ExtensionsPage';
 import SettingsPage from './pages/SettingsPage';
@@ -71,6 +80,35 @@ export default function App() {
   const [remember, setRemember] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [installDir, setInstallDir] = useState<string>(''); // will be set from IPC
+  const [darkMode, setDarkMode] = useState(false);
+
+  // Apply dark mode class to document
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [darkMode]);
+
+  // Toggle dark mode and save to config
+  const toggleDarkMode = async () => {
+    const newDarkMode = !darkMode;
+    setDarkMode(newDarkMode);
+    try {
+      if (window.electron?.readConfig && window.electron?.writeConfig) {
+        const result = await window.electron.readConfig();
+        if (result.success && result.data) {
+          await window.electron.writeConfig({
+            ...result.data,
+            darkMode: newDarkMode,
+          });
+        }
+      }
+    } catch (err) {
+      log.error('Error saving dark mode preference:', err);
+    }
+  };
 
   // Load config and default installDir on mount
   useEffect(() => {
@@ -104,8 +142,12 @@ export default function App() {
             password: savedPassword,
             rememberCredentials,
             installDir: savedInstallDir,
+            darkMode: savedDarkMode,
           } = result.data;
           setRemember(!!rememberCredentials);
+          if (savedDarkMode !== undefined) {
+            setDarkMode(!!savedDarkMode);
+          }
           if (rememberCredentials && savedUsername) {
             setUsername(savedUsername || '');
             setPassword(savedPassword || '');
@@ -197,17 +239,27 @@ export default function App() {
             >
               <Settings size={24} /> SETTINGS
             </NavLink>
+            <button
+              type="button"
+              className="dark-mode-toggle"
+              onClick={toggleDarkMode}
+              title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+              aria-label={
+                darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'
+              }
+            >
+              {darkMode ? <Sun size={23} /> : <Moon size={23} />}
+            </button>
+            <a
+              href={EVENTIDE_WEBSITE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="website-link"
+              title="Visit Eventide Website"
+            >
+              <Globe size={23} />
+            </a>
           </nav>
-
-          <a
-            href={EVENTIDE_WEBSITE_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="website-link"
-            title="Visit Eventide Website"
-          >
-            <Globe size={20} />
-          </a>
         </header>
 
         {/* Error display */}

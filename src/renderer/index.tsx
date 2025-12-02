@@ -25,22 +25,33 @@ window.addEventListener('unhandledrejection', (event) => {
 const BASE_WIDTH = 1148;
 const BASE_HEIGHT = 673;
 
-// Save zoom level to config
-const saveZoomLevel = async (zoomLevel: number) => {
-  try {
-    if (window.electron?.writeConfig) {
-      // Read existing config first to preserve other settings
-      const existing = await window.electron.readConfig?.();
-      const existingData = existing?.success ? existing.data : {};
-      await window.electron.writeConfig({
-        ...existingData,
-        guiScale: zoomLevel,
-      });
-      log.debug(`[Zoom] Saved zoom level: ${zoomLevel}%`);
-    }
-  } catch (err) {
-    log.warn('[Zoom] Failed to save zoom level:', err);
+// Debounce timer for saving zoom level
+let zoomSaveTimeout: ReturnType<typeof setTimeout> | null = null;
+
+// Save zoom level to config (debounced to prevent race conditions)
+const saveZoomLevel = (zoomLevel: number) => {
+  // Clear any pending save
+  if (zoomSaveTimeout) {
+    clearTimeout(zoomSaveTimeout);
   }
+
+  // Debounce: wait 500ms after the last change before saving
+  zoomSaveTimeout = setTimeout(async () => {
+    try {
+      if (window.electron?.writeConfig) {
+        // Read existing config first to preserve other settings
+        const existing = await window.electron.readConfig?.();
+        const existingData = existing?.success ? existing.data : {};
+        await window.electron.writeConfig({
+          ...existingData,
+          guiScale: zoomLevel,
+        });
+        log.debug(`[Zoom] Saved zoom level: ${zoomLevel}%`);
+      }
+    } catch (err) {
+      log.warn('[Zoom] Failed to save zoom level:', err);
+    }
+  }, 500);
 };
 
 const updateZoom = (newZoom: number, persist = true) => {

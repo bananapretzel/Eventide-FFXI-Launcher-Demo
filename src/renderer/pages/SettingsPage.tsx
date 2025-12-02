@@ -28,6 +28,8 @@ interface Settings {
     simplifiedCCG?: boolean;
     hardwareMouse?: boolean;
     graphicsStabilization?: boolean;
+    screenshotResolution?: boolean;
+    screenshotPath?: string;
   };
   pivot?: {
     overlayEnabled?: boolean;
@@ -35,7 +37,7 @@ interface Settings {
 }
 
 type CategoryId = 'ffxi' | 'pivot' | 'troubleshooting';
-type SubTabId = 'general' | 'graphics' | 'features' | 'other';
+type SubTabId = 'general' | 'graphics' | 'other';
 
 const CATEGORY_DEFS: Record<
   CategoryId,
@@ -46,7 +48,6 @@ const CATEGORY_DEFS: Record<
     subTabs: [
       { id: 'general', label: 'GENERAL' },
       { id: 'graphics', label: 'GRAPHICS' },
-      { id: 'features', label: 'FEATURES' },
       { id: 'other', label: 'OTHER' },
     ],
   },
@@ -786,36 +787,6 @@ This setting will not have a huge impact on gameplay, and turning the setting do
   );
 }
 
-function getDefaultFFXISavePath(_platform: string) {
-  // Always use Windows path - Wine handles path translation
-  return 'C:\\Program Files (x86)\\Square Enix\\FINAL FANTASY XI';
-}
-
-function FFXIFeaturesPanel({
-  settings,
-  updateSetting,
-  platform,
-}: {
-  settings: Settings;
-  updateSetting: (path: string, value: any) => void;
-  platform: string;
-}) {
-  return (
-    <Card title="Location to store settings and screenshots">
-      <Row>
-        <input
-          id="ffxi-save-path"
-          type="text"
-          className="input ffxi-save-path"
-          value={settings.ffxi?.savePath ?? getDefaultFFXISavePath(platform)}
-          onChange={(e) => updateSetting('ffxi.savePath', e.target.value)}
-          aria-label="Location to store settings and screenshots"
-        />
-      </Row>
-    </Card>
-  );
-}
-
 function FFXIOtherPanel({
   settings,
   updateSetting,
@@ -836,6 +807,11 @@ function FFXIOtherPanel({
       alert('Failed to open gamepad config');
     }
   };
+  // Helper to get default screenshot path
+  const getDefaultScreenshotPath = () => {
+    return 'C:\\Program Files (x86)\\Square Enix\\FINAL FANTASY XI\\screenshots';
+  };
+
   return (
     <>
       <Card title="Gamepad">
@@ -844,6 +820,52 @@ function FFXIOtherPanel({
             OPEN GAMEPAD CONFIG
           </button>
         </div>
+      </Card>
+
+      <Card title="Screenshots">
+        <Row>
+          <Field
+            label="Screenshots in Screen Resolution"
+            htmlFor="screenshot-resolution"
+            tooltip="When enabled, screenshots will be taken at your screen resolution. When disabled, screenshots will be taken at the game's background resolution."
+          >
+            <div
+              className="toggle"
+              aria-label="Screenshots in Screen Resolution"
+            >
+              <input
+                id="screenshot-resolution"
+                type="checkbox"
+                checked={settings.ffxi?.screenshotResolution ?? false}
+                onChange={(e) =>
+                  updateSetting('ffxi.screenshotResolution', e.target.checked)
+                }
+              />
+              <span aria-hidden />
+            </div>
+          </Field>
+        </Row>
+        <Row>
+          <Field
+            label="Screenshot Directory"
+            htmlFor="screenshot-path"
+            tooltip="Choose where to save your screenshots. The default location is the game/screenshots folder."
+          >
+            <input
+              id="screenshot-path"
+              type="text"
+              className="input"
+              placeholder="Screenshot directory path"
+              value={
+                settings.ffxi?.screenshotPath ?? getDefaultScreenshotPath()
+              }
+              onChange={(e) =>
+                updateSetting('ffxi.screenshotPath', e.target.value)
+              }
+              aria-label="Screenshot directory path"
+            />
+          </Field>
+        </Row>
       </Card>
 
       <Card title="Sounds">
@@ -978,19 +1000,10 @@ export default function SettingsPage() {
   const [toastMessage, setToastMessage] = useState('');
   const [settings, setSettings] = useState<Settings>({});
   const [error, setError] = useState<string | null>(null);
-  const [platform, setPlatform] = useState<string>('win32');
   const [installDir, setInstallDir] = useState<string>('');
-  // Get platform and installDir on mount
+  // Get installDir on mount
   useEffect(() => {
-    async function fetchPlatformAndPaths() {
-      if (window.electron?.getPlatform) {
-        const result = await window.electron.getPlatform();
-        if (typeof result === 'string') {
-          setPlatform(result);
-        } else if (result && typeof result.platform === 'string') {
-          setPlatform(result.platform);
-        }
-      }
+    async function fetchPaths() {
       // Get installDir from IPC
       if (window.electron?.invoke) {
         try {
@@ -1003,7 +1016,7 @@ export default function SettingsPage() {
         }
       }
     }
-    fetchPlatformAndPaths();
+    fetchPaths();
   }, []);
 
   const handleShowToast = (message: string) => {
@@ -1173,13 +1186,6 @@ export default function SettingsPage() {
           <FFXIGraphicsPanel
             settings={settings}
             updateSetting={updateSetting}
-          />
-        )}
-        {category === 'ffxi' && subTab === 'features' && (
-          <FFXIFeaturesPanel
-            settings={settings}
-            updateSetting={updateSetting}
-            platform={platform}
           />
         )}
         {category === 'ffxi' && subTab === 'other' && (

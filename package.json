@@ -1,7 +1,7 @@
 {
   "name": "eventide-launcherv2",
   "description": "A launcher for the private FFXI private server called Eventide.",
-  "version": "0.4.8",
+  "version": "0.4.9",
   "keywords": [
     "electron",
     "boilerplate",
@@ -18,7 +18,7 @@
     "type": "git",
     "url": "git+https://github.com/bananapretzel/Eventide-FFXI-Launcher-Demo.git"
   },
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "author": {
     "name": "Eventide Dev Team"
   },
