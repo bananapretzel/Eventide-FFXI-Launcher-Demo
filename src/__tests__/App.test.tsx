@@ -5,7 +5,21 @@ import App from '../renderer/App';
 
 jest.mock('electron-log/renderer', () => {
   const mockFn = jest.fn();
-  const mockLogger = {
+  interface MockLogger {
+    info: jest.Mock;
+    warn: jest.Mock;
+    error: jest.Mock;
+    debug: jest.Mock;
+    verbose: jest.Mock;
+    silly: jest.Mock;
+    log: jest.Mock;
+    transports: {
+      file: { level: string };
+      console: { level: string; format: string };
+    };
+    scope: jest.Mock<MockLogger>;
+  }
+  const mockLogger: MockLogger = {
     info: mockFn,
     warn: mockFn,
     error: mockFn,
@@ -17,7 +31,7 @@ jest.mock('electron-log/renderer', () => {
       file: { level: 'debug' },
       console: { level: 'debug', format: '' },
     },
-    scope: jest.fn(() => mockLogger),
+    scope: jest.fn((): MockLogger => mockLogger),
   };
   return { default: mockLogger, __esModule: true };
 });
