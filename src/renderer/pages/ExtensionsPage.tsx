@@ -140,20 +140,22 @@ export default function ExtensionsPage() {
         if (result.success && result.data) {
           const { data } = result;
 
-          // Transform addons object to array
+          // Transform addons object to array and sort alphabetically (case-insensitive)
           if (data.addons) {
-            const addonsArray = Object.entries(data.addons).map(([key, value]: [string, any]) => ({
-              id: key,
-              name: key,
-              description: value.description || '',
-              author: value.author || '',
-              version: value.version || '',
-              enabled: value.enabled ?? true,
-            }));
+            const addonsArray = Object.entries(data.addons)
+              .map(([key, value]: [string, any]) => ({
+                id: key,
+                name: key,
+                description: value.description || '',
+                author: value.author || '',
+                version: value.version || '',
+                enabled: value.enabled ?? true,
+              }))
+              .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
             setAddons(addonsArray);
           }
 
-          // Transform plugins object to array, filtering out required plugins
+          // Transform plugins object to array, filtering out required plugins, and sort alphabetically
           if (data.plugins) {
             const pluginsArray = Object.entries(data.plugins)
               .filter(([key]) => !requiredPlugins.includes(key))
@@ -164,7 +166,8 @@ export default function ExtensionsPage() {
                 author: value.author || '',
                 version: value.version || '',
                 enabled: value.enabled ?? true,
-              }));
+              }))
+              .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
             setPlugins(pluginsArray);
           }
         }

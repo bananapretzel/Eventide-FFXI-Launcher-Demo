@@ -30,40 +30,53 @@
     Delete "$DESKTOP\EventideXI.lnk"
     Delete "$SMPROGRAMS\${PRODUCT_NAME}.lnk"
     Delete "$SMPROGRAMS\EventideXI.lnk"
+  ${Else}
+    # Not running under Wine - ensure desktop shortcut exists
+    # This is especially important during silent updates where shortcuts may not be recreated
+    SetShellVarContext current
+    CreateShortCut "$DESKTOP\${PRODUCT_NAME}.lnk" "$INSTDIR\${PRODUCT_NAME}.exe" "" "$INSTDIR\${PRODUCT_NAME}.exe" 0
   ${EndIf}
 !macroend
 
 !macro customUnInstall
-  # Delete all launcher data including game files, downloads, config, and shortcuts
-  SetShellVarContext current
+  # During auto-updates, the installer runs in silent mode (/S flag)
+  # We should NOT delete user data during updates, only during full uninstalls
+  # Check if running in silent mode (auto-update) vs interactive uninstall
 
-  # Delete desktop shortcuts (all possible names)
-  Delete "$DESKTOP\${PRODUCT_NAME}.lnk"
-  Delete "$DESKTOP\EventideXI.lnk"
-  Delete "$DESKTOP\Eventide XI.lnk"
-  Delete "$DESKTOP\Eventide Launcher.lnk"
+  ${IfNot} ${Silent}
+    # Only delete user data during interactive (non-silent) uninstall
+    # This preserves storage.json, config.json, and game data during auto-updates
 
-  # Delete Start Menu shortcuts
-  RMDir /r "$SMPROGRAMS\${PRODUCT_NAME}"
-  Delete "$SMPROGRAMS\${PRODUCT_NAME}.lnk"
-  Delete "$SMPROGRAMS\EventideXI.lnk"
-  Delete "$SMPROGRAMS\Eventide XI.lnk"
-  Delete "$SMPROGRAMS\Eventide Launcher.lnk"
+    SetShellVarContext current
 
-  # Delete all data from APPDATA (including Game and Downloads)
-  RMDir /r "$APPDATA\Eventide Launcherv2"
-  RMDir /r "$APPDATA\Eventide Launcher"
-  RMDir /r "$APPDATA\eventide-launcherv2"
-  RMDir /r "$APPDATA\eventide-launcher"
+    # Delete desktop shortcuts (all possible names)
+    Delete "$DESKTOP\${PRODUCT_NAME}.lnk"
+    Delete "$DESKTOP\EventideXI.lnk"
+    Delete "$DESKTOP\Eventide XI.lnk"
+    Delete "$DESKTOP\Eventide Launcher.lnk"
 
-  # Delete all data from LOCALAPPDATA
-  RMDir /r "$LOCALAPPDATA\Eventide Launcherv2"
-  RMDir /r "$LOCALAPPDATA\Eventide Launcher"
-  RMDir /r "$LOCALAPPDATA\eventide-launcherv2"
-  RMDir /r "$LOCALAPPDATA\eventide-launcher"
-  RMDir /r "$LOCALAPPDATA\${PRODUCT_NAME}"
+    # Delete Start Menu shortcuts
+    RMDir /r "$SMPROGRAMS\${PRODUCT_NAME}"
+    Delete "$SMPROGRAMS\${PRODUCT_NAME}.lnk"
+    Delete "$SMPROGRAMS\EventideXI.lnk"
+    Delete "$SMPROGRAMS\Eventide XI.lnk"
+    Delete "$SMPROGRAMS\Eventide Launcher.lnk"
 
-  # Delete Eventide folder from common locations (custom install dirs)
-  RMDir /r "$DOCUMENTS\Eventide"
-  RMDir /r "$DOCUMENTS\EventideXI"
+    # Delete all data from APPDATA (including Game and Downloads)
+    RMDir /r "$APPDATA\Eventide Launcherv2"
+    RMDir /r "$APPDATA\Eventide Launcher"
+    RMDir /r "$APPDATA\eventide-launcherv2"
+    RMDir /r "$APPDATA\eventide-launcher"
+
+    # Delete all data from LOCALAPPDATA
+    RMDir /r "$LOCALAPPDATA\Eventide Launcherv2"
+    RMDir /r "$LOCALAPPDATA\Eventide Launcher"
+    RMDir /r "$LOCALAPPDATA\eventide-launcherv2"
+    RMDir /r "$LOCALAPPDATA\eventide-launcher"
+    RMDir /r "$LOCALAPPDATA\${PRODUCT_NAME}"
+
+    # Delete Eventide folder from common locations (custom install dirs)
+    RMDir /r "$DOCUMENTS\Eventide"
+    RMDir /r "$DOCUMENTS\EventideXI"
+  ${EndIf}
 !macroend

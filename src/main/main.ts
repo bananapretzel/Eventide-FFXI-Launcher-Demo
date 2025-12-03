@@ -1819,14 +1819,26 @@ ipcMain.handle('uninstall-game', async () => {
       }
     }
 
-    // Reset storage.json to defaults
-    const { getDefaultStorage, writeStorage } = require('../core/storage');
-    await writeStorage(getDefaultStorage());
-    log.info(chalk.cyan('[uninstall-game] Reset storage.json to defaults'));
+    // Remove desktop shortcuts
+    const { removeDesktopShortcut, removeLinuxDesktopFile, isRunningUnderWine } = require('./util');
+    if (isRunningUnderWine()) {
+      await removeLinuxDesktopFile();
+    } else {
+      await removeDesktopShortcut();
+    }
+    log.info(chalk.cyan('[uninstall-game] Desktop shortcuts removed'));
 
     // Clear custom install directory
     const { setCustomInstallDir } = require('./paths');
     setCustomInstallDir(null);
+
+    // Delete AppData config folder (storage.json, config.json, logs/)
+    // This is the userData folder: %APPDATA%\Eventide Launcher
+    const userDataPath = paths.userData;
+    if (userDataPath && fs.existsSync(userDataPath)) {
+      log.info(chalk.cyan(`[uninstall-game] Deleting config folder: ${userDataPath}`));
+      fs.rmSync(userDataPath, { recursive: true, force: true });
+    }
 
     log.info(chalk.green('[uninstall-game] Uninstallation complete'));
     return { success: true };

@@ -336,7 +336,7 @@ export const DEFAULT_ADDONS = [
     "enabled": false
   },
   {
-    "name": "Metrics",
+    "name": "metrics",
     "description": "Metrics is a very comprehensive DPS parsing tool.",
     "author": "Metra",
     "version": "11.10.24.00",

@@ -212,6 +212,97 @@ export async function createDesktopShortcut(): Promise<{ success: boolean; error
 }
 
 /**
+ * Removes the desktop shortcut to the launcher (Windows only)
+ * Called during uninstallation
+ */
+export async function removeDesktopShortcut(): Promise<{ success: boolean; error?: string }> {
+  try {
+    // Only remove shortcuts on native Windows, not under Wine
+    if (isRunningUnderWine()) {
+      log.info(chalk.cyan('[removeDesktopShortcut] Running under Wine - skipping shortcut removal'));
+      return { success: true };
+    }
+
+    const desktopPath = path.join(app.getPath('home'), 'Desktop');
+
+    // Check if desktop folder exists
+    if (!fs.existsSync(desktopPath)) {
+      log.info(chalk.yellow('[removeDesktopShortcut] Desktop folder not found'));
+      return { success: true };
+    }
+
+    // Remove the main shortcut name
+    const shortcutPath = path.join(desktopPath, 'Eventide Launcher.lnk');
+    if (fs.existsSync(shortcutPath)) {
+      fs.unlinkSync(shortcutPath);
+      log.info(chalk.green('[removeDesktopShortcut] ✓ Removed desktop shortcut:'), shortcutPath);
+    }
+
+    // Also remove the alternative name that NSIS might create
+    const altShortcutPath = path.join(desktopPath, 'Eventide-FFXI-Launcher.lnk');
+    if (fs.existsSync(altShortcutPath)) {
+      fs.unlinkSync(altShortcutPath);
+      log.info(chalk.green('[removeDesktopShortcut] ✓ Removed NSIS desktop shortcut:'), altShortcutPath);
+    }
+
+    // Also check for EventideXI.lnk (electron-builder default)
+    const builderShortcutPath = path.join(desktopPath, 'EventideXI.lnk');
+    if (fs.existsSync(builderShortcutPath)) {
+      fs.unlinkSync(builderShortcutPath);
+      log.info(chalk.green('[removeDesktopShortcut] ✓ Removed builder desktop shortcut:'), builderShortcutPath);
+    }
+
+    return { success: true };
+  } catch (err) {
+    log.error(chalk.red('[removeDesktopShortcut] Error removing desktop shortcut:'), err);
+    return {
+      success: false,
+      error: `Failed to remove desktop shortcut: ${err instanceof Error ? err.message : String(err)}`
+    };
+  }
+}
+
+/**
+ * Removes the Linux .desktop file for Wine/Linux users
+ * Called during uninstallation
+ */
+export async function removeLinuxDesktopFile(): Promise<{ success: boolean; error?: string }> {
+  if (!isRunningUnderWine()) {
+    log.info(chalk.cyan('[removeLinuxDesktopFile] Not running under Wine - skipping'));
+    return { success: true };
+  }
+
+  try {
+    const home = process.env.HOME || '/home/user';
+    const desktopFilePath = `${home}/.local/share/applications/eventidexi.desktop`;
+
+    return new Promise((resolve) => {
+      exec(`/bin/sh -c 'if [ -f "${desktopFilePath}" ]; then rm "${desktopFilePath}" && echo "Removed"; fi'`, (error, stdout) => {
+        if (error) {
+          log.error(chalk.red('[removeLinuxDesktopFile] Failed to remove .desktop file:'), error.message);
+          resolve({
+            success: false,
+            error: `Failed to remove .desktop file: ${error.message}`,
+          });
+        } else if (stdout.includes('Removed')) {
+          log.info(chalk.green('[removeLinuxDesktopFile] ✓ Removed Linux .desktop file:'), desktopFilePath);
+          resolve({ success: true });
+        } else {
+          log.info(chalk.cyan('[removeLinuxDesktopFile] No .desktop file found to remove'));
+          resolve({ success: true });
+        }
+      });
+    });
+  } catch (err) {
+    log.error(chalk.red('[removeLinuxDesktopFile] Error:'), err);
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Unknown error',
+    };
+  }
+}
+
+/**
  * Creates a proper Linux .desktop file for Wine/Linux users
  * This should be called on first run when running under Wine
  */
