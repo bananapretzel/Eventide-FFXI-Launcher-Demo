@@ -17,7 +17,7 @@ export async function getClientVersion(installDir: string): Promise<string | nul
       log.warn(chalk.yellow('[getClientVersion] No storage.json found in AppData'));
       return null;
     }
-    const version = storage.GAME_UPDATER?.currentVersion || null;
+    const version = storage.gameState?.installedVersion || null;
     log.info(chalk.cyan(`[getClientVersion] Current version: ${version}`));
     return version;
   } catch (err) {
@@ -35,7 +35,7 @@ export async function setClientVersion(installDir: string, version: string): Pro
   try {
     log.info(chalk.cyan(`[setClientVersion] Setting version to: ${version}`));
     await updateStorage((data: StorageJson) => {
-      data.GAME_UPDATER.currentVersion = version;
+      data.gameState.installedVersion = version;
     });
     log.info(chalk.green(`[setClientVersion] Version updated successfully to ${version}`));
   } catch (err) {

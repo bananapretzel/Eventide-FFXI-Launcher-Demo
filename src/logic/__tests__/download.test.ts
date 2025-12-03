@@ -1,5 +1,5 @@
 ﻿// Download logic tests
-// Mock electron-log before any imports
+// Mock electron-log with explicit mock implementation
 jest.mock('electron-log', () => {
   const mockFn = jest.fn();
   const mockLogger = {
@@ -19,9 +19,13 @@ jest.mock('electron-log', () => {
     functions: { log: mockFn, info: mockFn, warn: mockFn, error: mockFn },
     catchErrors: mockFn,
     initialize: mockFn,
-    scope: jest.fn(() => mockLogger),
+    scope: jest.fn().mockReturnThis(),
   };
-  return { default: mockLogger, __esModule: true };
+  return {
+    default: mockLogger,
+    __esModule: true,
+    ...mockLogger,
+  };
 });
 
 // Mock electron
@@ -34,6 +38,15 @@ jest.mock('electron', () => ({
     isPackaged: false,
     getVersion: jest.fn(() => '1.0.0'),
   },
+}));
+
+// Mock the paths module to avoid logger initialization issues
+jest.mock('../../main/paths', () => ({
+  getEventidePaths: jest.fn(() => ({
+    storage: '/mock/storage.json',
+    gameRoot: '/mock/game',
+    downloadRoot: '/mock/downloads',
+  })),
 }));
 
 import { downloadGame } from '../download';
@@ -77,13 +90,13 @@ describe('Download Logic', () => {
     });
 
     (storage.getDefaultStorage as jest.Mock).mockReturnValue({
-      schemaVersion: 1,
+      schemaVersion: 2,
       paths: { installPath: '', downloadPath: '' },
-      GAME_UPDATER: {
-        currentVersion: "0.0.0",
-        latestVersion: "0.0.0",
-        baseGame: { downloaded: false, extracted: false },
-        updater: { downloaded: "", extracted: "" },
+      gameState: {
+        installedVersion: "0.0.0",
+        availableVersion: "0.0.0",
+        baseGame: { isDownloaded: false, isExtracted: false },
+        patches: { downloadedVersion: "", appliedVersion: "" },
       },
     });
   });
@@ -163,13 +176,13 @@ describe('Download Logic', () => {
     const firstCall = (storage.updateStorage as jest.Mock).mock.calls[0][0];
     const mockData1 = storage.getDefaultStorage();
     firstCall(mockData1);
-    expect(mockData1.GAME_UPDATER.baseGame.downloaded).toBe(true);
+    expect(mockData1.gameState.baseGame.isDownloaded).toBe(true);
 
     // Verify second call set extracted flag
     const secondCall = (storage.updateStorage as jest.Mock).mock.calls[1][0];
     const mockData2 = storage.getDefaultStorage();
     secondCall(mockData2);
-    expect(mockData2.GAME_UPDATER.baseGame.extracted).toBe(true);
+    expect(mockData2.gameState.baseGame.isExtracted).toBe(true);
   });
 
   it('should throw error if SHA256 verification fails', async () => {

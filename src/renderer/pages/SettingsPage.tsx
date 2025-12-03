@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import log from '../logger';
+// eslint-disable-next-line import/no-named-as-default
 import Select from '../components/Select';
 
 interface Settings {
@@ -117,7 +118,7 @@ function Tooltip({
 
   return (
     <span className="tooltip-wrapper" onMouseEnter={handleMouseEnter}>
-      <span className="tooltip-icon" ref={iconRef}>
+      <span className="tooltip-icon" ref={iconRef} style={iconStyle}>
         ?
       </span>
       <span className="tooltip-content" ref={tooltipRef}>
@@ -186,6 +187,7 @@ const BRIGHTNESS_CENTER = 50;
 const BRIGHTNESS_SCALE = 50;
 const TOOLTIP_PRECISION = 10;
 
+// Convert slider value (0-100) to normalized range (-1 to 1)
 function brightnessToRange(brightness: number): number {
   return Math.max(
     MIN_BRIGHTNESS_RANGE,
@@ -194,6 +196,11 @@ function brightnessToRange(brightness: number): number {
       (brightness - BRIGHTNESS_CENTER) / BRIGHTNESS_SCALE,
     ),
   );
+}
+
+// Convert normalized range (-1 to 1) back to slider value (0-100)
+function rangeToBrightness(normalizedValue: number): number {
+  return Math.round(normalizedValue * BRIGHTNESS_SCALE + BRIGHTNESS_CENTER);
 }
 
 function LauncherUpdatesCard({
@@ -409,8 +416,29 @@ function FFXIGeneralPanel({
   settings: Settings;
   updateSetting: (path: string, value: any) => void;
 }) {
-  const [brightness, setBrightness] = useState(settings.ffxi?.brightness ?? 50);
+  // Convert normalized value (-1 to 1) back to slider value (0-100)
+  // Default to 50 (which is 0 normalized) if undefined
+  const getNormalizedBrightness = () => {
+    const storedValue = settings.ffxi?.brightness;
+    if (storedValue === undefined || storedValue === null) {
+      return 50; // Default: 0 normalized = 50 on slider
+    }
+    // If the value is in normalized range (-1 to 1), convert to slider value
+    if (storedValue >= -1 && storedValue <= 1) {
+      return rangeToBrightness(storedValue);
+    }
+    // If already in slider range (0-100), use as-is (for backwards compatibility)
+    return storedValue;
+  };
+
+  const [brightness, setBrightness] = useState(getNormalizedBrightness);
   const [isDragging, setIsDragging] = useState(false);
+
+  // Sync local brightness state when settings change (e.g., when navigating back to this tab)
+  useEffect(() => {
+    setBrightness(getNormalizedBrightness());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.ffxi?.brightness]);
 
   // Show tooltip only while dragging; ensure we stop on mouseup/touchend anywhere
   React.useEffect(() => {
@@ -851,19 +879,42 @@ function FFXIOtherPanel({
             htmlFor="screenshot-path"
             tooltip="Choose where to save your screenshots. The default location is the game/screenshots folder."
           >
-            <input
-              id="screenshot-path"
-              type="text"
-              className="input"
-              placeholder="Screenshot directory path"
-              value={
-                settings.ffxi?.screenshotPath ?? getDefaultScreenshotPath()
-              }
-              onChange={(e) =>
-                updateSetting('ffxi.screenshotPath', e.target.value)
-              }
-              aria-label="Screenshot directory path"
-            />
+            <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+              <input
+                id="screenshot-path"
+                type="text"
+                className="input"
+                placeholder="Screenshot directory path"
+                value={
+                  settings.ffxi?.screenshotPath ?? getDefaultScreenshotPath()
+                }
+                onChange={(e) =>
+                  updateSetting('ffxi.screenshotPath', e.target.value)
+                }
+                aria-label="Screenshot directory path"
+                style={{ flex: 1 }}
+                readOnly
+              />
+              <button
+                type="button"
+                className="btn"
+                onClick={async () => {
+                  try {
+                    const result =
+                      await window.electron.selectScreenshotDirectory();
+                    if (result.success && result.path) {
+                      updateSetting('ffxi.screenshotPath', result.path);
+                    }
+                  } catch {
+                    // eslint-disable-next-line no-alert
+                    alert('Failed to open directory picker');
+                  }
+                }}
+                style={{ minWidth: 'auto', padding: '8px 16px' }}
+              >
+                Browse
+              </button>
+            </div>
           </Field>
         </Row>
       </Card>
@@ -1505,6 +1556,7 @@ export default function SettingsPage() {
                   id="uninstall-game"
                   className="btn"
                   onClick={async () => {
+                    // eslint-disable-next-line no-alert
                     const confirmed = window.confirm(
                       'Are you sure you want to uninstall?\n\n' +
                         'This will permanently delete:\n' +

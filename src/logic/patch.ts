@@ -98,7 +98,7 @@ export async function applyPatches(
     if (patchZipPath && require('fs').existsSync(patchZipPath)) {
       zipExists = true;
       log.info(chalk.green(`[applyPatches] Patch already downloaded: ${patchZipName}`));
-      await updateStorage(s => { s.GAME_UPDATER.updater.downloaded = patch.to; });
+      await updateStorage(s => { s.gameState.patches.downloadedVersion = patch.to; });
     } else {
       // Download if not present, with size verification if available
       log.info(chalk.cyan(`[applyPatches] Downloading patch from: ${patch.fullUrl}`));
@@ -143,7 +143,7 @@ export async function applyPatches(
         );
         // Clear progress after successful download
         await clearDownloadProgress();
-        await updateStorage(s => { s.GAME_UPDATER.updater.downloaded = patch.to; });
+        await updateStorage(s => { s.gameState.patches.downloadedVersion = patch.to; });
         log.info(chalk.green(`[applyPatches] Download complete: ${patchZipName}`));
       } catch (downloadErr) {
         log.error(chalk.red(`[applyPatches] Patch download failed for ${patch.to}:`), downloadErr);
@@ -170,7 +170,7 @@ export async function applyPatches(
       try {
         await fs.unlink(patchZipPath);
         log.info(chalk.cyan('[applyPatches] Deleted corrupted patch ZIP'));
-        await updateStorage(s => { s.GAME_UPDATER.updater.downloaded = String(currentVersion || ''); });
+        await updateStorage(s => { s.gameState.patches.downloadedVersion = String(currentVersion || ''); });
       } catch (unlinkErr) {
         log.warn(chalk.yellow('[applyPatches] Could not delete corrupted patch ZIP:'), unlinkErr);
       }
@@ -193,7 +193,7 @@ export async function applyPatches(
       try {
         await fs.unlink(patchZipPath);
         log.info(chalk.cyan('[applyPatches] Deleted corrupted patch ZIP'));
-        await updateStorage(s => { s.GAME_UPDATER.updater.downloaded = String(currentVersion || ''); });
+        await updateStorage(s => { s.gameState.patches.downloadedVersion = String(currentVersion || ''); });
       } catch (unlinkErr) {
         log.warn(chalk.yellow('[applyPatches] Could not delete corrupted patch ZIP:'), unlinkErr);
       }
@@ -209,7 +209,7 @@ export async function applyPatches(
     }
     log.info(chalk.green(`[applyPatches] Verification passed: ${verification.fileCount} files extracted`));
 
-    await updateStorage(s => { s.GAME_UPDATER.updater.extracted = patch.to; });
+    await updateStorage(s => { s.gameState.patches.appliedVersion = patch.to; });
 
     // Update version in storage (installDir is ignored by setClientVersion)
     await setClientVersion(installDir, patch.to);
@@ -219,8 +219,8 @@ export async function applyPatches(
     log.info(chalk.green(`[applyPatches] Successfully patched from ${patch.from} to ${patch.to}`));
   }
 
-  // Always set latestVersion from manifest
-  await updateStorage(s => { s.GAME_UPDATER.latestVersion = latestVersion; });
+  // Always set availableVersion from manifest
+  await updateStorage(s => { s.gameState.availableVersion = latestVersion; });
 
   if (currentVersion === latestVersion) {
     log.info(chalk.green(`[applyPatches] ✓ Client is now up to date: ${currentVersion}`));

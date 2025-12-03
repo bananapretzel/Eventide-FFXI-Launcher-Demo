@@ -1,7 +1,7 @@
 /* Root Variables */
 :root {
   --bg-1: #e0f7fa;
-  --bg-2: hsl(168, 60%, 82%);
+  --bg-2: hsl(168, 50%, 80%);
   --bg-3: hsl(171, 78%, 95%);
   --panel: #ffffff;
   --panel-soft: #f8f9fa;
@@ -34,6 +34,7 @@
   --text-secondary: #455a64;
   --toggle-track: #cfd8dc;
   --toggle-track-hover: #c9cbcd;
+  --slider-track: #b0bec5;
   --disabled-bg: #9e9e9e;
   --white: #ffffff;
   --white-black: white;
@@ -75,6 +76,7 @@
   --text-secondary: white;
   --toggle-track: hsl(120, 16%, 20%);
   --toggle-track-hover: hsl(120, 14%, 26%);
+  --slider-track: #b0bec5;
   --disabled-bg: hsl(120, 14%, 26%);
   --white: hsl(0, 0%, 100%);
   --white-black: black;
@@ -1031,9 +1033,8 @@ body {
 }
 
 .settings-field-label-text {
-  display: inline-flex;
-  align-items: flex-start;
-  gap: 6px;
+  display: inline;
+  line-height: 1.4;
 }
 
 .tooltip-icon {
@@ -1059,7 +1060,9 @@ body {
 
 .tooltip-wrapper {
   position: relative;
-  display: inline-flex;
+  display: inline;
+  white-space: nowrap;
+  margin-left: 4px;
 }
 
 .tooltip-content {
@@ -1140,7 +1143,7 @@ body {
   -webkit-appearance: none;
   appearance: none;
   height: 8px;
-  background: var(--ink);
+  background: var(--slider-track);
   border-radius: 4px;
   outline: none;
   cursor: pointer;

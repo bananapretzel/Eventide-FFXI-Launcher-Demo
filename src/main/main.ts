@@ -141,9 +141,9 @@ ipcMain.handle(
       let baseGameExtracted = false;
       try {
         const storage = await readStorage();
-        if (storage && storage.GAME_UPDATER) {
-          baseGameDownloaded = storage.GAME_UPDATER.baseGame.downloaded;
-          baseGameExtracted = storage.GAME_UPDATER.baseGame.extracted;
+        if (storage && storage.gameState) {
+          baseGameDownloaded = storage.gameState.baseGame.isDownloaded;
+          baseGameExtracted = storage.gameState.baseGame.isExtracted;
         }
       } catch (e) {
         log.warn('[launcher:bootstrap] Could not read storage.json:', e);
@@ -162,8 +162,8 @@ ipcMain.handle(
   },
 );
 
-// Set the app name to 'Eventide Launcherv2' so userData points to %APPDATA%\Eventide Launcherv2
-app.setName('Eventide Launcherv2');
+// Set the app name to 'Eventide Launcher' so userData points to %APPDATA%\Eventide Launcher
+app.setName('Eventide Launcher');
 
 // ============================================================================
 // SECURITY: Web Contents Creation Handler
@@ -268,8 +268,8 @@ async function extractBaseGameIfNeeded(
         log.info(chalk.cyan('[startup] Deleted corrupted ZIP file'));
 
         // Update storage to reflect that download is incomplete
-        storageData.GAME_UPDATER.baseGame.downloaded = false;
-        storageData.GAME_UPDATER.baseGame.extracted = false;
+        storageData.gameState.baseGame.isDownloaded = false;
+        storageData.gameState.baseGame.isExtracted = false;
         await writeStorage(storageData);
 
         // Notify renderer
@@ -286,12 +286,12 @@ async function extractBaseGameIfNeeded(
     }
 
     // Update storage atomically
-    storageData.GAME_UPDATER.baseGame.extracted = true;
+    storageData.gameState.baseGame.isExtracted = true;
     await writeStorage(storageData);
 
     log.info(
       chalk.cyan(
-        '[startup] Extraction complete. Updated baseGame.extracted to true.',
+        '[startup] Extraction complete. Updated baseGame.isExtracted to true.',
       ),
     );
 
@@ -498,11 +498,11 @@ app.once('ready', async () => {
 
     // Step 5: Sync extracted state with file system
     // Note: We don't sync downloaded state - users may delete ZIP files to save space after extraction
-    if (storageData.GAME_UPDATER.baseGame.extracted !== filesExist) {
-      storageData.GAME_UPDATER.baseGame.extracted = filesExist;
+    if (storageData.gameState.baseGame.isExtracted !== filesExist) {
+      storageData.gameState.baseGame.isExtracted = filesExist;
       needsUpdate = true;
       log.info(
-        chalk.cyan(`[startup] Synced baseGame.extracted to ${filesExist}`),
+        chalk.cyan(`[startup] Synced baseGame.isExtracted to ${filesExist}`),
       );
     }
 
@@ -542,7 +542,7 @@ app.once('ready', async () => {
 
     // Check if there's an incomplete download in progress (paused or interrupted)
     // If so, the ZIP file is incomplete and should NOT be extracted
-    const downloadInProgress = storageData.GAME_UPDATER?.downloadProgress != null;
+    const downloadInProgress = storageData.gameState?.downloadProgress != null;
     if (downloadInProgress) {
       log.info(
         chalk.yellow(
@@ -560,12 +560,12 @@ app.once('ready', async () => {
         );
         await extractBaseGameIfNeeded(storageData, dlRoot, gameRoot, baseGameZipName);
         // Re-check after extraction
-        storageData.GAME_UPDATER.baseGame.extracted =
+        storageData.gameState.baseGame.isExtracted =
           hasRequiredGameFiles(gameRoot);
         // IMPORTANT: Reset version to base version after extraction (even if storage had a different version)
-        storageData.GAME_UPDATER.currentVersion = baseVersion;
-        storageData.GAME_UPDATER.updater.downloaded = '0';
-        storageData.GAME_UPDATER.updater.extracted = '0';
+        storageData.gameState.installedVersion = baseVersion;
+        storageData.gameState.patches.downloadedVersion = '0';
+        storageData.gameState.patches.appliedVersion = '0';
         needsUpdate = true;
         log.info(
           chalk.cyan(
@@ -587,17 +587,17 @@ app.once('ready', async () => {
         }
       } catch (extractErr) {
         log.error(chalk.red('[startup] Auto-extraction failed:'), extractErr);
-        storageData.GAME_UPDATER.baseGame.extracted = false;
+        storageData.gameState.baseGame.isExtracted = false;
         needsUpdate = true;
       }
     }
 
     // Step 8: Initialize version if this is first extraction (for backward compatibility)
     if (
-      isZeroVersion(storageData.GAME_UPDATER.currentVersion) &&
-      storageData.GAME_UPDATER.baseGame.extracted
+      isZeroVersion(storageData.gameState.installedVersion) &&
+      storageData.gameState.baseGame.isExtracted
     ) {
-      storageData.GAME_UPDATER.currentVersion = baseVersion;
+      storageData.gameState.installedVersion = baseVersion;
       needsUpdate = true;
       log.info(
         chalk.cyan(
@@ -606,25 +606,25 @@ app.once('ready', async () => {
       );
     }
 
-    // Step 9: Ensure updater fields are initialized
-    if (!storageData.GAME_UPDATER.updater.downloaded) {
-      storageData.GAME_UPDATER.updater.downloaded = '0';
+    // Step 9: Ensure patches fields are initialized
+    if (!storageData.gameState.patches.downloadedVersion) {
+      storageData.gameState.patches.downloadedVersion = '0';
       needsUpdate = true;
     }
-    if (!storageData.GAME_UPDATER.updater.extracted) {
-      storageData.GAME_UPDATER.updater.extracted = '0';
+    if (!storageData.gameState.patches.appliedVersion) {
+      storageData.gameState.patches.appliedVersion = '0';
       needsUpdate = true;
     }
 
-    // Step 10: Update latestVersion in storage
+    // Step 10: Update availableVersion in storage
     if (
       remoteVersion !== '0' &&
-      storageData.GAME_UPDATER.latestVersion !== remoteVersion
+      storageData.gameState.availableVersion !== remoteVersion
     ) {
-      storageData.GAME_UPDATER.latestVersion = remoteVersion;
+      storageData.gameState.availableVersion = remoteVersion;
       needsUpdate = true;
       log.info(
-        chalk.cyan(`[startup] Updated latestVersion to ${remoteVersion}`),
+        chalk.cyan(`[startup] Updated availableVersion to ${remoteVersion}`),
       );
     }
 
@@ -634,14 +634,14 @@ app.once('ready', async () => {
     }
 
     // Step 11: Log update status
-    const { currentVersion } = storageData.GAME_UPDATER;
-    if (currentVersion !== remoteVersion && remoteVersion !== '0') {
+    const { installedVersion } = storageData.gameState;
+    if (installedVersion !== remoteVersion && remoteVersion !== '0') {
       log.info(
         chalk.cyan(
-          `[startup] Update available: ${currentVersion} → ${remoteVersion}`,
+          `[startup] Update available: ${installedVersion} → ${remoteVersion}`,
         ),
       );
-    } else if (currentVersion === remoteVersion) {
+    } else if (installedVersion === remoteVersion) {
       log.info(chalk.cyan('[startup] Game is up to date.'));
     }
 
@@ -750,6 +750,29 @@ ipcMain.handle('select-install-directory', async () => {
     return { success: true, path: finalInstallDir };
   } catch (error) {
     log.error(chalk.red('[select-install-directory] Error:'), error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+});
+
+// IPC handler to select a screenshot directory
+ipcMain.handle('select-screenshot-directory', async () => {
+  try {
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory', 'createDirectory'],
+      title: 'Select Screenshot Directory',
+      buttonLabel: 'Select Directory',
+    });
+
+    if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+      return { success: false, canceled: true };
+    }
+
+    return { success: true, path: result.filePaths[0] };
+  } catch (error) {
+    log.error(chalk.red('[select-screenshot-directory] Error:'), error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
@@ -1371,23 +1394,46 @@ app.on('ready', () => {
 
   // Create desktop shortcut on first run (only in production)
   if (process.env.NODE_ENV === 'production') {
-    const { createDesktopShortcut } = require('./util');
-    createDesktopShortcut()
-      .then((result: { success: boolean; error?: string }) => {
-        if (result.success) {
-          log.info(
-            chalk.green('[startup] Desktop shortcut created or already exists'),
-          );
-        } else {
-          log.warn(
-            chalk.yellow('[startup] Failed to create desktop shortcut:'),
-            result.error,
-          );
-        }
-      })
-      .catch((err: Error) => {
-        log.error(chalk.red('[startup] Error creating desktop shortcut:'), err);
-      });
+    const { createDesktopShortcut, createLinuxDesktopFile, removeWineDesktopFile, isRunningUnderWine } = require('./util');
+
+    // On Wine/Linux: create proper .desktop file and clean up broken Wine-generated ones
+    if (isRunningUnderWine()) {
+      removeWineDesktopFile()
+        .then(() => createLinuxDesktopFile())
+        .then((result: { success: boolean; error?: string }) => {
+          if (result.success) {
+            log.info(
+              chalk.green('[startup] Linux .desktop file created or already exists'),
+            );
+          } else {
+            log.warn(
+              chalk.yellow('[startup] Failed to create Linux .desktop file:'),
+              result.error,
+            );
+          }
+        })
+        .catch((err: Error) => {
+          log.error(chalk.red('[startup] Error creating Linux .desktop file:'), err);
+        });
+    } else {
+      // On native Windows: create standard shortcut
+      createDesktopShortcut()
+        .then((result: { success: boolean; error?: string }) => {
+          if (result.success) {
+            log.info(
+              chalk.green('[startup] Desktop shortcut created or already exists'),
+            );
+          } else {
+            log.warn(
+              chalk.yellow('[startup] Failed to create desktop shortcut:'),
+              result.error,
+            );
+          }
+        })
+        .catch((err: Error) => {
+          log.error(chalk.red('[startup] Error creating desktop shortcut:'), err);
+        });
+    }
   }
 });
 
@@ -1549,7 +1595,8 @@ ipcMain.handle(
           applySettingsToIni(settings, config);
 
           // Always write the INI file after updating the command (even if only password changes)
-          const newIni = ini.stringify(config);
+          // Use whitespace option to add spaces around '=' (e.g., "0000 = 0" instead of "0000=0")
+          const newIni = ini.stringify(config, { whitespace: true });
           try {
             const bakPath = `${iniPath}.bak`;
             fs.copyFileSync(iniPath, bakPath);
@@ -1588,7 +1635,7 @@ ipcMain.handle(
   'write-config',
   async (
     _event,
-    data: { username?: string; password?: string; rememberCredentials?: boolean; guiScale?: number },
+    data: { username?: string; password?: string; rememberCredentials?: boolean; guiScale?: number; darkMode?: boolean },
   ) => {
     try {
       // Sanitize inputs to remove control characters
@@ -1633,6 +1680,11 @@ ipcMain.handle(
       // Preserve or update guiScale
       if (data.guiScale !== undefined && typeof data.guiScale === 'number') {
         configData.guiScale = data.guiScale;
+      }
+
+      // Preserve or update darkMode
+      if (data.darkMode !== undefined && typeof data.darkMode === 'boolean') {
+        configData.darkMode = data.darkMode;
       }
 
       // Handle both username and password in keytar only (when credentials are being saved)
@@ -1931,9 +1983,9 @@ ipcMain.handle('reapply-patches', async () => {
 
     // Update storage to reset version
     await updateStorage((data: StorageJson) => {
-      data.GAME_UPDATER.currentVersion = '1.0.0';
-      data.GAME_UPDATER.updater.downloaded = '1.0.0';
-      data.GAME_UPDATER.updater.extracted = '1.0.0';
+      data.gameState.installedVersion = '1.0.0';
+      data.gameState.patches.downloadedVersion = '1.0.0';
+      data.gameState.patches.appliedVersion = '1.0.0';
     });
 
     log.info(chalk.green('[reapply-patches] Version reset and patch files deleted successfully'));
@@ -2100,10 +2152,10 @@ ipcMain.handle('game:check', async () => {
     let baseDownloaded = false;
     let baseExtracted = false;
 
-    if (storage && storage.GAME_UPDATER) {
-      currentVersion = String(storage.GAME_UPDATER.currentVersion ?? '0.0.0');
-      baseDownloaded = !!storage.GAME_UPDATER.baseGame.downloaded;
-      baseExtracted = !!storage.GAME_UPDATER.baseGame.extracted;
+    if (storage && storage.gameState) {
+      currentVersion = String(storage.gameState.installedVersion ?? '0.0.0');
+      baseDownloaded = !!storage.gameState.baseGame.isDownloaded;
+      baseExtracted = !!storage.gameState.baseGame.isExtracted;
     }
 
     log.info(chalk.cyan('[game:check] Storage state - downloaded:'), baseDownloaded, 'extracted:', baseExtracted, 'version:', currentVersion);
@@ -2114,7 +2166,7 @@ ipcMain.handle('game:check', async () => {
     const zipExists = fs.existsSync(baseGameZipPath);
 
     // Check if there's a download in progress
-    const downloadInProgress = storage?.GAME_UPDATER?.downloadProgress != null;
+    const downloadInProgress = storage?.gameState?.downloadProgress != null;
 
     log.info(chalk.cyan('[game:check] ZIP exists:'), zipExists, 'download in progress:', downloadInProgress);
 
@@ -2220,8 +2272,8 @@ ipcMain.handle('game:extract', async () => {
 
       // Update storage
       await updateStorage((s: StorageJson) => {
-        s.GAME_UPDATER.baseGame.extracted = true;
-        s.GAME_UPDATER.currentVersion = baseVersion;
+        s.gameState.baseGame.isExtracted = true;
+        s.gameState.installedVersion = baseVersion;
       });
 
       // Send completion status
@@ -2326,11 +2378,11 @@ ipcMain.handle('clear-downloads', async () => {
 
     // Reset storage state
     await updateStorage((data: StorageJson) => {
-      data.GAME_UPDATER.currentVersion = '0.0.0';
-      data.GAME_UPDATER.baseGame.downloaded = false;
-      data.GAME_UPDATER.baseGame.extracted = false;
-      data.GAME_UPDATER.updater.downloaded = '';
-      data.GAME_UPDATER.updater.extracted = '';
+      data.gameState.installedVersion = '0.0.0';
+      data.gameState.baseGame.isDownloaded = false;
+      data.gameState.baseGame.isExtracted = false;
+      data.gameState.patches.downloadedVersion = '';
+      data.gameState.patches.appliedVersion = '';
     });
 
     log.info(
@@ -2823,10 +2875,12 @@ ipcMain.handle('game:import-existing', async () => {
     // Fetch remote release.json to get version/source info for the snapshot (optional)
     let manifest: any | undefined;
     try {
-      // TODO: Implement or import fetchJson if needed
-      // const remote: any = await fetchJson(RELEASE_JSON_URL);
-      // if (remote?.game) manifest = { ...(remote.game), version: remote.game.baseVersion ?? remote.latestVersion ?? remote.game.version };
-      // else manifest = remote;
+      const { release } = await getCachedManifests();
+      if (release?.game) {
+        manifest = { ...(release.game), version: release.game.baseVersion ?? release.latestVersion ?? release.game.version };
+      } else {
+        manifest = release;
+      }
     } catch (e) {
       log.warn(chalk.yellow('[import] Error fetching remote manifest:'), e);
       // ignore; manifest info is optional for import

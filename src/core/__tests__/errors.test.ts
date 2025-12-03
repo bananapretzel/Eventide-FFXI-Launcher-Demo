@@ -1,5 +1,5 @@
 ﻿// Error categorization tests
-// Mock electron-log before any imports
+// Mock electron-log with explicit mock implementation
 jest.mock('electron-log', () => {
   const mockFn = jest.fn();
   const mockLogger = {
@@ -19,9 +19,13 @@ jest.mock('electron-log', () => {
     functions: { log: mockFn, info: mockFn, warn: mockFn, error: mockFn },
     catchErrors: mockFn,
     initialize: mockFn,
-    scope: jest.fn(() => mockLogger),
+    scope: jest.fn().mockReturnThis(),
   };
-  return { default: mockLogger, __esModule: true };
+  return {
+    default: mockLogger,
+    __esModule: true,
+    ...mockLogger,
+  };
 });
 
 import { categorizeError, formatErrorForUser, isRetryable, ErrorCategory, ErrorSeverity } from '../errors';

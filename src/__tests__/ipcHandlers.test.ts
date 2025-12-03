@@ -2,7 +2,7 @@ import { ipcMain } from 'electron';
 import path from 'path';
 import { app } from 'electron';
 
-// Mock electron-log before any imports
+// Mock electron-log with explicit mock implementation
 jest.mock('electron-log', () => {
   const mockFn = jest.fn();
   const mockLogger = {
@@ -14,7 +14,7 @@ jest.mock('electron-log', () => {
     silly: mockFn,
     log: mockFn,
     transports: {
-      file: { level: 'debug', resolvePathFn: null, format: '', getFile: () => ({ path: '/mock' }) },
+      file: { level: 'debug', resolvePathFn: null, format: '', getFile: () => ({ path: '/mock' }), maxSize: 5000000 },
       console: { level: 'debug', format: '' },
       ipc: { level: 'debug' },
       remote: { level: 'debug' },
@@ -22,10 +22,44 @@ jest.mock('electron-log', () => {
     functions: { log: mockFn, info: mockFn, warn: mockFn, error: mockFn },
     catchErrors: mockFn,
     initialize: mockFn,
-    scope: jest.fn(() => mockLogger),
+    scope: jest.fn().mockReturnThis(),
   };
-  return { default: mockLogger, __esModule: true };
+  return {
+    default: mockLogger,
+    __esModule: true,
+    ...mockLogger,
+  };
 });
+
+// Mock the main logger module
+jest.mock('../main/logger', () => {
+  const mockFn = jest.fn();
+  return {
+    default: {
+      info: mockFn,
+      warn: mockFn,
+      error: mockFn,
+      debug: mockFn,
+      transports: {
+        file: { level: 'debug', resolvePathFn: null, format: '', getFile: () => ({ path: '/mock' }), maxSize: 5000000 },
+        console: { level: 'debug', format: '' },
+      },
+      functions: { log: mockFn, info: mockFn, warn: mockFn, error: mockFn },
+      _raw: { transports: { file: {}, console: {} } },
+    },
+    __esModule: true,
+  };
+});
+
+// Mock the paths module
+jest.mock('../main/paths', () => ({
+  getEventidePaths: jest.fn(() => ({
+    storage: '/mock/storage.json',
+    gameRoot: '/mock/game',
+    downloadRoot: '/mock/downloads',
+  })),
+  ensureDirs: jest.fn(),
+}));
 
 
 

@@ -250,7 +250,7 @@ export async function downloadGameResumable(
 
   // Download completed successfully - clear progress and proceed
   await clearDownloadProgress();
-  await updateStorage(s => { s.GAME_UPDATER.baseGame.downloaded = true; });
+  await updateStorage(s => { s.gameState.baseGame.isDownloaded = true; });
 
   log.info(chalk.cyan('[downloadGameResumable] Verifying checksum...'));
   const checksumValid = await verifySha256(zipPath, sha256);
@@ -266,7 +266,7 @@ export async function downloadGameResumable(
       log.warn(chalk.yellow('[downloadGameResumable] Could not delete corrupted ZIP:'), unlinkErr);
     }
 
-    await updateStorage(s => { s.GAME_UPDATER.baseGame.downloaded = false; });
+    await updateStorage(s => { s.gameState.baseGame.isDownloaded = false; });
     throw new Error('SHA256 mismatch - downloaded file is corrupted. Please try downloading again.');
   }
 
@@ -284,7 +284,7 @@ export async function downloadGameResumable(
     try {
       await fs.unlink(zipPath);
       log.info(chalk.cyan('[downloadGameResumable] Deleted corrupted ZIP file after extraction failure'));
-      await updateStorage(s => { s.GAME_UPDATER.baseGame.downloaded = false; });
+      await updateStorage(s => { s.gameState.baseGame.isDownloaded = false; });
     } catch (unlinkErr) {
       log.warn(chalk.yellow('[downloadGameResumable] Could not delete ZIP after extraction failure:'), unlinkErr);
     }
@@ -300,7 +300,7 @@ export async function downloadGameResumable(
   }
   log.info(chalk.green(`[downloadGameResumable] Verification passed: ${verification.fileCount} files extracted`));
 
-  await updateStorage(s => { s.GAME_UPDATER.baseGame.extracted = true; });
+  await updateStorage(s => { s.gameState.baseGame.isExtracted = true; });
 
   // Set version in AppData storage (installDir is ignored by setClientVersion)
   await setClientVersion(installDir, baseVersion);

@@ -84,6 +84,8 @@ const electronHandler = {
   // Installation directory selection
   selectInstallDirectory: () => ipcRenderer.invoke('select-install-directory'),
   setInstallDirectory: (dirPath: string | null) => ipcRenderer.invoke('set-install-directory', dirPath),
+  // Screenshot directory selection
+  selectScreenshotDirectory: () => ipcRenderer.invoke('select-screenshot-directory'),
   // Launcher self-update API
   launcherUpdate: {
     checkForUpdates: () => ipcRenderer.invoke('launcher:checkForUpdates'),

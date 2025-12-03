@@ -336,6 +336,14 @@ export const DEFAULT_ADDONS = [
     "enabled": false
   },
   {
+    "name": "Metrics",
+    "description": "Metrics is a very comprehensive DPS parsing tool.",
+    "author": "Metra",
+    "version": "11.10.24.00",
+    "link": "https://github.com/RaraProjects/metrics",
+    "enabled": false
+  },
+  {
     "name": "minimapmon",
     "description": "Hides the Minimap plugin under certain conditions, such as standing still.",
     "author": "atom0s",

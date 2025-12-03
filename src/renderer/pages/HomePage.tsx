@@ -1159,7 +1159,7 @@ export default function HomePage(props: HomePageProps) {
                       top: '8px',
                       right: '12px',
                       fontSize: '0.7em',
-                      color: '#10b981',
+                      color: 'darkorange',
                       fontWeight: 'bold',
                       opacity: 0.8,
                     }}

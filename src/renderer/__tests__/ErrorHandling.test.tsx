@@ -51,6 +51,25 @@ jest.mock('electron-log/renderer', () => {
   return { default: mockLogger, __esModule: true };
 });
 
+// Mock the renderer logger module
+jest.mock('../logger', () => {
+  const mockFn = jest.fn();
+  return {
+    default: {
+      info: mockFn,
+      warn: mockFn,
+      error: mockFn,
+      debug: mockFn,
+      transports: {
+        file: { level: 'debug' },
+        console: { level: 'debug', format: '' },
+      },
+      _raw: { transports: { file: {}, console: {} } },
+    },
+    __esModule: true,
+  };
+});
+
 // Mock electron API
 const mockElectron = {
   invoke: jest.fn(),
@@ -400,8 +419,8 @@ describe('Error Display and Recovery', () => {
         expect(screen.getByText(/Network Error/i)).toBeInTheDocument();
       });
 
-      // Click Retry Now button
-      const retryButton = screen.getByRole('button', { name: /Retry Now/i });
+      // Click Retry button
+      const retryButton = screen.getByRole('button', { name: /Retry/i });
       await act(async () => {
         fireEvent.click(retryButton);
       });
@@ -595,7 +614,7 @@ describe('Error Display and Recovery', () => {
       });
 
       // Second attempt
-      let retryButton = screen.getByRole('button', { name: /Retry Now/i });
+      let retryButton = screen.getByRole('button', { name: /Retry/i });
       await act(async () => {
         fireEvent.click(retryButton);
       });
@@ -605,7 +624,7 @@ describe('Error Display and Recovery', () => {
       });
 
       // Third attempt - succeeds
-      retryButton = screen.getByRole('button', { name: /Retry Now/i });
+      retryButton = screen.getByRole('button', { name: /Retry/i });
       await act(async () => {
         fireEvent.click(retryButton);
       });

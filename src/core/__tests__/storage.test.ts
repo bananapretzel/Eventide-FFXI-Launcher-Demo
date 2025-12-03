@@ -1,28 +1,6 @@
 // Storage module tests
-// Mock electron-log before any imports
-jest.mock('electron-log', () => {
-  const mockFn = jest.fn();
-  const mockLogger = {
-    info: mockFn,
-    warn: mockFn,
-    error: mockFn,
-    debug: mockFn,
-    verbose: mockFn,
-    silly: mockFn,
-    log: mockFn,
-    transports: {
-      file: { level: 'debug', resolvePathFn: null, format: '', getFile: () => ({ path: '/mock' }) },
-      console: { level: 'debug', format: '' },
-      ipc: { level: 'debug' },
-      remote: { level: 'debug' },
-    },
-    functions: { log: mockFn, info: mockFn, warn: mockFn, error: mockFn },
-    catchErrors: mockFn,
-    initialize: mockFn,
-    scope: jest.fn(() => mockLogger),
-  };
-  return { default: mockLogger, __esModule: true };
-});
+// Mock electron-log - uses __mocks__/electron-log.js
+jest.mock('electron-log');
 
 // Mock electron
 jest.mock('electron', () => ({
@@ -31,6 +9,15 @@ jest.mock('electron', () => ({
     getName: jest.fn(() => 'eventide-test'),
     getVersion: jest.fn(() => '1.0.0'),
   },
+}));
+
+// Mock the paths module to avoid logger initialization issues
+jest.mock('../../main/paths', () => ({
+  getEventidePaths: jest.fn(() => ({
+    storage: '/mock/storage.json',
+    gameRoot: '/mock/game',
+    downloadRoot: '/mock/downloads',
+  })),
 }));
 
 import { hasRequiredGameFiles } from '../storage';

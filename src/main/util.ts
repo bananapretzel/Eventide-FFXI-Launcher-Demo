@@ -210,3 +210,140 @@ export async function createDesktopShortcut(): Promise<{ success: boolean; error
     };
   }
 }
+
+/**
+ * Creates a proper Linux .desktop file for Wine/Linux users
+ * This should be called on first run when running under Wine
+ */
+export async function createLinuxDesktopFile(): Promise<{ success: boolean; error?: string }> {
+  if (!isRunningUnderWine()) {
+    log.info(chalk.cyan('[createLinuxDesktopFile] Not running under Wine - skipping'));
+    return { success: true };
+  }
+
+  try {
+    const winePrefix = process.env.WINEPREFIX || `${process.env.HOME}/.wine`;
+    const home = process.env.HOME || '/home/user';
+
+    // Get the Windows path to the executable
+    const exePathWindows = app.getPath('exe');
+
+    // Convert Windows path to Unix path for the Exec line
+    const exePathUnix = windowsToUnixPath(exePathWindows);
+    const exeDirUnix = path.dirname(exePathUnix).replace(/\\/g, '/');
+
+    // Determine the desktop file path
+    const desktopDir = `${home}/.local/share/applications`;
+    const desktopFilePath = `${desktopDir}/eventidexi.desktop`;
+
+    // Check if it already exists
+    try {
+      await fs.promises.access(desktopFilePath.replace(/\//g, path.sep));
+      log.info(chalk.cyan('[createLinuxDesktopFile] Desktop file already exists at:'), desktopFilePath);
+      return { success: true };
+    } catch {
+      // File doesn't exist, continue creating it
+    }
+
+    // Try to find an icon - look for common icon locations
+    let iconPath = '';
+    const possibleIconPaths = [
+      `${exeDirUnix}/resources/icon.png`,
+      `${exeDirUnix}/resources/app/assets/icon.png`,
+      `${exeDirUnix}/../resources/icon.png`,
+      `${winePrefix}/drive_c/users/${process.env.USER || 'user'}/AppData/Local/Programs/eventidexi/resources/icon.png`,
+    ];
+
+    for (const iconCandidate of possibleIconPaths) {
+      try {
+        const unixIconPath = iconCandidate.replace(/\\/g, '/');
+        await fs.promises.access(unixIconPath);
+        iconPath = unixIconPath;
+        break;
+      } catch {
+        // Icon not found at this path, try next
+      }
+    }
+
+    // If no icon found, try to extract from the exe or use a placeholder
+    if (!iconPath) {
+      iconPath = 'application-x-executable'; // Fallback to generic icon
+    }
+
+    // Create the .desktop file content
+    const desktopFileContent = `[Desktop Entry]
+Name=EventideXI
+Comment=A launcher for the private FFXI private server called Eventide.
+Exec=env "WINEPREFIX=${winePrefix}" wine "${exePathWindows.replace(/\\/g, '\\\\')}"
+Type=Application
+StartupNotify=true
+Path=${exeDirUnix}
+Icon=${iconPath}
+StartupWMClass=eventidexi.exe
+Categories=Game;
+`;
+
+    // Create the applications directory if it doesn't exist
+    return new Promise((resolve) => {
+      exec(`/bin/sh -c 'mkdir -p "${desktopDir}" && cat > "${desktopFilePath}" << "DESKTOP_EOF"
+${desktopFileContent}
+DESKTOP_EOF
+chmod +x "${desktopFilePath}"'`, (error) => {
+        if (error) {
+          log.error(chalk.red('[createLinuxDesktopFile] Failed to create .desktop file:'), error.message);
+          resolve({
+            success: false,
+            error: `Failed to create .desktop file: ${error.message}`,
+          });
+        } else {
+          log.info(chalk.green('[createLinuxDesktopFile] ✓ Linux .desktop file created at:'), desktopFilePath);
+          resolve({ success: true });
+        }
+      });
+    });
+  } catch (err) {
+    log.error(chalk.red('[createLinuxDesktopFile] Error:'), err);
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Unknown error',
+    };
+  }
+}
+
+/**
+ * Removes the broken Wine-generated .desktop file if it exists
+ */
+export async function removeWineDesktopFile(): Promise<void> {
+  if (!isRunningUnderWine()) {
+    return;
+  }
+
+  try {
+    const home = process.env.HOME || '/home/user';
+
+    // Wine typically creates .desktop files in these locations with various naming patterns
+    const possiblePaths = [
+      `${home}/.local/share/applications/wine/Programs/EventideXI.desktop`,
+      `${home}/.local/share/applications/wine-Programs-EventideXI.desktop`,
+      `${home}/Desktop/EventideXI.desktop`,
+    ];
+
+    for (const desktopPath of possiblePaths) {
+      try {
+        // Use native Linux shell to check and remove the file
+        await new Promise<void>((resolve) => {
+          exec(`/bin/sh -c 'if [ -f "${desktopPath}" ]; then rm "${desktopPath}" && echo "Removed"; fi'`, (error, stdout) => {
+            if (!error && stdout.includes('Removed')) {
+              log.info(chalk.green('[removeWineDesktopFile] Removed broken Wine .desktop file:'), desktopPath);
+            }
+            resolve();
+          });
+        });
+      } catch {
+        // Ignore errors for individual file removal attempts
+      }
+    }
+  } catch (err) {
+    log.warn(chalk.yellow('[removeWineDesktopFile] Error cleaning up Wine .desktop files:'), err);
+  }
+}

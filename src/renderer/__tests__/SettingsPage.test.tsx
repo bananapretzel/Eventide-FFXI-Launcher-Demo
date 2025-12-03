@@ -1,5 +1,5 @@
 // Settings Page Tests - Troubleshooting Features
-// Mock electron-log/renderer before any imports
+// Mock electron-log/renderer with explicit mock implementation
 jest.mock('electron-log/renderer', () => {
   const mockFn = jest.fn();
   const mockLogger = {
@@ -14,9 +14,32 @@ jest.mock('electron-log/renderer', () => {
       file: { level: 'debug' },
       console: { level: 'debug', format: '' },
     },
-    scope: jest.fn(() => mockLogger),
+    scope: jest.fn().mockReturnThis(),
   };
-  return { default: mockLogger, __esModule: true };
+  return {
+    default: mockLogger,
+    __esModule: true,
+    ...mockLogger,
+  };
+});
+
+// Mock the renderer logger module
+jest.mock('../logger', () => {
+  const mockFn = jest.fn();
+  return {
+    default: {
+      info: mockFn,
+      warn: mockFn,
+      error: mockFn,
+      debug: mockFn,
+      transports: {
+        file: { level: 'debug' },
+        console: { level: 'debug', format: '' },
+      },
+      _raw: { transports: { file: {}, console: {} } },
+    },
+    __esModule: true,
+  };
 });
 
 import React from 'react';
@@ -118,13 +141,13 @@ describe('Settings Page - Troubleshooting Tab', () => {
 
     await waitFor(() => {
       const configButton = screen.getByRole('button', {
-        name: /Open Configuration Folder/i,
+        name: /Open Config Folder/i,
       });
       expect(configButton).toBeInTheDocument();
     });
   });
 
-  it('should render Open Configuration Folder button', async () => {
+  it('should render Open Config Folder button', async () => {
     render(<SettingsPage />);
 
     const troubleshootingTab = screen.getByRole('button', {
@@ -134,7 +157,7 @@ describe('Settings Page - Troubleshooting Tab', () => {
 
     await waitFor(() => {
       const button = screen.getByRole('button', {
-        name: /Open Configuration Folder/i,
+        name: /Open Config Folder/i,
       });
       expect(button).toBeInTheDocument();
     });
@@ -290,12 +313,10 @@ describe('Settings Page - FFXI Tab', () => {
 
     const generalTab = screen.getByRole('tab', { name: /^GENERAL$/i });
     const graphicsTab = screen.getByRole('tab', { name: /^GRAPHICS$/i });
-    const featuresTab = screen.getByRole('tab', { name: /^FEATURES$/i });
     const otherTab = screen.getByRole('tab', { name: /^OTHER$/i });
 
     expect(generalTab).toBeInTheDocument();
     expect(graphicsTab).toBeInTheDocument();
-    expect(featuresTab).toBeInTheDocument();
     expect(otherTab).toBeInTheDocument();
   });
 });

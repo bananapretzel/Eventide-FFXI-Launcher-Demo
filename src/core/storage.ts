@@ -12,7 +12,22 @@ export interface DownloadProgress {
   lastUpdatedAt: number; // Timestamp of last progress update
 }
 
-export interface GameUpdaterState {
+export interface GameState {
+  installedVersion: string;
+  availableVersion: string;
+  baseGame: {
+    isDownloaded: boolean;
+    isExtracted: boolean;
+  };
+  patches: {
+    downloadedVersion: string;
+    appliedVersion: string;
+  };
+  downloadProgress?: DownloadProgress; // Track resumable download state
+}
+
+// Legacy interface for migration (schema v1)
+interface LegacyGameUpdaterState {
   currentVersion: string;
   latestVersion: string;
   baseGame: {
@@ -23,9 +38,8 @@ export interface GameUpdaterState {
     downloaded: string;
     extracted: string;
   };
-  downloadProgress?: DownloadProgress; // Track resumable download state
+  downloadProgress?: DownloadProgress;
 }
-
 
 export interface StorageJson {
   schemaVersion: number;
@@ -34,24 +48,84 @@ export interface StorageJson {
     downloadPath: string;
     customInstallDir?: string; // Custom base installation directory chosen by user
   };
-  GAME_UPDATER: GameUpdaterState;
+  gameState: GameState;
+}
+
+// Legacy interface for migration
+interface LegacyStorageJson {
+  schemaVersion: number;
+  paths: {
+    installPath: string;
+    downloadPath: string;
+    customInstallDir?: string;
+  };
+  GAME_UPDATER: LegacyGameUpdaterState;
 }
 
 
-const STORAGE_SCHEMA_VERSION = 1;
+const STORAGE_SCHEMA_VERSION = 2;
 const getStoragePath = () => getEventidePaths().storage;
+
+/**
+ * Migrates storage from schema v1 to v2
+ * - Renames GAME_UPDATER to gameState
+ * - Renames updater to patches
+ * - Renames fields for clarity
+ */
+function migrateV1ToV2(data: LegacyStorageJson): StorageJson {
+  return {
+    schemaVersion: 2,
+    paths: data.paths,
+    gameState: {
+      installedVersion: data.GAME_UPDATER.currentVersion,
+      availableVersion: data.GAME_UPDATER.latestVersion,
+      baseGame: {
+        isDownloaded: data.GAME_UPDATER.baseGame.downloaded,
+        isExtracted: data.GAME_UPDATER.baseGame.extracted,
+      },
+      patches: {
+        downloadedVersion: data.GAME_UPDATER.updater.downloaded,
+        appliedVersion: data.GAME_UPDATER.updater.extracted,
+      },
+      downloadProgress: data.GAME_UPDATER.downloadProgress,
+    },
+  };
+}
 
 // Validate structure and types of storage.json
 export function validateStorageJson(data: any): data is StorageJson {
   if (!data || typeof data !== 'object') return false;
-  if (typeof data.schemaVersion !== 'number' || data.schemaVersion !== STORAGE_SCHEMA_VERSION) return false;
+  if (typeof data.schemaVersion !== 'number') return false;
+
+  // Check for v1 schema and migrate if needed
+  if (data.schemaVersion === 1 && data.GAME_UPDATER) {
+    return false; // Will trigger migration in readStorage
+  }
+
+  if (data.schemaVersion !== STORAGE_SCHEMA_VERSION) return false;
+  if (!data.paths || typeof data.paths.installPath !== 'string' || typeof data.paths.downloadPath !== 'string') return false;
+  if (!data.gameState) return false;
+
+  const g = data.gameState;
+  if (typeof g.installedVersion !== 'string') return false;
+  if (typeof g.availableVersion !== 'string') {
+    g.availableVersion = '0.0.0';
+  }
+  if (!g.baseGame || typeof g.baseGame.isDownloaded !== 'boolean' || typeof g.baseGame.isExtracted !== 'boolean') return false;
+  if (!g.patches || typeof g.patches.downloadedVersion !== 'string' || typeof g.patches.appliedVersion !== 'string') return false;
+  return true;
+}
+
+/**
+ * Check if data is valid v1 schema (for migration)
+ */
+function isValidV1Schema(data: any): data is LegacyStorageJson {
+  if (!data || typeof data !== 'object') return false;
+  if (data.schemaVersion !== 1) return false;
   if (!data.paths || typeof data.paths.installPath !== 'string' || typeof data.paths.downloadPath !== 'string') return false;
   if (!data.GAME_UPDATER) return false;
   const g = data.GAME_UPDATER;
   if (typeof g.currentVersion !== 'string') return false;
-  if (typeof g.latestVersion !== 'string') {
-    g.latestVersion = '0.0.0';
-  }
   if (!g.baseGame || typeof g.baseGame.downloaded !== 'boolean' || typeof g.baseGame.extracted !== 'boolean') return false;
   if (!g.updater || typeof g.updater.downloaded !== 'string' || typeof g.updater.extracted !== 'string') return false;
   return true;
@@ -59,13 +133,22 @@ export function validateStorageJson(data: any): data is StorageJson {
 
 
 /**
- * Reads storage.json, validates, and resets if corrupt/invalid. Logs if reset.
+ * Reads storage.json, validates, migrates if needed, and resets if corrupt/invalid. Logs if reset.
  */
 export async function readStorage(logReset?: (msg: string) => void): Promise<StorageJson | null> {
   const storagePath = getStoragePath();
   try {
     const data = await fs.readFile(storagePath, 'utf-8');
     const parsed = JSON.parse(data);
+
+    // Check for v1 schema and migrate
+    if (isValidV1Schema(parsed)) {
+      if (logReset) logReset(`[storage] Migrating storage.json from schema v1 to v2`);
+      const migrated = migrateV1ToV2(parsed);
+      await writeStorage(migrated);
+      return migrated;
+    }
+
     if (validateStorageJson(parsed)) {
       return parsed;
     } else {
@@ -101,11 +184,11 @@ export function getDefaultStorage(): StorageJson {
   return {
     schemaVersion: STORAGE_SCHEMA_VERSION,
     paths: { installPath: '', downloadPath: '' },
-    GAME_UPDATER: {
-      currentVersion: "0.0.0",
-      latestVersion: "0.0.0",
-      baseGame: { downloaded: false, extracted: false },
-      updater: { downloaded: "", extracted: "" },
+    gameState: {
+      installedVersion: "0.0.0",
+      availableVersion: "0.0.0",
+      baseGame: { isDownloaded: false, isExtracted: false },
+      patches: { downloadedVersion: "", appliedVersion: "" },
     },
   };
 }
@@ -119,7 +202,7 @@ export function getDefaultStorage(): StorageJson {
  */
 export async function saveDownloadProgress(progress: DownloadProgress): Promise<void> {
   await updateStorage(s => {
-    s.GAME_UPDATER.downloadProgress = {
+    s.gameState.downloadProgress = {
       ...progress,
       lastUpdatedAt: Date.now(),
     };
@@ -131,7 +214,7 @@ export async function saveDownloadProgress(progress: DownloadProgress): Promise<
  */
 export async function getDownloadProgress(): Promise<DownloadProgress | null> {
   const storage = await readStorage();
-  return storage?.GAME_UPDATER?.downloadProgress || null;
+  return storage?.gameState?.downloadProgress || null;
 }
 
 /**
@@ -139,7 +222,7 @@ export async function getDownloadProgress(): Promise<DownloadProgress | null> {
  */
 export async function clearDownloadProgress(): Promise<void> {
   await updateStorage(s => {
-    delete s.GAME_UPDATER.downloadProgress;
+    delete s.gameState.downloadProgress;
   });
 }
 
@@ -149,9 +232,9 @@ export async function clearDownloadProgress(): Promise<void> {
  */
 export async function updateDownloadBytes(bytesDownloaded: number): Promise<void> {
   await updateStorage(s => {
-    if (s.GAME_UPDATER.downloadProgress) {
-      s.GAME_UPDATER.downloadProgress.bytesDownloaded = bytesDownloaded;
-      s.GAME_UPDATER.downloadProgress.lastUpdatedAt = Date.now();
+    if (s.gameState.downloadProgress) {
+      s.gameState.downloadProgress.bytesDownloaded = bytesDownloaded;
+      s.gameState.downloadProgress.lastUpdatedAt = Date.now();
     }
   });
 }
@@ -161,9 +244,9 @@ export async function updateDownloadBytes(bytesDownloaded: number): Promise<void
  */
 export async function setDownloadPaused(isPaused: boolean): Promise<void> {
   await updateStorage(s => {
-    if (s.GAME_UPDATER.downloadProgress) {
-      s.GAME_UPDATER.downloadProgress.isPaused = isPaused;
-      s.GAME_UPDATER.downloadProgress.lastUpdatedAt = Date.now();
+    if (s.gameState.downloadProgress) {
+      s.gameState.downloadProgress.isPaused = isPaused;
+      s.gameState.downloadProgress.lastUpdatedAt = Date.now();
     }
   });
 }
