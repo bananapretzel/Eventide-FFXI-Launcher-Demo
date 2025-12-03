@@ -793,7 +793,9 @@ export default function HomePage(props: HomePageProps) {
                   e.currentTarget.style.background = 'rgba(59, 130, 246, 0.2)';
                 }}
               >
-                <span style={{ color: '#3b82f6' }}>Choose Installation Directory</span>
+                <span style={{ color: '#3b82f6' }}>
+                  Choose Installation Directory
+                </span>
               </button>
             </div>
           )}
@@ -857,7 +859,13 @@ export default function HomePage(props: HomePageProps) {
                   })()}
                 </span>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontFamily: "'Courier New', Courier, monospace", minWidth: '50px', textAlign: 'right' }}>
+                  <span
+                    style={{
+                      fontFamily: "'Courier New', Courier, monospace",
+                      minWidth: '50px',
+                      textAlign: 'right',
+                    }}
+                  >
                     {formatElapsedTime(elapsedTime)}
                   </span>
                   <button
@@ -946,7 +954,13 @@ export default function HomePage(props: HomePageProps) {
                   })()}
                 </span>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontFamily: "'Courier New', Courier, monospace", minWidth: '50px', textAlign: 'right' }}>
+                  <span
+                    style={{
+                      fontFamily: "'Courier New', Courier, monospace",
+                      minWidth: '50px',
+                      textAlign: 'right',
+                    }}
+                  >
                     {formatElapsedTime(elapsedTime)}
                   </span>
                   <button
@@ -1050,7 +1064,13 @@ export default function HomePage(props: HomePageProps) {
                     return `Extracting... ${getProgress(state) ?? 0}%`;
                   })()}
                 </span>
-                <span style={{ fontFamily: "'Courier New', Courier, monospace", minWidth: '50px', textAlign: 'right' }}>
+                <span
+                  style={{
+                    fontFamily: "'Courier New', Courier, monospace",
+                    minWidth: '50px',
+                    textAlign: 'right',
+                  }}
+                >
                   {formatElapsedTime(elapsedTime)}
                 </span>
               </div>
@@ -1159,7 +1179,7 @@ export default function HomePage(props: HomePageProps) {
                       top: '8px',
                       right: '12px',
                       fontSize: '0.7em',
-                      color: 'darkorange',
+                      color: 'orange',
                       fontWeight: 'bold',
                       opacity: 0.8,
                     }}

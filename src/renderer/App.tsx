@@ -250,15 +250,17 @@ export default function App() {
             >
               {darkMode ? <Sun size={23} /> : <Moon size={23} />}
             </button>
-            <a
-              href={EVENTIDE_WEBSITE_URL}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
               className="website-link"
               title="Visit Eventide Website"
+              onClick={(e) => {
+                e.preventDefault();
+                window.electron?.openExternal?.(EVENTIDE_WEBSITE_URL);
+              }}
             >
               <Globe size={23} />
-            </a>
+            </button>
           </nav>
         </header>
 

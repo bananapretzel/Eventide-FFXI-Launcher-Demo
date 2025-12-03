@@ -710,6 +710,15 @@ ipcMain.handle('eventide:get-paths', async () => {
     const storage = await readStorage();
     const hasSelectedDir = !!(storage?.paths?.customInstallDir || storage?.paths?.installPath);
 
+    // Ensure in-memory customInstallDir is set from storage (handles timing issues)
+    if (storage?.paths?.customInstallDir) {
+      const { setCustomInstallDir, getCustomInstallDir } = require('./paths');
+      if (getCustomInstallDir() !== storage.paths.customInstallDir) {
+        setCustomInstallDir(storage.paths.customInstallDir);
+        log.info(chalk.cyan('[eventide:get-paths] Synced customInstallDir from storage:'), storage.paths.customInstallDir);
+      }
+    }
+
     // Only return actual paths if user has selected a directory
     // Otherwise return empty strings to indicate no selection made yet
     const paths = getEventidePaths(hasSelectedDir);
@@ -773,6 +782,25 @@ ipcMain.handle('select-screenshot-directory', async () => {
     return { success: true, path: result.filePaths[0] };
   } catch (error) {
     log.error(chalk.red('[select-screenshot-directory] Error:'), error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+});
+
+// IPC handler to open external URL in default browser
+ipcMain.handle('open-external-url', async (_event, url: string) => {
+  try {
+    if (isUrlSafeForExternal(url)) {
+      await shell.openExternal(url);
+      return { success: true };
+    } else {
+      log.warn(chalk.yellow(`[open-external-url] Blocked unsafe URL: ${url}`));
+      return { success: false, error: 'URL is not allowed' };
+    }
+  } catch (error) {
+    log.error(chalk.red('[open-external-url] Error:'), error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
@@ -1796,17 +1824,25 @@ ipcMain.handle('uninstall-game', async () => {
   try {
     log.info(chalk.yellow('[uninstall-game] Starting uninstallation...'));
     const paths = getEventidePaths();
+    const { robustRemove } = require('./util');
+    const skippedItems: string[] = [];
 
     // Delete game folder
     if (paths.gameRoot && fs.existsSync(paths.gameRoot)) {
       log.info(chalk.cyan(`[uninstall-game] Deleting game folder: ${paths.gameRoot}`));
-      fs.rmSync(paths.gameRoot, { recursive: true, force: true });
+      const result = await robustRemove(paths.gameRoot);
+      if (result.skippedPaths.length > 0) {
+        skippedItems.push(...result.skippedPaths);
+      }
     }
 
     // Delete downloads folder
     if (paths.dlRoot && fs.existsSync(paths.dlRoot)) {
       log.info(chalk.cyan(`[uninstall-game] Deleting downloads folder: ${paths.dlRoot}`));
-      fs.rmSync(paths.dlRoot, { recursive: true, force: true });
+      const result = await robustRemove(paths.dlRoot);
+      if (result.skippedPaths.length > 0) {
+        skippedItems.push(...result.skippedPaths);
+      }
     }
 
     // Delete the parent Eventide/EventideXI folder if empty or only contains Game/Downloads
@@ -1815,7 +1851,10 @@ ipcMain.handle('uninstall-game', async () => {
       const remainingFiles = fs.readdirSync(parentDir);
       if (remainingFiles.length === 0) {
         log.info(chalk.cyan(`[uninstall-game] Deleting empty parent folder: ${parentDir}`));
-        fs.rmSync(parentDir, { recursive: true, force: true });
+        const result = await robustRemove(parentDir);
+        if (result.skippedPaths.length > 0) {
+          skippedItems.push(...result.skippedPaths);
+        }
       }
     }
 
@@ -1834,13 +1873,23 @@ ipcMain.handle('uninstall-game', async () => {
 
     // Delete AppData config folder (storage.json, config.json, logs/)
     // This is the userData folder: %APPDATA%\Eventide Launcher
+    // Note: Some files may be locked by the running app, so we use robustRemove
     const userDataPath = paths.userData;
     if (userDataPath && fs.existsSync(userDataPath)) {
       log.info(chalk.cyan(`[uninstall-game] Deleting config folder: ${userDataPath}`));
-      fs.rmSync(userDataPath, { recursive: true, force: true });
+      const result = await robustRemove(userDataPath, { continueOnError: true });
+      if (result.skippedPaths.length > 0) {
+        skippedItems.push(...result.skippedPaths);
+        log.info(chalk.yellow(`[uninstall-game] Some config files are in use and will be cleaned up when the app closes`));
+      }
     }
 
-    log.info(chalk.green('[uninstall-game] Uninstallation complete'));
+    if (skippedItems.length > 0) {
+      log.info(chalk.yellow(`[uninstall-game] Uninstallation mostly complete. ${skippedItems.length} items could not be deleted (in use)`));
+    } else {
+      log.info(chalk.green('[uninstall-game] Uninstallation complete'));
+    }
+
     return { success: true };
   } catch (error) {
     log.error(chalk.red('[uninstall-game] Error:'), error);
@@ -2150,6 +2199,15 @@ ipcMain.handle('game:check', async () => {
       };
     }
 
+    // Ensure in-memory customInstallDir is set from storage (handles timing issues)
+    if (storage?.paths?.customInstallDir) {
+      const { setCustomInstallDir, getCustomInstallDir } = require('./paths');
+      if (getCustomInstallDir() !== storage.paths.customInstallDir) {
+        setCustomInstallDir(storage.paths.customInstallDir);
+        log.info(chalk.cyan('[game:check] Synced customInstallDir from storage:'), storage.paths.customInstallDir);
+      }
+    }
+
     const paths = getEventidePaths(true); // Safe to use default since dir is selected
     const installDir = paths.gameRoot;
     const downloadsDir = paths.dlRoot;
@@ -2177,15 +2235,46 @@ ipcMain.handle('game:check', async () => {
     const baseGameZipPath = path.join(downloadsDir, baseGameZipName);
     const zipExists = fs.existsSync(baseGameZipPath);
 
+    // Check if game directory exists and has files (sanity check for extracted state)
+    const gameDirectoryExists = fs.existsSync(installDir);
+    let gameHasFiles = false;
+    if (gameDirectoryExists) {
+      try {
+        const files = fs.readdirSync(installDir);
+        gameHasFiles = files.length > 0;
+      } catch (e) {
+        log.warn(chalk.yellow('[game:check] Could not read game directory:'), e);
+      }
+    }
+
+    // If storage says extracted but game directory is empty/missing, reset the state
+    if (baseExtracted && !gameHasFiles) {
+      log.warn(chalk.yellow('[game:check] Storage says extracted but game directory is empty/missing - resetting state'));
+      baseExtracted = false;
+      await updateStorage((s: StorageJson) => {
+        s.gameState.baseGame.isExtracted = false;
+      });
+    }
+
+    // If storage says downloaded but ZIP doesn't exist and game isn't extracted, reset downloaded state
+    if (baseDownloaded && !zipExists && !baseExtracted && !gameHasFiles) {
+      log.warn(chalk.yellow('[game:check] Storage says downloaded but ZIP is missing and game not extracted - resetting state'));
+      baseDownloaded = false;
+      await updateStorage((s: StorageJson) => {
+        s.gameState.baseGame.isDownloaded = false;
+      });
+    }
+
     // Check if there's a download in progress
     const downloadInProgress = storage?.gameState?.downloadProgress != null;
 
-    log.info(chalk.cyan('[game:check] ZIP exists:'), zipExists, 'download in progress:', downloadInProgress);
+    log.info(chalk.cyan('[game:check] ZIP exists:'), zipExists, 'game dir has files:', gameHasFiles, 'download in progress:', downloadInProgress);
 
-    // State determination:
+    // State determination - TRUST storage.json as source of truth:
     // 1. If extracted=true -> Game is ready (or needs update if version differs)
-    // 2. If extracted=false but ZIP exists and no download in progress -> needs-extraction
-    // 3. Otherwise -> missing (need to download)
+    // 2. If downloaded=true but extracted=false -> needs-extraction (trust storage, extraction will handle missing ZIP)
+    // 3. If ZIP exists but downloaded=false -> needs-extraction (update storage to reflect reality)
+    // 4. Otherwise -> missing (need to download)
 
     let launcherState: 'missing' | 'ready' | 'update-available' | 'needs-extraction';
 
@@ -2198,12 +2287,21 @@ ipcMain.handle('game:check', async () => {
         launcherState = 'update-available';
         log.info(chalk.cyan(`[game:check] Update available - current: ${currentVersion}, latest: ${latestVersion}`));
       }
-    } else if (zipExists && !downloadInProgress) {
-      // ZIP exists but not extracted - offer extraction
+    } else if ((baseDownloaded || zipExists) && !downloadInProgress) {
+      // Storage says downloaded OR ZIP exists - offer extraction
+      // Trust storage.json as source of truth - extraction handler will report error if ZIP is actually missing
       launcherState = 'needs-extraction';
-      log.info(chalk.yellow('[game:check] ZIP exists but not extracted - showing extract button'));
+      log.info(chalk.yellow('[game:check] Base game downloaded but not extracted - showing extract button'));
+
+      // Sync storage if ZIP exists but storage says not downloaded
+      if (zipExists && !baseDownloaded) {
+        log.info(chalk.yellow('[game:check] ZIP exists but storage says not downloaded - updating storage'));
+        await updateStorage((s: StorageJson) => {
+          s.gameState.baseGame.isDownloaded = true;
+        });
+      }
     } else {
-      // No ZIP or download in progress - show download button
+      // Not downloaded and no ZIP - show download button
       launcherState = 'missing';
       log.info(chalk.cyan('[game:check] Game not installed - showing download button'));
     }

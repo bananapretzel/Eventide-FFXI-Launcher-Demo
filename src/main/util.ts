@@ -7,6 +7,122 @@ import log from 'electron-log';
 import chalk from 'chalk';
 import { exec } from 'child_process';
 
+/**
+ * Sleep for a specified number of milliseconds
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Robustly removes a directory or file, handling EBUSY/EPERM errors on Windows.
+ * Uses retries with exponential backoff for locked files.
+ * @param targetPath - Path to delete
+ * @param options - Options for deletion behavior
+ * @returns Object indicating success and any files that couldn't be deleted
+ */
+export async function robustRemove(
+  targetPath: string,
+  options: {
+    maxRetries?: number;
+    retryDelayMs?: number;
+    continueOnError?: boolean;
+  } = {}
+): Promise<{ success: boolean; skippedPaths: string[]; error?: string }> {
+  const { maxRetries = 3, retryDelayMs = 500, continueOnError = true } = options;
+  const skippedPaths: string[] = [];
+
+  if (!fs.existsSync(targetPath)) {
+    return { success: true, skippedPaths: [] };
+  }
+
+  /**
+   * Try to delete a single file or empty directory with retries
+   */
+  async function tryDelete(itemPath: string, isDirectory: boolean): Promise<boolean> {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        if (isDirectory) {
+          fs.rmdirSync(itemPath);
+        } else {
+          fs.unlinkSync(itemPath);
+        }
+        return true;
+      } catch (err: unknown) {
+        const error = err as NodeJS.ErrnoException;
+        const isRetryableError = error.code === 'EBUSY' || error.code === 'EPERM' || error.code === 'ENOTEMPTY';
+
+        if (isRetryableError && attempt < maxRetries) {
+          // Wait with exponential backoff before retrying
+          const delay = retryDelayMs * Math.pow(2, attempt);
+          log.warn(chalk.yellow(`[robustRemove] ${error.code} on "${itemPath}", retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`));
+          await sleep(delay);
+        } else if (isRetryableError && continueOnError) {
+          // Max retries reached, but continue with other files
+          log.warn(chalk.yellow(`[robustRemove] Could not delete "${itemPath}" after ${maxRetries} retries: ${error.code}`));
+          skippedPaths.push(itemPath);
+          return false;
+        } else {
+          throw err;
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Recursively delete directory contents, bottom-up
+   */
+  async function deleteRecursive(dirPath: string): Promise<void> {
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+
+    // First, process all children
+    for (const entry of entries) {
+      const fullPath = path.join(dirPath, entry.name);
+
+      if (entry.isDirectory()) {
+        await deleteRecursive(fullPath);
+      } else {
+        await tryDelete(fullPath, false);
+      }
+    }
+
+    // Then try to delete the directory itself (only if empty)
+    const remaining = fs.readdirSync(dirPath);
+    if (remaining.length === 0) {
+      await tryDelete(dirPath, true);
+    } else {
+      // Directory not empty (some files were skipped)
+      skippedPaths.push(dirPath);
+    }
+  }
+
+  try {
+    const stat = fs.statSync(targetPath);
+
+    if (stat.isDirectory()) {
+      await deleteRecursive(targetPath);
+    } else {
+      await tryDelete(targetPath, false);
+    }
+
+    const success = skippedPaths.length === 0;
+    if (!success) {
+      log.warn(chalk.yellow(`[robustRemove] Completed with ${skippedPaths.length} skipped items`));
+    }
+
+    return { success, skippedPaths };
+  } catch (err) {
+    const error = err as Error;
+    log.error(chalk.red(`[robustRemove] Error deleting "${targetPath}":`), error);
+    return {
+      success: false,
+      skippedPaths,
+      error: error.message,
+    };
+  }
+}
+
 export function resolveHtmlPath(htmlFileName: string) {
   if (process.env.NODE_ENV === 'development') {
     const port = process.env.PORT || 1212;

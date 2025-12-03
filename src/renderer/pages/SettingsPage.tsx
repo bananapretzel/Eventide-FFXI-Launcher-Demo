@@ -855,7 +855,7 @@ function FFXIOtherPanel({
           <Field
             label="Screenshots in Screen Resolution"
             htmlFor="screenshot-resolution"
-            tooltip="When enabled, screenshots will be taken at your screen resolution. When disabled, screenshots will be taken at the game's background resolution."
+            tooltip="When enabled, screenshots will be taken at your screen resolution."
           >
             <div
               className="toggle"
@@ -1535,10 +1535,7 @@ export default function SettingsPage() {
                     <span style={{ fontWeight: 500, color: '#dc2626' }}>
                       Uninstall
                     </span>
-                    <Tooltip
-                      content="This will permanently delete all game files, downloads, and launcher data. This action cannot be undone."
-                      iconStyle={{ color: '#dc2626', borderColor: '#dc2626' }}
-                    />
+                    <Tooltip content="This will permanently delete all game files, downloads, and launcher data. This action cannot be undone." />
                   </div>
                   <span
                     style={{

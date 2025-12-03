@@ -86,6 +86,8 @@ const electronHandler = {
   setInstallDirectory: (dirPath: string | null) => ipcRenderer.invoke('set-install-directory', dirPath),
   // Screenshot directory selection
   selectScreenshotDirectory: () => ipcRenderer.invoke('select-screenshot-directory'),
+  // Open external URL in default browser
+  openExternal: (url: string) => ipcRenderer.invoke('open-external-url', url),
   // Launcher self-update API
   launcherUpdate: {
     checkForUpdates: () => ipcRenderer.invoke('launcher:checkForUpdates'),
