@@ -368,7 +368,7 @@ body {
   padding: 10px 12px;
   font-family: 'Inter', 'Segoe UI', Tahoma, Arial, sans-serif;
   font-size: 14px;
-  color: var(--white);
+  color: var(--white-black);
   outline: none;
   box-shadow: var(--inner-shadow);
   transition: border-color 0.2s, box-shadow 0.2s;

@@ -1,9 +1,5 @@
-username and password text colours should be black in light mode and black in dark mode. currently it's always white which a user can't see when in light mode.
 
-When opening the launcher the username has no red quiggles but when i click into the username field my username shows a
+Test on a fresh windows VM
 
-red squiggle until i click out. this is a problem because usernames will almost always not conform to a proper word.
 
-the drop down boxes are in a weird position. typically they should drop down right under the dropdown field box but they are askew, typically down and to the right. This could be because of trying to make it work for linux which broke the windows version.
 
-there is a bug where when i press the website icon the title bar shows up behind the 

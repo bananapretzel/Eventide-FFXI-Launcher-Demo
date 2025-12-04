@@ -709,6 +709,9 @@ export default function HomePage(props: HomePageProps) {
               value={username ?? ''}
               onChange={(e) => setUsername(e.target.value)}
               autoComplete="username"
+              spellCheck={false}
+              autoCorrect="off"
+              autoCapitalize="off"
             />
           </div>
 

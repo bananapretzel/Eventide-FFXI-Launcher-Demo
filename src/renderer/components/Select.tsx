@@ -175,7 +175,7 @@ export function Select({
       className={className}
       isSearchable={false}
       menuPortalTarget={document.body}
-      menuPosition="fixed"
+      menuPlacement="auto"
     />
   );
 }

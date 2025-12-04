@@ -734,10 +734,16 @@ ipcMain.handle('eventide:get-paths', async () => {
 // IPC handler to open directory picker for custom installation location
 ipcMain.handle('select-install-directory', async () => {
   try {
+    // Use current install directory or user home as default path
+    const storage = require('./paths');
+    const currentInstallDir = storage.getInstallDirectory?.() || app.getPath('home');
+    const defaultPath = fs.existsSync(currentInstallDir) ? currentInstallDir : app.getPath('home');
+
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory', 'createDirectory'],
       title: 'Select Parent Directory for EventideXI Installation',
       buttonLabel: 'Select Directory',
+      defaultPath,
     });
 
     if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
@@ -793,7 +799,22 @@ ipcMain.handle('select-screenshot-directory', async () => {
 ipcMain.handle('open-external-url', async (_event, url: string) => {
   try {
     if (isUrlSafeForExternal(url)) {
+      // Store current window bounds before opening external URL
+      const currentBounds = mainWindow?.getBounds();
+
       await shell.openExternal(url);
+
+      // Restore window bounds after opening external URL to prevent title bar issues
+      // This fixes a visual glitch where the title bar appears behind the launcher
+      if (mainWindow && currentBounds) {
+        // Small delay to let the external browser open first
+        setTimeout(() => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.setBounds(currentBounds);
+          }
+        }, 100);
+      }
+
       return { success: true };
     } else {
       log.warn(chalk.yellow(`[open-external-url] Blocked unsafe URL: ${url}`));
