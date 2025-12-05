@@ -146,76 +146,112 @@ export function isRunningUnderWine(): boolean {
 }
 
 /**
+ * Gets the Linux home directory when running under Wine.
+ * Under Wine, process.env.HOME may be undefined, so we need fallbacks.
+ * @returns The Linux home directory path, or null if it cannot be determined
+ */
+function getLinuxHome(): string | null {
+  // Try standard HOME first
+  if (process.env.HOME) {
+    return process.env.HOME;
+  }
+
+  // Under Wine, try to derive from WINEPREFIX
+  // WINEPREFIX is usually something like /home/user/.wine or /home/user/Games/wine-prefix
+  if (process.env.WINEPREFIX) {
+    const match = process.env.WINEPREFIX.match(/^\/home\/([^\/]+)/);
+    if (match) {
+      return `/home/${match[1]}`;
+    }
+  }
+
+  // Try USER environment variable
+  if (process.env.USER) {
+    return `/home/${process.env.USER}`;
+  }
+
+  // Try LOGNAME environment variable
+  if (process.env.LOGNAME) {
+    return `/home/${process.env.LOGNAME}`;
+  }
+
+  return null;
+}
+
+/**
+ * Gets the Wine prefix directory.
+ * @returns The Wine prefix path, or null if not running under Wine or cannot be determined
+ */
+function getWinePrefix(): string | null {
+  if (process.env.WINEPREFIX) {
+    return process.env.WINEPREFIX;
+  }
+
+  const home = getLinuxHome();
+  if (home) {
+    return `${home}/.wine`;
+  }
+
+  return null;
+}
+
+/**
  * Converts a Windows path to a Unix path for use with native Linux commands
  * Wine paths like Z:\home\user\... map to /home/user/...
+ * @returns The Unix path, or null if conversion fails (e.g., HOME is undefined)
  */
-function windowsToUnixPath(winPath: string): string {
+function windowsToUnixPath(winPath: string): string | null {
   // Handle Wine Z: drive mapping (root filesystem)
   if (winPath.match(/^[Zz]:\\/)) {
     return winPath.substring(2).replace(/\\/g, '/');
   }
+
   // Handle other drive letters (C:, D:, etc.) - these map to ~/.wine/dosdevices/c: etc.
   const driveMatch = winPath.match(/^([A-Za-z]):\\/);
   if (driveMatch) {
     const driveLetter = driveMatch[1].toLowerCase();
-    const winePrefix = process.env.WINEPREFIX || `${process.env.HOME}/.wine`;
+    const winePrefix = getWinePrefix();
+
+    if (!winePrefix) {
+      log.warn(chalk.yellow('[windowsToUnixPath] Cannot determine Wine prefix - HOME and WINEPREFIX are both undefined'));
+      return null;
+    }
+
     const relativePath = winPath.substring(3).replace(/\\/g, '/');
     return `${winePrefix}/dosdevices/${driveLetter}:/${relativePath}`;
   }
-  // For other drive letters, try to use winepath if available
+
+  // For UNC paths or other formats, just convert backslashes
   return winPath.replace(/\\/g, '/');
 }
 
 /**
  * Opens a file or folder path cross-platform, handling Wine/Linux correctly
  * On native Windows: uses shell.openPath
- * On Wine/Linux: uses multiple methods to open with the native Linux file manager
+ * On Wine/Linux: tries Wine explorer first (most reliable), then falls back to shell.openPath
+ *
+ * Note: Under Wine, exec() runs in the Wine/Windows environment, NOT native Linux.
+ * Commands like /bin/sh or xdg-open will NOT work because they're interpreted
+ * by the Windows command processor. We use Wine-compatible methods instead.
  */
 export async function openPathCrossPlatform(targetPath: string): Promise<{ success: boolean; error?: string }> {
   try {
     if (isRunningUnderWine()) {
-      // Convert Windows path to Unix path
       const unixPath = windowsToUnixPath(targetPath);
-      log.info(chalk.cyan(`[openPathCrossPlatform] Running under Wine, converting path: ${targetPath} -> ${unixPath}`));
+      log.info(chalk.cyan(`[openPathCrossPlatform] Running under Wine, path: ${targetPath}`));
+      if (unixPath) {
+        log.info(chalk.cyan(`[openPathCrossPlatform] Converted to Unix path: ${unixPath}`));
+      }
 
-      // Try multiple methods to open the folder on Linux
+      // Method 1: Use Wine's explorer.exe with the Windows path (most reliable)
+      // This opens Wine's built-in file explorer which works consistently
       return new Promise((resolve) => {
-        // Method 1: Use /bin/sh to break out of Wine and run xdg-open natively
-        // This spawns a native Linux shell process
-        const tryNativeShell = () => {
-          log.info(chalk.cyan('[openPathCrossPlatform] Trying native shell with xdg-open...'));
-          exec(`/bin/sh -c 'xdg-open "${unixPath}"'`, { env: { ...process.env, DISPLAY: process.env.DISPLAY || ':0' } }, (error) => {
-            if (error) {
-              log.warn(chalk.yellow('[openPathCrossPlatform] Native shell xdg-open failed:'), error.message);
-              tryWineStart();
-            } else {
-              log.info(chalk.green('[openPathCrossPlatform] Successfully opened with native xdg-open'));
-              resolve({ success: true });
-            }
-          });
-        };
-
-        // Method 2: Use Wine's 'start' command with /unix flag
-        const tryWineStart = () => {
-          log.info(chalk.cyan('[openPathCrossPlatform] Trying Wine start /unix...'));
-          exec(`start /unix "${unixPath}"`, (error) => {
-            if (error) {
-              log.warn(chalk.yellow('[openPathCrossPlatform] Wine start /unix failed:'), error.message);
-              tryWineExplorer();
-            } else {
-              log.info(chalk.green('[openPathCrossPlatform] Successfully opened with Wine start /unix'));
-              resolve({ success: true });
-            }
-          });
-        };
-
-        // Method 3: Use Wine's explorer with the Windows path
         const tryWineExplorer = () => {
           log.info(chalk.cyan('[openPathCrossPlatform] Trying Wine explorer...'));
-          exec(`explorer "${targetPath}"`, (error) => {
+          exec(`explorer.exe "${targetPath}"`, (error) => {
             if (error) {
               log.warn(chalk.yellow('[openPathCrossPlatform] Wine explorer failed:'), error.message);
-              tryShellOpen();
+              tryWineBrowse();
             } else {
               log.info(chalk.green('[openPathCrossPlatform] Successfully opened with Wine explorer'));
               resolve({ success: true });
@@ -223,15 +259,33 @@ export async function openPathCrossPlatform(targetPath: string): Promise<{ succe
           });
         };
 
-        // Method 4: Fallback to Electron's shell.openPath
+        // Method 2: Try winebrowser which is designed to open URLs/files with host apps
+        const tryWineBrowse = () => {
+          log.info(chalk.cyan('[openPathCrossPlatform] Trying winebrowser...'));
+          // winebrowser can sometimes delegate to the host system's file manager
+          exec(`winebrowser "${targetPath}"`, (error) => {
+            if (error) {
+              log.warn(chalk.yellow('[openPathCrossPlatform] winebrowser failed:'), error.message);
+              tryShellOpen();
+            } else {
+              log.info(chalk.green('[openPathCrossPlatform] Successfully opened with winebrowser'));
+              resolve({ success: true });
+            }
+          });
+        };
+
+        // Method 3: Fallback to Electron's shell.openPath
         const tryShellOpen = () => {
           log.info(chalk.cyan('[openPathCrossPlatform] Trying Electron shell.openPath fallback...'));
           shell.openPath(targetPath).then((result) => {
             if (result) {
               log.error(chalk.red('[openPathCrossPlatform] All methods failed. Last error:'), result);
+              const errorMsg = unixPath
+                ? `Failed to open folder. Please navigate manually to: ${unixPath}`
+                : `Failed to open folder. Please navigate manually to: ${targetPath}`;
               resolve({
                 success: false,
-                error: `Failed to open folder. Please navigate manually to: ${unixPath}`,
+                error: errorMsg,
               });
             } else {
               log.info(chalk.green('[openPathCrossPlatform] Successfully opened with shell.openPath'));
@@ -241,7 +295,7 @@ export async function openPathCrossPlatform(targetPath: string): Promise<{ succe
         };
 
         // Start the chain of attempts
-        tryNativeShell();
+        tryWineExplorer();
       });
     } else {
       // Native Windows - use shell.openPath
@@ -381,6 +435,8 @@ export async function removeDesktopShortcut(): Promise<{ success: boolean; error
 /**
  * Removes the Linux .desktop file for Wine/Linux users
  * Called during uninstallation
+ *
+ * Uses Node.js fs operations which work under Wine via the Z: drive mapping.
  */
 export async function removeLinuxDesktopFile(): Promise<{ success: boolean; error?: string }> {
   if (!isRunningUnderWine()) {
@@ -389,26 +445,29 @@ export async function removeLinuxDesktopFile(): Promise<{ success: boolean; erro
   }
 
   try {
-    const home = process.env.HOME || '/home/user';
-    const desktopFilePath = `${home}/.local/share/applications/eventidexi.desktop`;
+    const home = getLinuxHome();
+    if (!home) {
+      log.warn(chalk.yellow('[removeLinuxDesktopFile] Cannot determine Linux home directory - skipping'));
+      return { success: true };
+    }
 
-    return new Promise((resolve) => {
-      exec(`/bin/sh -c 'if [ -f "${desktopFilePath}" ]; then rm "${desktopFilePath}" && echo "Removed"; fi'`, (error, stdout) => {
-        if (error) {
-          log.error(chalk.red('[removeLinuxDesktopFile] Failed to remove .desktop file:'), error.message);
-          resolve({
-            success: false,
-            error: `Failed to remove .desktop file: ${error.message}`,
-          });
-        } else if (stdout.includes('Removed')) {
-          log.info(chalk.green('[removeLinuxDesktopFile] ✓ Removed Linux .desktop file:'), desktopFilePath);
-          resolve({ success: true });
-        } else {
-          log.info(chalk.cyan('[removeLinuxDesktopFile] No .desktop file found to remove'));
-          resolve({ success: true });
-        }
-      });
-    });
+    const desktopFilePath = `${home}/.local/share/applications/eventidexi.desktop`;
+    // Convert to Wine Z: drive path for fs operations
+    const desktopFilePathWine = `Z:${desktopFilePath.replace(/\//g, '\\')}`;
+
+    try {
+      await fs.promises.access(desktopFilePathWine);
+      await fs.promises.unlink(desktopFilePathWine);
+      log.info(chalk.green('[removeLinuxDesktopFile] ✓ Removed Linux .desktop file:'), desktopFilePath);
+      return { success: true };
+    } catch (accessError: unknown) {
+      const err = accessError as NodeJS.ErrnoException;
+      if (err.code === 'ENOENT') {
+        log.info(chalk.cyan('[removeLinuxDesktopFile] No .desktop file found to remove'));
+        return { success: true };
+      }
+      throw accessError;
+    }
   } catch (err) {
     log.error(chalk.red('[removeLinuxDesktopFile] Error:'), err);
     return {
@@ -421,6 +480,10 @@ export async function removeLinuxDesktopFile(): Promise<{ success: boolean; erro
 /**
  * Creates a proper Linux .desktop file for Wine/Linux users
  * This should be called on first run when running under Wine
+ *
+ * IMPORTANT: Under Wine, exec() runs in the Wine/Windows context, so shell commands
+ * like /bin/sh, mkdir -p, etc. will NOT work. We use Node.js fs operations instead,
+ * which work correctly because they operate on the Wine filesystem mapping.
  */
 export async function createLinuxDesktopFile(): Promise<{ success: boolean; error?: string }> {
   if (!isRunningUnderWine()) {
@@ -429,23 +492,51 @@ export async function createLinuxDesktopFile(): Promise<{ success: boolean; erro
   }
 
   try {
-    const winePrefix = process.env.WINEPREFIX || `${process.env.HOME}/.wine`;
-    const home = process.env.HOME || '/home/user';
+    const winePrefix = getWinePrefix();
+    const home = getLinuxHome();
+
+    // Validate that we can determine the necessary paths
+    if (!home) {
+      log.warn(chalk.yellow('[createLinuxDesktopFile] Cannot determine Linux home directory - skipping .desktop file creation'));
+      log.warn(chalk.yellow('[createLinuxDesktopFile] Set WINEPREFIX or HOME environment variable to enable this feature'));
+      return {
+        success: false,
+        error: 'Cannot determine Linux home directory. Please set WINEPREFIX environment variable.',
+      };
+    }
+
+    if (!winePrefix) {
+      log.warn(chalk.yellow('[createLinuxDesktopFile] Cannot determine Wine prefix - skipping .desktop file creation'));
+      return {
+        success: false,
+        error: 'Cannot determine Wine prefix. Please set WINEPREFIX environment variable.',
+      };
+    }
+
+    log.info(chalk.cyan(`[createLinuxDesktopFile] Using home: ${home}, winePrefix: ${winePrefix}`));
 
     // Get the Windows path to the executable
     const exePathWindows = app.getPath('exe');
 
-    // Convert Windows path to Unix path for the Exec line
+    // Convert Windows path to Unix path for the working directory
     const exePathUnix = windowsToUnixPath(exePathWindows);
-    const exeDirUnix = path.dirname(exePathUnix).replace(/\\/g, '/');
+    const exeDirUnix = exePathUnix ? path.posix.dirname(exePathUnix) : null;
 
-    // Determine the desktop file path
+    // Determine the desktop file path (Unix path)
     const desktopDir = `${home}/.local/share/applications`;
     const desktopFilePath = `${desktopDir}/eventidexi.desktop`;
 
-    // Check if it already exists
+    // Convert Unix path to Wine Z: drive path for file operations
+    // Wine maps / to Z:\, so /home/user becomes Z:\home\user
+    const desktopDirWine = `Z:${desktopDir.replace(/\//g, '\\\\')}`;
+    const desktopFilePathWine = `Z:${desktopFilePath.replace(/\//g, '\\\\')}`;
+
+    log.info(chalk.cyan(`[createLinuxDesktopFile] Desktop dir (Wine path): ${desktopDirWine}`));
+    log.info(chalk.cyan(`[createLinuxDesktopFile] Desktop file (Wine path): ${desktopFilePathWine}`));
+
+    // Check if it already exists using Wine path
     try {
-      await fs.promises.access(desktopFilePath.replace(/\//g, path.sep));
+      await fs.promises.access(desktopFilePathWine);
       log.info(chalk.cyan('[createLinuxDesktopFile] Desktop file already exists at:'), desktopFilePath);
       return { success: true };
     } catch {
@@ -453,28 +544,28 @@ export async function createLinuxDesktopFile(): Promise<{ success: boolean; erro
     }
 
     // Try to find an icon - look for common icon locations
-    let iconPath = '';
-    const possibleIconPaths = [
-      `${exeDirUnix}/resources/icon.png`,
-      `${exeDirUnix}/resources/app/assets/icon.png`,
-      `${exeDirUnix}/../resources/icon.png`,
-      `${winePrefix}/drive_c/users/${process.env.USER || 'user'}/AppData/Local/Programs/eventidexi/resources/icon.png`,
-    ];
+    let iconPath = 'application-x-executable'; // Default fallback
 
-    for (const iconCandidate of possibleIconPaths) {
-      try {
-        const unixIconPath = iconCandidate.replace(/\\/g, '/');
-        await fs.promises.access(unixIconPath);
-        iconPath = unixIconPath;
-        break;
-      } catch {
-        // Icon not found at this path, try next
+    if (exeDirUnix) {
+      const possibleIconPaths = [
+        `${exeDirUnix}/resources/icon.png`,
+        `${exeDirUnix}/resources/app/assets/icon.png`,
+        `${exeDirUnix}/../resources/icon.png`,
+        `${winePrefix}/drive_c/users/${process.env.USER || process.env.LOGNAME || 'user'}/AppData/Local/Programs/eventidexi/resources/icon.png`,
+      ];
+
+      for (const iconCandidate of possibleIconPaths) {
+        try {
+          // Convert to Wine path for access check
+          const iconWinePath = `Z:${iconCandidate.replace(/\//g, '\\\\')}`;
+          await fs.promises.access(iconWinePath);
+          iconPath = iconCandidate; // Use Unix path in .desktop file
+          log.info(chalk.cyan(`[createLinuxDesktopFile] Found icon at: ${iconPath}`));
+          break;
+        } catch {
+          // Icon not found at this path, try next
+        }
       }
-    }
-
-    // If no icon found, try to extract from the exe or use a placeholder
-    if (!iconPath) {
-      iconPath = 'application-x-executable'; // Fallback to generic icon
     }
 
     // Create the .desktop file content
@@ -484,30 +575,38 @@ Comment=A launcher for the private FFXI private server called Eventide.
 Exec=env "WINEPREFIX=${winePrefix}" wine "${exePathWindows.replace(/\\/g, '\\\\')}"
 Type=Application
 StartupNotify=true
-Path=${exeDirUnix}
+Path=${exeDirUnix || winePrefix}
 Icon=${iconPath}
 StartupWMClass=eventidexi.exe
 Categories=Game;
 `;
 
-    // Create the applications directory if it doesn't exist
-    return new Promise((resolve) => {
-      exec(`/bin/sh -c 'mkdir -p "${desktopDir}" && cat > "${desktopFilePath}" << "DESKTOP_EOF"
-${desktopFileContent}
-DESKTOP_EOF
-chmod +x "${desktopFilePath}"'`, (error) => {
-        if (error) {
-          log.error(chalk.red('[createLinuxDesktopFile] Failed to create .desktop file:'), error.message);
-          resolve({
-            success: false,
-            error: `Failed to create .desktop file: ${error.message}`,
-          });
-        } else {
-          log.info(chalk.green('[createLinuxDesktopFile] ✓ Linux .desktop file created at:'), desktopFilePath);
-          resolve({ success: true });
-        }
-      });
-    });
+    // Create the applications directory if it doesn't exist using Node.js fs
+    // This works under Wine because Wine maps Z: to the Linux filesystem
+    try {
+      await fs.promises.mkdir(desktopDirWine, { recursive: true });
+      log.info(chalk.cyan(`[createLinuxDesktopFile] Created directory: ${desktopDir}`));
+    } catch (mkdirError: unknown) {
+      // Directory might already exist, which is fine
+      const err = mkdirError as NodeJS.ErrnoException;
+      if (err.code !== 'EEXIST') {
+        log.warn(chalk.yellow(`[createLinuxDesktopFile] Could not create directory: ${err.message}`));
+      }
+    }
+
+    // Write the .desktop file using Node.js fs
+    try {
+      await fs.promises.writeFile(desktopFilePathWine, desktopFileContent, { mode: 0o755 });
+      log.info(chalk.green('[createLinuxDesktopFile] ✓ Linux .desktop file created at:'), desktopFilePath);
+      return { success: true };
+    } catch (writeError: unknown) {
+      const err = writeError as Error;
+      log.error(chalk.red('[createLinuxDesktopFile] Failed to write .desktop file:'), err.message);
+      return {
+        success: false,
+        error: `Failed to create .desktop file: ${err.message}`,
+      };
+    }
   } catch (err) {
     log.error(chalk.red('[createLinuxDesktopFile] Error:'), err);
     return {
@@ -519,6 +618,8 @@ chmod +x "${desktopFilePath}"'`, (error) => {
 
 /**
  * Removes the broken Wine-generated .desktop file if it exists
+ *
+ * Uses Node.js fs operations which work under Wine via the Z: drive mapping.
  */
 export async function removeWineDesktopFile(): Promise<void> {
   if (!isRunningUnderWine()) {
@@ -526,7 +627,11 @@ export async function removeWineDesktopFile(): Promise<void> {
   }
 
   try {
-    const home = process.env.HOME || '/home/user';
+    const home = getLinuxHome();
+    if (!home) {
+      log.warn(chalk.yellow('[removeWineDesktopFile] Cannot determine Linux home directory - skipping'));
+      return;
+    }
 
     // Wine typically creates .desktop files in these locations with various naming patterns
     const possiblePaths = [
@@ -537,17 +642,13 @@ export async function removeWineDesktopFile(): Promise<void> {
 
     for (const desktopPath of possiblePaths) {
       try {
-        // Use native Linux shell to check and remove the file
-        await new Promise<void>((resolve) => {
-          exec(`/bin/sh -c 'if [ -f "${desktopPath}" ]; then rm "${desktopPath}" && echo "Removed"; fi'`, (error, stdout) => {
-            if (!error && stdout.includes('Removed')) {
-              log.info(chalk.green('[removeWineDesktopFile] Removed broken Wine .desktop file:'), desktopPath);
-            }
-            resolve();
-          });
-        });
+        // Convert to Wine Z: drive path for fs operations
+        const desktopPathWine = `Z:${desktopPath.replace(/\//g, '\\')}`;
+        await fs.promises.access(desktopPathWine);
+        await fs.promises.unlink(desktopPathWine);
+        log.info(chalk.green('[removeWineDesktopFile] Removed broken Wine .desktop file:'), desktopPath);
       } catch {
-        // Ignore errors for individual file removal attempts
+        // File doesn't exist or can't be removed, ignore
       }
     }
   } catch (err) {
