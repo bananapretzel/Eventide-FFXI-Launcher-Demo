@@ -2638,7 +2638,10 @@ ipcMain.handle('game:download', async () => {
         log.info(
           chalk.cyan(`[game:download] Game is up to date, notifying renderer`),
         );
-        mainWindow.webContents.send('game:status', { status: 'ready' });
+        mainWindow.webContents.send('game:status', {
+          status: 'ready',
+          installedVersion: currentVersion,
+        });
       }
     }
 

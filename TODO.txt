@@ -2,19 +2,7 @@ Test on a fresh windows VM
 
 Test on linux
 
-uninstall needs a progress bar of some sort.
-the desktop .lnk and .desktop shortcut doesn't delete themselves when uninstalling at least on linux, need to check on windows as well.
-the folder in appdata/roaming ins't deleted and the folder in appdata/local.
-
-The timer in linux doesn't show when downloading
-
-Maybe change the timer into a countdown.
-
-when the game is first downloaded and extracted I did'nt see v1.0.0 at the bottom right where it shows the game and launcher version, double check.
-
-it would be nice if i could see the download speed
-
-it would be nice to see the total downloads in the tens instead of just the hundreds when downloading in the GBs. for example, "4.5 GB/7.4 GB downloaded" to "4.53 GB/7.42 GB downloaded
 
 when the launcher is extracting and i close it in wine using linux it doesn't show the extract button state and goes straight to the update state
+
 

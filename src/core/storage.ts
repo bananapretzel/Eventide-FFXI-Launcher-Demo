@@ -1,6 +1,9 @@
 import { promises as fs } from 'fs';
 import { getEventidePaths } from '../main/paths';
 
+// Simple write lock to prevent concurrent storage writes (especially on Wine)
+let writeInProgress: Promise<void> | null = null;
+
 export interface DownloadProgress {
   url: string;           // URL being downloaded
   destPath: string;      // Destination file path
@@ -165,12 +168,49 @@ export async function readStorage(logReset?: (msg: string) => void): Promise<Sto
 }
 
 
-// Use atomic write (write to temp, then rename)
-export async function writeStorage(data: StorageJson): Promise<void> {
+// Internal write function with fallback for Wine/Linux compatibility
+// Atomic rename can fail on Wine due to EPERM or cross-filesystem issues
+async function writeStorageInternal(data: StorageJson): Promise<void> {
   const storagePath = getStoragePath();
   const tmpPath = storagePath + '.tmp';
-  await fs.writeFile(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
-  await fs.rename(tmpPath, storagePath);
+  const jsonContent = JSON.stringify(data, null, 2);
+
+  try {
+    // Try atomic write first (write to temp, then rename)
+    await fs.writeFile(tmpPath, jsonContent, 'utf-8');
+    await fs.rename(tmpPath, storagePath);
+  } catch (err: any) {
+    // Fallback for Wine/Linux: EPERM, ENOENT, or EXDEV errors during rename
+    if (err.code === 'EPERM' || err.code === 'ENOENT' || err.code === 'EXDEV') {
+      // Clean up temp file if it exists
+      try {
+        await fs.unlink(tmpPath);
+      } catch { /* ignore */ }
+
+      // Direct write fallback (less safe but works on Wine)
+      await fs.writeFile(storagePath, jsonContent, 'utf-8');
+    } else {
+      throw err;
+    }
+  }
+}
+
+// Write storage with serialization to prevent concurrent write issues on Wine
+export async function writeStorage(data: StorageJson): Promise<void> {
+  // Wait for any pending write to complete
+  if (writeInProgress) {
+    try {
+      await writeInProgress;
+    } catch { /* ignore errors from previous write */ }
+  }
+
+  // Start our write and track it
+  writeInProgress = writeStorageInternal(data);
+  try {
+    await writeInProgress;
+  } finally {
+    writeInProgress = null;
+  }
 }
 
 

@@ -38,6 +38,7 @@
   --disabled-bg: #9e9e9e;
   --white: #ffffff;
   --white-black: white;
+  --white-black-reverse: black;
 }
 
 /* Dark Mode Variables - Forest Theme */
@@ -80,6 +81,7 @@
   --disabled-bg: hsl(120, 14%, 26%);
   --white: hsl(0, 0%, 100%);
   --white-black: black;
+  --white-black-reverse: white;
 }
 
 
@@ -368,7 +370,7 @@ body {
   padding: 10px 12px;
   font-family: 'Inter', 'Segoe UI', Tahoma, Arial, sans-serif;
   font-size: 14px;
-  color: var(--white-black);
+  color: var(--white-black-reverse);
   outline: none;
   box-shadow: var(--inner-shadow);
   transition: border-color 0.2s, box-shadow 0.2s;

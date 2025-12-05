@@ -358,11 +358,29 @@ export async function createDesktopShortcut(): Promise<{ success: boolean; error
     // Get the path to the launcher executable
     const exePath = app.getPath('exe');
 
+    // Find icon path - check resources folder first, then app directory
+    let iconPath = '';
+    const possibleIconPaths = [
+      path.join(path.dirname(exePath), 'resources', 'assets', 'icon.ico'),
+      path.join(path.dirname(exePath), 'resources', 'icon.ico'),
+      path.join(path.dirname(exePath), '..', 'resources', 'assets', 'icon.ico'),
+      exePath, // Fallback to exe itself which may have embedded icon
+    ];
+
+    for (const candidate of possibleIconPaths) {
+      if (fs.existsSync(candidate)) {
+        iconPath = candidate;
+        break;
+      }
+    }
+
     // Create the shortcut using Electron's shell.writeShortcutLink
     const success = shell.writeShortcutLink(shortcutPath, {
       target: exePath,
       description: 'Eventide FFXI Launcher',
       cwd: path.dirname(exePath),
+      icon: iconPath || exePath,
+      iconIndex: 0,
     });
 
     if (success) {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import log from '../logger';
 // eslint-disable-next-line import/no-named-as-default
 import Select from '../components/Select';
@@ -1052,6 +1052,10 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings>({});
   const [error, setError] = useState<string | null>(null);
   const [installDir, setInstallDir] = useState<string>('');
+  const [isUninstalling, setIsUninstalling] = useState(false);
+  const uninstallTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [uninstallElapsed, setUninstallElapsed] = useState(0);
+
   // Get installDir on mount
   useEffect(() => {
     async function fetchPaths() {
@@ -1544,14 +1548,16 @@ export default function SettingsPage() {
                       lineHeight: '1.4',
                     }}
                   >
-                    Remove all game files, downloads, and launcher
-                    configuration.
+                    {isUninstalling
+                      ? `Uninstalling... (${Math.floor(uninstallElapsed / 60).toString().padStart(2, '0')}:${(uninstallElapsed % 60).toString().padStart(2, '0')} elapsed)`
+                      : 'Remove all game files, downloads, and launcher configuration.'}
                   </span>
                 </div>
                 <button
                   type="button"
                   id="uninstall-game"
                   className="btn"
+                  disabled={isUninstalling}
                   onClick={async () => {
                     // eslint-disable-next-line no-alert
                     const confirmed = window.confirm(
@@ -1564,9 +1570,24 @@ export default function SettingsPage() {
                     );
                     if (!confirmed) return;
 
+                    // Start uninstall with progress indicator
+                    setIsUninstalling(true);
+                    setUninstallElapsed(0);
+                    uninstallTimerRef.current = setInterval(() => {
+                      setUninstallElapsed(prev => prev + 1);
+                    }, 1000);
+
                     try {
                       const result =
                         await window.electron.invoke('uninstall-game');
+
+                      // Stop timer
+                      if (uninstallTimerRef.current) {
+                        clearInterval(uninstallTimerRef.current);
+                        uninstallTimerRef.current = null;
+                      }
+                      setIsUninstalling(false);
+
                       if (result.success) {
                         handleShowToast(
                           'Uninstall complete. The launcher will now close.',
@@ -1580,6 +1601,12 @@ export default function SettingsPage() {
                         );
                       }
                     } catch (err) {
+                      // Stop timer on error
+                      if (uninstallTimerRef.current) {
+                        clearInterval(uninstallTimerRef.current);
+                        uninstallTimerRef.current = null;
+                      }
+                      setIsUninstalling(false);
                       handleShowToast(
                         `Error during uninstall: ${err instanceof Error ? err.message : 'Unknown error'}`,
                       );
@@ -1588,12 +1615,13 @@ export default function SettingsPage() {
                   style={{
                     minWidth: '100px',
                     flexShrink: 0,
-                    background: '#dc2626',
-                    borderColor: '#dc2626',
+                    background: isUninstalling ? '#9ca3af' : '#dc2626',
+                    borderColor: isUninstalling ? '#9ca3af' : '#dc2626',
                     color: 'white',
+                    cursor: isUninstalling ? 'not-allowed' : 'pointer',
                   }}
                 >
-                  Uninstall
+                  {isUninstalling ? 'Uninstalling...' : 'Uninstall'}
                 </button>
               </div>
             </div>

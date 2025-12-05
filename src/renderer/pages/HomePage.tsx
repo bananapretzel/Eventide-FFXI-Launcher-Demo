@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { siDiscord } from 'simple-icons';
 import { fetchPatchNotes } from '../data/feed';
 import type { Post } from '../types/feed';
 import { useGameState } from '../contexts/GameStateContext';
 import { safeInvoke } from '../utils/ipc';
-import { formatBytes } from '../utils/format';
+import { formatBytes, formatSpeed, formatTimeRemaining } from '../utils/format';
 import log from '../logger';
 import { DISCORD_INVITE_URL } from '../../core/constants';
 
@@ -49,6 +49,11 @@ export default function HomePage(props: HomePageProps) {
   const [elapsedTime, setElapsedTime] = useState<number>(0);
   const [isUpdating, setIsUpdating] = useState(false);
   const [lastStatus, setLastStatus] = useState<string | null>(null);
+
+  // Speed tracking state
+  const [downloadSpeed, setDownloadSpeed] = useState<number>(0);
+  const lastBytesRef = useRef<number>(0);
+  const lastSpeedTimeRef = useRef<number>(Date.now());
 
   // Helper to strip trailing /Game or \Game from a path
   const stripGameSuffix = (path: string) => {
@@ -150,6 +155,9 @@ export default function HomePage(props: HomePageProps) {
       if (lastStatus !== state.status && lastStatus !== 'paused') {
         setDownloadStartTime(Date.now());
         setElapsedTime(0);
+        setDownloadSpeed(0);
+        lastBytesRef.current = 0;
+        lastSpeedTimeRef.current = Date.now();
         setLastStatus(state.status);
       } else if (lastStatus === 'paused') {
         // Resuming from pause - adjust start time to account for elapsed time
@@ -165,11 +173,13 @@ export default function HomePage(props: HomePageProps) {
     } else if (state.status === 'paused') {
       // Paused - keep the elapsed time but stop the timer
       setLastStatus(state.status);
+      setDownloadSpeed(0);
       // Don't reset downloadStartTime or elapsedTime
     } else {
       // Reset timer when not downloading/extracting/paused
       setDownloadStartTime(null);
       setElapsedTime(0);
+      setDownloadSpeed(0);
       setLastStatus(null);
       // Reset isUpdating when we're done
       if (
@@ -186,7 +196,34 @@ export default function HomePage(props: HomePageProps) {
     };
   }, [state.status, downloadStartTime, lastStatus, elapsedTime]);
 
-  // Format elapsed time as MM:SS
+  // Calculate download speed when progress changes
+  useEffect(() => {
+    if (state.status === 'downloading') {
+      const currentBytes = getDownloaded(state) || 0;
+      const now = Date.now();
+      const timeDiff = (now - lastSpeedTimeRef.current) / 1000; // in seconds
+
+      if (timeDiff >= 1 && currentBytes > lastBytesRef.current) {
+        const bytesDiff = currentBytes - lastBytesRef.current;
+        const speed = bytesDiff / timeDiff;
+        setDownloadSpeed(speed);
+        lastBytesRef.current = currentBytes;
+        lastSpeedTimeRef.current = now;
+      }
+    }
+  }, [state]);
+
+  // Calculate remaining time based on speed
+  const getRemainingTime = (): number => {
+    const downloaded = getDownloaded(state) || 0;
+    const total = getTotal(state) || 0;
+    const remaining = total - downloaded;
+
+    if (downloadSpeed <= 0 || remaining <= 0) return 0;
+    return remaining / downloadSpeed;
+  };
+
+  // Format elapsed time as MM:SS (kept for extraction which shows elapsed)
   const formatElapsedTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -864,12 +901,22 @@ export default function HomePage(props: HomePageProps) {
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span
                     style={{
+                      fontSize: 11,
+                      color: 'var(--muted)',
+                      opacity: 0.8,
+                    }}
+                  >
+                    {formatSpeed(downloadSpeed)}
+                  </span>
+                  <span
+                    style={{
                       fontFamily: "'Courier New', Courier, monospace",
                       minWidth: '50px',
                       textAlign: 'right',
                     }}
+                    title="Time remaining"
                   >
-                    {formatElapsedTime(elapsedTime)}
+                    {formatTimeRemaining(getRemainingTime())}
                   </span>
                   <button
                     type="button"
