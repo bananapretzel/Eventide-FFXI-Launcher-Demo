@@ -12,6 +12,7 @@ import { autoUpdater } from 'electron-updater';
 import { getEventidePaths, ensureDirs } from './paths';
 import { resolveHtmlPath, openPathCrossPlatform } from './util';
 import { RELEASE_JSON_URL } from './config';
+import { INI_FILENAME } from '../core/constants';
 import { getClientVersion } from '../core/versions';
 import {
   getReleaseJson,
@@ -50,6 +51,38 @@ const manifestCache: ManifestCache = {
   patchManifest: null,
   timestamp: null,
 };
+
+/**
+ * Helper function to ensure customInstallDir is synced from storage
+ * This prevents the launcher from falling back to AppData paths when storage has a custom dir set
+ */
+async function ensureCustomInstallDirSynced(): Promise<void> {
+  const storage = await readStorage();
+  const { setCustomInstallDir, getCustomInstallDir } = require('./paths');
+
+  if (storage?.paths?.customInstallDir) {
+    if (getCustomInstallDir() !== storage.paths.customInstallDir) {
+      setCustomInstallDir(storage.paths.customInstallDir);
+      log.info(chalk.cyan('[ensureCustomInstallDirSynced] Synced customInstallDir from storage:'), storage.paths.customInstallDir);
+    }
+  } else if (storage?.paths?.installPath) {
+    // If installPath is set but customInstallDir is not, derive it from installPath
+    // This handles cases where users manually set paths in storage.json
+    const installPath = storage.paths.installPath;
+    const derivedCustomDir = installPath.replace(/[\\\\/]Game$/i, '');
+
+    // Only set if it's not the default AppData path and different from current
+    const userDataPath = app.getPath('userData');
+    if (!derivedCustomDir.includes(userDataPath) && getCustomInstallDir() !== derivedCustomDir) {
+      setCustomInstallDir(derivedCustomDir);
+      // Update storage to persist the derived customInstallDir
+      await updateStorage((data: StorageJson) => {
+        data.paths.customInstallDir = derivedCustomDir;
+      });
+      log.info(chalk.cyan('[ensureCustomInstallDirSynced] Derived and synced customInstallDir from installPath:'), derivedCustomDir);
+    }
+  }
+}
 
 // Global patching state to prevent concurrent operations
 let isPatchingInProgress = false;
@@ -336,6 +369,27 @@ app.once('ready', async () => {
         chalk.cyan('[startup] Using custom installation directory:'),
         customDir,
       );
+    } else if (storageData.paths.installPath) {
+      // If installPath is set but customInstallDir is not, derive it from installPath
+      // This handles cases where users manually set paths in storage.json
+      const installPath = storageData.paths.installPath;
+      // Remove /Game or \Game suffix to get the base directory
+      const derivedCustomDir = installPath.replace(/[\\/]Game$/i, '');
+
+      // Only set if it's not the default AppData path
+      const userDataPath = require('electron').app.getPath('userData');
+      if (!derivedCustomDir.includes(userDataPath)) {
+        setCustomInstallDir(derivedCustomDir);
+        // Update storage to include the derived customInstallDir for future launches
+        storageData.paths.customInstallDir = derivedCustomDir;
+        await writeStorage(storageData);
+        log.info(
+          chalk.cyan('[startup] Derived custom installation directory from installPath:'),
+          derivedCustomDir,
+        );
+      } else {
+        log.info(chalk.cyan('[startup] No custom installation directory set'));
+      }
     } else {
       log.info(chalk.cyan('[startup] No custom installation directory set'));
     }
@@ -492,21 +546,10 @@ app.once('ready', async () => {
       );
     }
 
-    // Step 4: Check for required game files (extracted state)
-    const filesExist = hasRequiredGameFiles(gameRoot);
+    // Step 4: Trust storage.json as source of truth (no filesystem checks)
     let needsUpdate = false;
 
-    // Step 5: Sync extracted state with file system
-    // Note: We don't sync downloaded state - users may delete ZIP files to save space after extraction
-    if (storageData.gameState.baseGame.isExtracted !== filesExist) {
-      storageData.gameState.baseGame.isExtracted = filesExist;
-      needsUpdate = true;
-      log.info(
-        chalk.cyan(`[startup] Synced baseGame.isExtracted to ${filesExist}`),
-      );
-    }
-
-    // Step 6: Fetch remote version info FIRST (needed for version reset logic)
+    // Step 5: Fetch remote version info FIRST (needed for version reset logic)
     let release: any = null;
     let patchManifest: any = null;
     let remoteVersion: string = '0';
@@ -534,8 +577,8 @@ app.once('ready', async () => {
       // Continue with fallback values
     }
 
-    // Step 7: Auto-extract if ZIP exists but game files don't
-    // Note: We don't sync downloaded state with ZIP existence - users may delete ZIPs to save space
+    // Step 6: Auto-extract if ZIP exists and storage says not extracted
+    // Note: We trust storage.json - no filesystem checks performed
     const baseGameZipName = release?.game?.fullUrl?.split('/').pop() || 'Eventide-test.zip';
     const baseGameZipPath = path.join(dlRoot, baseGameZipName);
     const zipExists = fs.existsSync(baseGameZipPath);
@@ -551,7 +594,7 @@ app.once('ready', async () => {
       );
     }
 
-    if (zipExists && !filesExist && !downloadInProgress) {
+    if (zipExists && !storageData.gameState.baseGame.isExtracted && !downloadInProgress) {
       try {
         log.info(
           chalk.cyan(
@@ -559,9 +602,7 @@ app.once('ready', async () => {
           ),
         );
         await extractBaseGameIfNeeded(storageData, dlRoot, gameRoot, baseGameZipName);
-        // Re-check after extraction
-        storageData.gameState.baseGame.isExtracted =
-          hasRequiredGameFiles(gameRoot);
+        // Extraction sets isExtracted = true in storage automatically
         // IMPORTANT: Reset version to base version after extraction (even if storage had a different version)
         storageData.gameState.installedVersion = baseVersion;
         storageData.gameState.patches.downloadedVersion = '0';
@@ -706,18 +747,12 @@ ipcMain.handle('launcher:installUpdate', async () => {
 // IPC handler to expose all EventideXI paths to the renderer
 ipcMain.handle('eventide:get-paths', async () => {
   try {
+    // Ensure customInstallDir is synced from storage FIRST
+    await ensureCustomInstallDirSynced();
+
     // Check if user has selected an installation directory
     const storage = await readStorage();
     const hasSelectedDir = !!(storage?.paths?.customInstallDir || storage?.paths?.installPath);
-
-    // Ensure in-memory customInstallDir is set from storage (handles timing issues)
-    if (storage?.paths?.customInstallDir) {
-      const { setCustomInstallDir, getCustomInstallDir } = require('./paths');
-      if (getCustomInstallDir() !== storage.paths.customInstallDir) {
-        setCustomInstallDir(storage.paths.customInstallDir);
-        log.info(chalk.cyan('[eventide:get-paths] Synced customInstallDir from storage:'), storage.paths.customInstallDir);
-      }
-    }
 
     // Only return actual paths if user has selected a directory
     // Otherwise return empty strings to indicate no selection made yet
@@ -839,7 +874,7 @@ ipcMain.handle('set-install-directory', async (_event, dirPath: string | null) =
 
     // Update storage.json with custom dir and actual paths
     await updateStorage((data: StorageJson) => {
-      data.paths.customInstallDir = dirPath || undefined;
+      data.paths.customInstallDir = dirPath || '';
 
       // Update actual install and download paths now that user has chosen
       const paths = getEventidePaths();
@@ -1049,6 +1084,8 @@ ipcMain.handle('write-settings', async (_event, data: any) => {
 // IPC handler to write default.txt script for Ashita auto-load
 ipcMain.handle('write-default-script', async () => {
   try {
+    // Ensure customInstallDir is synced from storage
+    await ensureCustomInstallDirSynced();
     const paths = getEventidePaths();
     const configPath = paths.config;
 
@@ -1321,6 +1358,8 @@ ipcMain.handle(
 
 ipcMain.handle('launcher:launchGame', async (_event, installDir: string) => {
   try {
+    // Ensure customInstallDir is synced from storage before launching
+    await ensureCustomInstallDirSynced();
     // Always use Windows batch file - on Linux, Wine will handle it
     const launchScript = path.join(installDir, 'Launch_Eventide.bat');
     log.info(
@@ -1529,8 +1568,10 @@ ipcMain.handle('get-platform', async () => {
 
 ipcMain.handle('read-ini-file', async () => {
   try {
+    // Ensure customInstallDir is synced from storage before getting paths
+    await ensureCustomInstallDirSynced();
     const paths = getEventidePaths();
-    const iniPath = path.join(paths.gameRoot, 'config', 'boot', 'Eventide.ini');
+    const iniPath = path.join(paths.gameRoot, 'config', 'boot', INI_FILENAME);
     log.info(chalk.cyan(`[INI] Reading INI from: ${iniPath}`));
     log.info(chalk.cyan('[INI] Reading INI file at'), iniPath);
     const iniContent = fs.readFileSync(iniPath, 'utf-8');
@@ -1560,11 +1601,13 @@ ipcMain.handle(
       ),
     );
     try {
+      // Ensure customInstallDir is synced from storage before getting paths
+      await ensureCustomInstallDirSynced();
       const paths = getEventidePaths();
       const targetDir = installDir || paths.gameRoot;
       // Ensure all directories exist including game dirs (needed for INI file)
       ensureDirs(true);
-      const iniPath = path.join(targetDir, 'config', 'boot', 'Eventide.ini');
+      const iniPath = path.join(targetDir, 'config', 'boot', INI_FILENAME);
       if (!fs.existsSync(iniPath)) {
         throw new Error(`INI file not found at: ${iniPath}`);
       }
@@ -1813,6 +1856,8 @@ ipcMain.handle('open-log-file', async () => {
 
 ipcMain.handle('open-game-folder', async () => {
   try {
+    // Ensure customInstallDir is synced from storage
+    await ensureCustomInstallDirSynced();
     const paths = getEventidePaths();
     const gameFolder = paths.gameRoot;
 
@@ -1844,6 +1889,8 @@ ipcMain.handle('open-game-folder', async () => {
 ipcMain.handle('uninstall-game', async () => {
   try {
     log.info(chalk.yellow('[uninstall-game] Starting uninstallation...'));
+    // Ensure customInstallDir is synced from storage
+    await ensureCustomInstallDirSynced();
     const paths = getEventidePaths();
     const { robustRemove } = require('./util');
     const skippedItems: string[] = [];
@@ -2202,6 +2249,9 @@ ipcMain.handle('game:fetch-patch-notes', async () => {
 
 ipcMain.handle('game:check', async () => {
   try {
+    // Ensure customInstallDir is synced from storage FIRST
+    await ensureCustomInstallDirSynced();
+
     // Check if user has selected an installation directory
     const storage = await readStorage();
     const hasSelectedDir = !!(storage?.paths?.customInstallDir || storage?.paths?.installPath);
@@ -2218,15 +2268,6 @@ ipcMain.handle('game:check', async () => {
         baseExtracted: false,
         needsDirectorySelection: true,
       };
-    }
-
-    // Ensure in-memory customInstallDir is set from storage (handles timing issues)
-    if (storage?.paths?.customInstallDir) {
-      const { setCustomInstallDir, getCustomInstallDir } = require('./paths');
-      if (getCustomInstallDir() !== storage.paths.customInstallDir) {
-        setCustomInstallDir(storage.paths.customInstallDir);
-        log.info(chalk.cyan('[game:check] Synced customInstallDir from storage:'), storage.paths.customInstallDir);
-      }
     }
 
     const paths = getEventidePaths(true); // Safe to use default since dir is selected
@@ -2251,51 +2292,15 @@ ipcMain.handle('game:check', async () => {
 
     log.info(chalk.cyan('[game:check] Storage state - downloaded:'), baseDownloaded, 'extracted:', baseExtracted, 'version:', currentVersion);
 
-    // Check if ZIP file exists (for needs-extraction state)
-    const baseGameZipName = release?.game?.fullUrl?.split('/').pop() || 'Eventide-test.zip';
-    const baseGameZipPath = path.join(downloadsDir, baseGameZipName);
-    const zipExists = fs.existsSync(baseGameZipPath);
-
-    // Check if game directory exists and has files (sanity check for extracted state)
-    const gameDirectoryExists = fs.existsSync(installDir);
-    let gameHasFiles = false;
-    if (gameDirectoryExists) {
-      try {
-        const files = fs.readdirSync(installDir);
-        gameHasFiles = files.length > 0;
-      } catch (e) {
-        log.warn(chalk.yellow('[game:check] Could not read game directory:'), e);
-      }
-    }
-
-    // If storage says extracted but game directory is empty/missing, reset the state
-    if (baseExtracted && !gameHasFiles) {
-      log.warn(chalk.yellow('[game:check] Storage says extracted but game directory is empty/missing - resetting state'));
-      baseExtracted = false;
-      await updateStorage((s: StorageJson) => {
-        s.gameState.baseGame.isExtracted = false;
-      });
-    }
-
-    // If storage says downloaded but ZIP doesn't exist and game isn't extracted, reset downloaded state
-    if (baseDownloaded && !zipExists && !baseExtracted && !gameHasFiles) {
-      log.warn(chalk.yellow('[game:check] Storage says downloaded but ZIP is missing and game not extracted - resetting state'));
-      baseDownloaded = false;
-      await updateStorage((s: StorageJson) => {
-        s.gameState.baseGame.isDownloaded = false;
-      });
-    }
-
     // Check if there's a download in progress
     const downloadInProgress = storage?.gameState?.downloadProgress != null;
 
-    log.info(chalk.cyan('[game:check] ZIP exists:'), zipExists, 'game dir has files:', gameHasFiles, 'download in progress:', downloadInProgress);
+    log.info(chalk.cyan('[game:check] Trusting storage.json - download in progress:'), downloadInProgress);
 
-    // State determination - TRUST storage.json as source of truth:
+    // State determination - TRUST storage.json as absolute source of truth:
     // 1. If extracted=true -> Game is ready (or needs update if version differs)
-    // 2. If downloaded=true but extracted=false -> needs-extraction (trust storage, extraction will handle missing ZIP)
-    // 3. If ZIP exists but downloaded=false -> needs-extraction (update storage to reflect reality)
-    // 4. Otherwise -> missing (need to download)
+    // 2. If downloaded=true but extracted=false -> needs-extraction
+    // 3. Otherwise -> missing (need to download)
 
     let launcherState: 'missing' | 'ready' | 'update-available' | 'needs-extraction';
 
@@ -2308,19 +2313,11 @@ ipcMain.handle('game:check', async () => {
         launcherState = 'update-available';
         log.info(chalk.cyan(`[game:check] Update available - current: ${currentVersion}, latest: ${latestVersion}`));
       }
-    } else if ((baseDownloaded || zipExists) && !downloadInProgress) {
-      // Storage says downloaded OR ZIP exists - offer extraction
+    } else if (baseDownloaded && !downloadInProgress) {
+      // Storage says downloaded - offer extraction
       // Trust storage.json as source of truth - extraction handler will report error if ZIP is actually missing
       launcherState = 'needs-extraction';
       log.info(chalk.yellow('[game:check] Base game downloaded but not extracted - showing extract button'));
-
-      // Sync storage if ZIP exists but storage says not downloaded
-      if (zipExists && !baseDownloaded) {
-        log.info(chalk.yellow('[game:check] ZIP exists but storage says not downloaded - updating storage'));
-        await updateStorage((s: StorageJson) => {
-          s.gameState.baseGame.isDownloaded = true;
-        });
-      }
     } else {
       // Not downloaded and no ZIP - show download button
       launcherState = 'missing';
@@ -2355,6 +2352,8 @@ ipcMain.handle('game:extract', async () => {
   try {
     log.info(chalk.cyan('[game:extract] Starting extraction of existing ZIP...'));
 
+    // Ensure customInstallDir is synced from storage
+    await ensureCustomInstallDirSynced();
     const paths = getEventidePaths();
     const installDir = paths.gameRoot;
     const downloadsDir = paths.dlRoot;
@@ -2528,6 +2527,8 @@ ipcMain.handle('clear-downloads', async () => {
 
 ipcMain.handle('game:download', async () => {
   try {
+    // Ensure customInstallDir is synced from storage
+    await ensureCustomInstallDirSynced();
     const paths = getEventidePaths();
     const installDir = paths.gameRoot;
     const downloadsDir = paths.dlRoot;
@@ -2802,6 +2803,8 @@ ipcMain.handle('game:resume-download', async () => {
 
     log.info(chalk.green(`[game:resume-download] Resuming download: ${progress.bytesDownloaded} / ${progress.totalBytes} bytes`));
 
+    // Ensure customInstallDir is synced from storage
+    await ensureCustomInstallDirSynced();
     const paths = getEventidePaths();
     const installDir = paths.gameRoot;
     const { release } = await getCachedManifests();
@@ -3172,6 +3175,8 @@ ipcMain.handle('game:refresh-cache', async () => {
 
 ipcMain.handle('game:launch', async () => {
   try {
+    // Ensure customInstallDir is synced from storage before getting paths
+    await ensureCustomInstallDirSynced();
     const paths = getEventidePaths();
     const installDir = paths.gameRoot;
     // Always use Windows batch file - on Linux, Wine will handle it

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { siDiscord } from 'simple-icons';
 import { fetchPatchNotes } from '../data/feed';
 import type { Post } from '../types/feed';
@@ -49,11 +49,15 @@ export default function HomePage(props: HomePageProps) {
   const [elapsedTime, setElapsedTime] = useState<number>(0);
   const [isUpdating, setIsUpdating] = useState(false);
   const [lastStatus, setLastStatus] = useState<string | null>(null);
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const cancelDialogRef = useRef<HTMLDivElement | null>(null);
 
   // Speed tracking state
   const [downloadSpeed, setDownloadSpeed] = useState<number>(0);
+  const [remainingTime, setRemainingTime] = useState<number>(0); // Calculated remaining time (updated every 1 second)
   const lastBytesRef = useRef<number>(0);
   const lastSpeedTimeRef = useRef<number>(Date.now());
+  const smoothedSpeedRef = useRef<number>(0); // Exponentially smoothed speed
 
   // Helper to strip trailing /Game or \Game from a path
   const stripGameSuffix = (path: string) => {
@@ -88,6 +92,14 @@ export default function HomePage(props: HomePageProps) {
     };
     loadPatchNotes();
   }, []);
+
+  // Focus the cancel dialog when it opens so it can receive keyboard events
+  useEffect(() => {
+    if (showCancelDialog && cancelDialogRef.current) {
+      // focus the dialog element so it receives keyboard events
+      cancelDialogRef.current.focus();
+    }
+  }, [showCancelDialog]);
 
   // Listen for launcher update events
   useEffect(() => {
@@ -173,7 +185,7 @@ export default function HomePage(props: HomePageProps) {
     } else if (state.status === 'paused') {
       // Paused - keep the elapsed time but stop the timer
       setLastStatus(state.status);
-      setDownloadSpeed(0);
+      // Don't reset downloadSpeed - let speed calculation effect preserve it
       // Don't reset downloadStartTime or elapsedTime
     } else {
       // Reset timer when not downloading/extracting/paused
@@ -196,6 +208,21 @@ export default function HomePage(props: HomePageProps) {
     };
   }, [state.status, downloadStartTime, lastStatus, elapsedTime]);
 
+  // Helper functions to extract download progress
+  const getDownloaded = useCallback(
+    (s: typeof state): number | undefined =>
+      s.status === 'downloading' || s.status === 'paused'
+        ? s.downloaded
+        : undefined,
+    [],
+  );
+
+  const getTotal = useCallback(
+    (s: typeof state): number | undefined =>
+      s.status === 'downloading' || s.status === 'paused' ? s.total : undefined,
+    [],
+  );
+
   // Calculate download speed when progress changes
   useEffect(() => {
     if (state.status === 'downloading') {
@@ -205,22 +232,42 @@ export default function HomePage(props: HomePageProps) {
 
       if (timeDiff >= 1 && currentBytes > lastBytesRef.current) {
         const bytesDiff = currentBytes - lastBytesRef.current;
-        const speed = bytesDiff / timeDiff;
-        setDownloadSpeed(speed);
+        const instantSpeed = bytesDiff / timeDiff;
+
+        // Exponential smoothing: S_t = α * X_t + (1 - α) * S_{t-1}
+        // α (alpha) = smoothing factor (0.3 = gives 30% weight to new value, 70% to historical)
+        const alpha = 0.3;
+        const smoothedSpeed =
+          smoothedSpeedRef.current === 0
+            ? instantSpeed // First measurement, use instant speed
+            : alpha * instantSpeed + (1 - alpha) * smoothedSpeedRef.current;
+
+        smoothedSpeedRef.current = smoothedSpeed;
+        setDownloadSpeed(smoothedSpeed);
+
+        // Calculate and store remaining time (updated only at this interval)
+        const total = getTotal(state) || 0;
+        const remaining = total - currentBytes;
+        const timeRemaining = smoothedSpeed > 0 ? remaining / smoothedSpeed : 0;
+        setRemainingTime(timeRemaining);
+
         lastBytesRef.current = currentBytes;
         lastSpeedTimeRef.current = now;
       }
+    } else if (state.status === 'paused') {
+      // Keep the last known speed for time estimate
+      // Don't reset smoothedSpeedRef
+    } else {
+      // Reset when not downloading/paused
+      smoothedSpeedRef.current = 0;
+      setDownloadSpeed(0);
+      setRemainingTime(0);
     }
-  }, [state]);
+  }, [state, getDownloaded, getTotal]);
 
-  // Calculate remaining time based on speed
+  // Get remaining time (calculated only when speed updates, not on every render)
   const getRemainingTime = (): number => {
-    const downloaded = getDownloaded(state) || 0;
-    const total = getTotal(state) || 0;
-    const remaining = total - downloaded;
-
-    if (downloadSpeed <= 0 || remaining <= 0) return 0;
-    return remaining / downloadSpeed;
+    return remainingTime;
   };
 
   // Format elapsed time as MM:SS (kept for extraction which shows elapsed)
@@ -241,14 +288,6 @@ export default function HomePage(props: HomePageProps) {
     }
     return undefined;
   };
-
-  const getDownloaded = (s: typeof state): number | undefined =>
-    s.status === 'downloading' || s.status === 'paused'
-      ? s.downloaded
-      : undefined;
-
-  const getTotal = (s: typeof state): number | undefined =>
-    s.status === 'downloading' || s.status === 'paused' ? s.total : undefined;
 
   const handleActionClick = async () => {
     log.debug('[HomePage] Play/Action button clicked, state:', state);
@@ -664,37 +703,6 @@ export default function HomePage(props: HomePageProps) {
     };
   };
 
-  // Handler to clear downloads and reset state
-  const handleClearDownloads = async () => {
-    try {
-      const result = await (window as any).electron.invoke('clear-downloads');
-      if (result?.success) {
-        dispatch({ type: 'SET', state: { status: 'missing' } });
-      } else {
-        dispatch({
-          type: 'ERROR',
-          msg: result?.error || 'Failed to clear downloads',
-          isRetryable: true,
-        });
-      }
-    } catch (err) {
-      dispatch({
-        type: 'ERROR',
-        msg: String(err),
-        isRetryable: true,
-      });
-    }
-  };
-
-  // Handler to open log file
-  const handleOpenLog = async () => {
-    try {
-      await (window as any).electron.invoke('open-log-file');
-    } catch (err) {
-      log.error('Failed to open log file:', err);
-    }
-  };
-
   // Handler to select installation directory
   const handleSelectInstallDir = async () => {
     try {
@@ -957,6 +965,40 @@ export default function HomePage(props: HomePageProps) {
                       <path d="M520-200v-560h240v560zm-320 0v-560h240v560zm400-80h80v-400h-80zm-320 0h80v-400h-80zm0-400v400zm320 0v400z" />
                     </svg>
                   </button>
+                  {/* Cancel button - only show for base game download, not updates */}
+                  {!isUpdating && (
+                    <button
+                      type="button"
+                      onClick={() => setShowCancelDialog(true)}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: 4,
+                        fontSize: 16,
+                        opacity: 0.7,
+                        transition: 'opacity 0.2s',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.opacity = '1';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.opacity = '0.7';
+                      }}
+                      aria-label="Cancel download"
+                      title="Cancel download"
+                    >
+                      <svg
+                        width="18"
+                        height="18"
+                        viewBox="0 -960 960 960"
+                        fill="#ef4444"
+                        aria-hidden="true"
+                      >
+                        <path d="m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z" />
+                      </svg>
+                    </button>
+                  )}
                 </span>
               </div>
             </div>
@@ -1004,15 +1046,6 @@ export default function HomePage(props: HomePageProps) {
                   })()}
                 </span>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span
-                    style={{
-                      fontFamily: "'Courier New', Courier, monospace",
-                      minWidth: '50px',
-                      textAlign: 'right',
-                    }}
-                  >
-                    {formatElapsedTime(elapsedTime)}
-                  </span>
                   <button
                     type="button"
                     onClick={async () => {
@@ -1064,6 +1097,40 @@ export default function HomePage(props: HomePageProps) {
                       <path d="M320-200v-560l440 280zm80-146 210-134-210-134z" />
                     </svg>
                   </button>
+                  {/* Cancel button - only show for base game download, not updates */}
+                  {!isUpdating && (
+                    <button
+                      type="button"
+                      onClick={() => setShowCancelDialog(true)}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: 4,
+                        fontSize: 16,
+                        opacity: 0.7,
+                        transition: 'opacity 0.2s',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.opacity = '1';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.opacity = '0.7';
+                      }}
+                      aria-label="Cancel download"
+                      title="Cancel download"
+                    >
+                      <svg
+                        width="18"
+                        height="18"
+                        viewBox="0 -960 960 960"
+                        fill="#ef4444"
+                        aria-hidden="true"
+                      >
+                        <path d="m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z" />
+                      </svg>
+                    </button>
+                  )}
                 </span>
               </div>
             </div>
@@ -1158,22 +1225,6 @@ export default function HomePage(props: HomePageProps) {
                     })()}
                   </ul>
                 </div>
-              </div>
-              <div className="error-actions">
-                <button
-                  type="button"
-                  className="error-btn secondary"
-                  onClick={handleClearDownloads}
-                >
-                  Clear Downloads
-                </button>
-                <button
-                  type="button"
-                  className="error-btn secondary"
-                  onClick={handleOpenLog}
-                >
-                  View Log
-                </button>
               </div>
             </div>
           )}
@@ -1273,6 +1324,141 @@ export default function HomePage(props: HomePageProps) {
           }}
         >
           {toastMessage}
+        </div>
+      )}
+
+      {/* Cancel download confirmation dialog */}
+      {showCancelDialog && (
+        <div
+          role="presentation"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            backgroundColor: 'rgba(0, 0, 0, 0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10001,
+          }}
+          onClick={() => setShowCancelDialog(false)}
+        >
+          {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/no-noninteractive-element-interactions */}
+          <div
+            role="dialog"
+            ref={cancelDialogRef}
+            tabIndex={-1}
+            aria-labelledby="cancel-dialog-title"
+            style={{
+              backgroundColor: '#1a1a1a',
+              borderRadius: '12px',
+              padding: '24px',
+              maxWidth: '450px',
+              width: '90%',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setShowCancelDialog(false);
+            }}
+          >
+            <h3
+              id="cancel-dialog-title"
+              style={{
+                marginTop: 0,
+                marginBottom: '16px',
+                fontSize: '20px',
+                color: '#ffffff',
+              }}
+            >
+              Cancel Download?
+            </h3>
+            <p
+              style={{
+                marginBottom: '24px',
+                color: 'rgba(255, 255, 255, 0.7)',
+                lineHeight: '1.6',
+              }}
+            >
+              Are you sure you want to cancel the download? All progress will be
+              lost and you&apos;ll need to start over.
+            </p>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: '12px',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setShowCancelDialog(false)}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: 'transparent',
+                  color: 'rgba(255, 255, 255, 0.7)',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  transition: 'all 0.2s',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor =
+                    'rgba(255, 255, 255, 0.05)';
+                  e.currentTarget.style.color = '#ffffff';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                  e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)';
+                }}
+              >
+                Keep Downloading
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    setShowCancelDialog(false);
+                    log.info('[HomePage] Canceling download...');
+                    await safeInvoke('game:cancel-download');
+                    // The main process will send game:status 'missing'
+                  } catch (err) {
+                    log.error('[HomePage] Cancel download error:', err);
+                    dispatch({
+                      type: 'ERROR',
+                      msg: String(err),
+                      isRetryable: true,
+                      lastOperation: 'download',
+                    });
+                  }
+                }}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: '#ef4444',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  transition: 'all 0.2s',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#dc2626';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = '#ef4444';
+                }}
+              >
+                Cancel Download
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </main>

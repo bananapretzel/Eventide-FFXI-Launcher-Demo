@@ -49,34 +49,186 @@
 
     SetShellVarContext current
 
-    # Delete desktop shortcuts (all possible names)
+    # Build list of directories that will be removed
+    StrCpy $R9 "The following locations will be moved to the Recycle Bin:$\n$\n"
+
+    IfFileExists "$APPDATA\Eventide Launcherv2\*.*" 0 +2
+      StrCpy $R9 "$R9• $APPDATA\Eventide Launcherv2$\n"
+    IfFileExists "$APPDATA\Eventide Launcher\*.*" 0 +2
+      StrCpy $R9 "$R9• $APPDATA\Eventide Launcher$\n"
+    IfFileExists "$APPDATA\eventide-launcherv2\*.*" 0 +2
+      StrCpy $R9 "$R9• $APPDATA\eventide-launcherv2$\n"
+    IfFileExists "$APPDATA\eventide-launcher\*.*" 0 +2
+      StrCpy $R9 "$R9• $APPDATA\eventide-launcher$\n"
+    IfFileExists "$LOCALAPPDATA\Eventide Launcherv2\*.*" 0 +2
+      StrCpy $R9 "$R9• $LOCALAPPDATA\Eventide Launcherv2$\n"
+    IfFileExists "$LOCALAPPDATA\Eventide Launcher\*.*" 0 +2
+      StrCpy $R9 "$R9• $LOCALAPPDATA\Eventide Launcher$\n"
+    IfFileExists "$LOCALAPPDATA\eventide-launcherv2\*.*" 0 +2
+      StrCpy $R9 "$R9• $LOCALAPPDATA\eventide-launcherv2$\n"
+    IfFileExists "$LOCALAPPDATA\eventide-launcher\*.*" 0 +2
+      StrCpy $R9 "$R9• $LOCALAPPDATA\eventide-launcher$\n"
+    IfFileExists "$LOCALAPPDATA\${PRODUCT_NAME}\*.*" 0 +2
+      StrCpy $R9 "$R9• $LOCALAPPDATA\${PRODUCT_NAME}$\n"
+    IfFileExists "$DOCUMENTS\Eventide\*.*" 0 +2
+      StrCpy $R9 "$R9• $DOCUMENTS\Eventide$\n"
+    IfFileExists "$DOCUMENTS\EventideXI\*.*" 0 +2
+      StrCpy $R9 "$R9• $DOCUMENTS\EventideXI$\n"
+
+    StrCpy $R9 "$R9$\nAll items will be sent to the Recycle Bin and can be restored if needed.$\n$\nContinue with uninstall?"
+
+    MessageBox MB_YESNO|MB_ICONQUESTION "$R9" IDYES proceed_uninstall
+      Abort "Uninstall cancelled by user"
+    proceed_uninstall:
+
+    DetailPrint "Starting uninstall process..."
+    DetailPrint "Moving files to Recycle Bin..."
+
+    # Delete desktop shortcuts (these are just shortcuts, so permanent delete is fine)
+    DetailPrint "Removing desktop shortcuts..."
+    IfFileExists "$DESKTOP\${PRODUCT_NAME}.lnk" 0 +2
+      DetailPrint "  - Removing $DESKTOP\${PRODUCT_NAME}.lnk"
     Delete "$DESKTOP\${PRODUCT_NAME}.lnk"
+
+    IfFileExists "$DESKTOP\EventideXI.lnk" 0 +2
+      DetailPrint "  - Removing $DESKTOP\EventideXI.lnk"
     Delete "$DESKTOP\EventideXI.lnk"
+
+    IfFileExists "$DESKTOP\Eventide XI.lnk" 0 +2
+      DetailPrint "  - Removing $DESKTOP\Eventide XI.lnk"
     Delete "$DESKTOP\Eventide XI.lnk"
+
+    IfFileExists "$DESKTOP\Eventide Launcher.lnk" 0 +2
+      DetailPrint "  - Removing $DESKTOP\Eventide Launcher.lnk"
     Delete "$DESKTOP\Eventide Launcher.lnk"
 
-    # Delete Start Menu shortcuts
+    # Delete Start Menu shortcuts (these are just shortcuts, so permanent delete is fine)
+    DetailPrint "Removing Start Menu shortcuts..."
+    IfFileExists "$SMPROGRAMS\${PRODUCT_NAME}" 0 +2
+      DetailPrint "  - Removing Start Menu folder: $SMPROGRAMS\${PRODUCT_NAME}"
     RMDir /r "$SMPROGRAMS\${PRODUCT_NAME}"
+
+    IfFileExists "$SMPROGRAMS\${PRODUCT_NAME}.lnk" 0 +2
+      DetailPrint "  - Removing $SMPROGRAMS\${PRODUCT_NAME}.lnk"
     Delete "$SMPROGRAMS\${PRODUCT_NAME}.lnk"
+
+    IfFileExists "$SMPROGRAMS\EventideXI.lnk" 0 +2
+      DetailPrint "  - Removing $SMPROGRAMS\EventideXI.lnk"
     Delete "$SMPROGRAMS\EventideXI.lnk"
+
+    IfFileExists "$SMPROGRAMS\Eventide XI.lnk" 0 +2
+      DetailPrint "  - Removing $SMPROGRAMS\Eventide XI.lnk"
     Delete "$SMPROGRAMS\Eventide XI.lnk"
+
+    IfFileExists "$SMPROGRAMS\Eventide Launcher.lnk" 0 +2
+      DetailPrint "  - Removing $SMPROGRAMS\Eventide Launcher.lnk"
     Delete "$SMPROGRAMS\Eventide Launcher.lnk"
 
-    # Delete all data from APPDATA (including Game and Downloads)
-    RMDir /r "$APPDATA\Eventide Launcherv2"
-    RMDir /r "$APPDATA\Eventide Launcher"
-    RMDir /r "$APPDATA\eventide-launcherv2"
-    RMDir /r "$APPDATA\eventide-launcher"
+    # Move data folders to Recycle Bin using SHFileOperation
+    DetailPrint "Moving application data to Recycle Bin..."
 
-    # Delete all data from LOCALAPPDATA
-    RMDir /r "$LOCALAPPDATA\Eventide Launcherv2"
-    RMDir /r "$LOCALAPPDATA\Eventide Launcher"
-    RMDir /r "$LOCALAPPDATA\eventide-launcherv2"
-    RMDir /r "$LOCALAPPDATA\eventide-launcher"
-    RMDir /r "$LOCALAPPDATA\${PRODUCT_NAME}"
+    # APPDATA directories
+    IfFileExists "$APPDATA\Eventide Launcherv2\*.*" 0 +3
+      DetailPrint "  - Recycling $APPDATA\Eventide Launcherv2 (legacy v2)"
+      Push "$APPDATA\Eventide Launcherv2"
+      Call un.RecycleBin
 
-    # Delete Eventide folder from common locations (custom install dirs)
-    RMDir /r "$DOCUMENTS\Eventide"
-    RMDir /r "$DOCUMENTS\EventideXI"
+    IfFileExists "$APPDATA\Eventide Launcher\*.*" 0 +3
+      DetailPrint "  - Recycling $APPDATA\Eventide Launcher"
+      Push "$APPDATA\Eventide Launcher"
+      Call un.RecycleBin
+
+    IfFileExists "$APPDATA\eventide-launcherv2\*.*" 0 +3
+      DetailPrint "  - Recycling $APPDATA\eventide-launcherv2 (legacy v2)"
+      Push "$APPDATA\eventide-launcherv2"
+      Call un.RecycleBin
+
+    IfFileExists "$APPDATA\eventide-launcher\*.*" 0 +3
+      DetailPrint "  - Recycling $APPDATA\eventide-launcher"
+      Push "$APPDATA\eventide-launcher"
+      Call un.RecycleBin
+
+    # LOCALAPPDATA directories
+    DetailPrint "Moving local application data to Recycle Bin..."
+
+    IfFileExists "$LOCALAPPDATA\Eventide Launcherv2\*.*" 0 +3
+      DetailPrint "  - Recycling $LOCALAPPDATA\Eventide Launcherv2 (legacy v2)"
+      Push "$LOCALAPPDATA\Eventide Launcherv2"
+      Call un.RecycleBin
+
+    IfFileExists "$LOCALAPPDATA\Eventide Launcher\*.*" 0 +3
+      DetailPrint "  - Recycling $LOCALAPPDATA\Eventide Launcher"
+      Push "$LOCALAPPDATA\Eventide Launcher"
+      Call un.RecycleBin
+
+    IfFileExists "$LOCALAPPDATA\eventide-launcherv2\*.*" 0 +3
+      DetailPrint "  - Recycling $LOCALAPPDATA\eventide-launcherv2 (legacy v2)"
+      Push "$LOCALAPPDATA\eventide-launcherv2"
+      Call un.RecycleBin
+
+    IfFileExists "$LOCALAPPDATA\eventide-launcher\*.*" 0 +3
+      DetailPrint "  - Recycling $LOCALAPPDATA\eventide-launcher"
+      Push "$LOCALAPPDATA\eventide-launcher"
+      Call un.RecycleBin
+
+    IfFileExists "$LOCALAPPDATA\${PRODUCT_NAME}\*.*" 0 +3
+      DetailPrint "  - Recycling $LOCALAPPDATA\${PRODUCT_NAME}"
+      Push "$LOCALAPPDATA\${PRODUCT_NAME}"
+      Call un.RecycleBin
+
+    # DOCUMENTS directories
+    DetailPrint "Moving user documents to Recycle Bin..."
+
+    IfFileExists "$DOCUMENTS\Eventide\*.*" 0 +3
+      DetailPrint "  - Recycling $DOCUMENTS\Eventide"
+      Push "$DOCUMENTS\Eventide"
+      Call un.RecycleBin
+
+    IfFileExists "$DOCUMENTS\EventideXI\*.*" 0 +3
+      DetailPrint "  - Recycling $DOCUMENTS\EventideXI"
+      Push "$DOCUMENTS\EventideXI"
+      Call un.RecycleBin
+
+    DetailPrint "Uninstall complete. All data has been moved to Recycle Bin."
   ${EndIf}
 !macroend
+
+# Function to move a folder to Recycle Bin
+# Usage: Push "C:\path\to\folder" then Call un.RecycleBin
+Function un.RecycleBin
+  Exch $R0  # Get path from stack
+  Push $R1
+  Push $R2
+
+  # Add double null termination required by SHFileOperation
+  StrCpy $R1 "$R0$\0$\0"
+
+  # Allocate SHFILEOPSTRUCT
+  # typedef struct _SHFILEOPSTRUCT {
+  #   HWND   hwnd;              // offset 0, 4 bytes
+  #   UINT   wFunc;             // offset 4, 4 bytes (FO_DELETE = 3)
+  #   LPCTSTR pFrom;            // offset 8, 4 bytes
+  #   LPCTSTR pTo;              // offset 12, 4 bytes
+  #   FILEOP_FLAGS fFlags;      // offset 16, 2 bytes (FOF_ALLOWUNDO = 0x40, FOF_NOCONFIRMATION = 0x10, FOF_SILENT = 0x4)
+  #   BOOL   fAnyOperationsAborted; // offset 18, 4 bytes
+  #   LPVOID hNameMappings;     // offset 22, 4 bytes
+  #   LPCTSTR lpszProgressTitle; // offset 26, 4 bytes
+  # } SHFILEOPSTRUCT;
+
+  System::Call '*(&t1024 "${R1}")i.r2'  # pFrom - source path
+
+  # Allocate the structure
+  # hwnd=0, wFunc=FO_DELETE(3), pFrom=r2, pTo=0, fFlags=FOF_ALLOWUNDO(0x40)|FOF_NOCONFIRMATION(0x10)|FOF_SILENT(0x4)=0x54
+  System::Call '*(i 0, i 3, i r2, i 0, i 0x54, i 0, i 0, i 0) i.r1'
+
+  # Call SHFileOperation
+  System::Call 'shell32::SHFileOperation(i r1) i.r0'
+
+  # Free allocated memory
+  System::Free $r2
+  System::Free $r1
+
+  Pop $R2
+  Pop $R1
+  Pop $R0
+FunctionEnd

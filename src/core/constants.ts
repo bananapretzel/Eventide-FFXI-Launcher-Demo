@@ -8,3 +8,5 @@ export const RELEASE_JSON_URL =
 export const EVENTIDE_WEBSITE_URL = 'https://eventide-xi.com/';
 
 export const DISCORD_INVITE_URL = 'https://discord.gg/vT4UQU8z';
+
+export const INI_FILENAME = 'Eventide.ini';

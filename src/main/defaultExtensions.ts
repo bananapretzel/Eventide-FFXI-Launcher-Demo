@@ -561,6 +561,11 @@ export const DEFAULT_PLUGINS = [
     "enabled": false
   },
   {
+    "name": "Shorthand",
+    "description": "Shorthand is a plugin that allows you to be less strict when typing actions directly.",
+    "enabled": false
+  },
+  {
     "name": "toon",
     "description": "Adds a stylistic cell-shading visual effect to the game. If the game's graphics look completely glitched, this should be the first thing to turn off.",
     "enabled": false

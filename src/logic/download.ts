@@ -80,8 +80,15 @@ export async function cancelDownload(destPath?: string): Promise<void> {
     }
   }
 
+  // Clear download progress and reset baseGame state
   await clearDownloadProgress();
+  await updateStorage(s => {
+    s.gameState.baseGame.isDownloaded = false;
+    s.gameState.baseGame.isExtracted = false;
+  });
   clearDownloadController();
+
+  log.info(chalk.green('[cancelDownload] Download canceled and storage reset'));
 }
 
 export async function downloadGame(

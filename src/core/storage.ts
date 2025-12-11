@@ -223,7 +223,11 @@ export async function updateStorage(updater: (data: StorageJson) => void, logRes
 export function getDefaultStorage(): StorageJson {
   return {
     schemaVersion: STORAGE_SCHEMA_VERSION,
-    paths: { installPath: '', downloadPath: '' },
+    paths: {
+      installPath: '',
+      downloadPath: '',
+      customInstallDir: '' // Will be set when user selects install directory
+    },
     gameState: {
       installedVersion: "0.0.0",
       availableVersion: "0.0.0",
