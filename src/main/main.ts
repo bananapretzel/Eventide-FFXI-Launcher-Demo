@@ -53,33 +53,52 @@ const manifestCache: ManifestCache = {
 };
 
 /**
- * Helper function to ensure customInstallDir is synced from storage
- * This prevents the launcher from falling back to AppData paths when storage has a custom dir set
+ * Helper function to ensure paths are synced from storage
+ * This prevents the launcher from falling back to AppData paths when storage has custom paths set
+ *
+ * Strategy: installPath is the absolute source of truth when set.
+ * - If installPath is set: use it directly (supports ANY folder structure)
+ * - If only customInstallDir is set: use standard <customInstallDir>/Game structure
+ * - Otherwise: fall back to default AppData location
  */
 async function ensureCustomInstallDirSynced(): Promise<void> {
   const storage = await readStorage();
-  const { setCustomInstallDir, getCustomInstallDir } = require('./paths');
+  const { setCustomInstallDir, getCustomInstallDir, setGameInstallPath, getGameInstallPath } = require('./paths');
 
-  if (storage?.paths?.customInstallDir) {
+  if (storage?.paths?.installPath) {
+    const installPath = storage.paths.installPath;
+    const userDataPath = app.getPath('userData');
+
+    // Skip if this is the default AppData path
+    if (!installPath.includes(userDataPath)) {
+      // Check if customInstallDir + /Game would produce this installPath
+      // This is the "standard" new launcher structure
+      if (storage.paths.customInstallDir) {
+        const expectedInstallPath = path.join(storage.paths.customInstallDir, 'Game');
+        const isStandardStructure = path.normalize(expectedInstallPath).toLowerCase() === path.normalize(installPath).toLowerCase();
+
+        if (isStandardStructure) {
+          // Standard structure: use customInstallDir (which gets /Game appended automatically)
+          if (getCustomInstallDir() !== storage.paths.customInstallDir) {
+            setCustomInstallDir(storage.paths.customInstallDir);
+            log.info(chalk.cyan('[ensureCustomInstallDirSynced] Using standard structure with customInstallDir:'), storage.paths.customInstallDir);
+          }
+          return;
+        }
+      }
+
+      // Non-standard structure or customInstallDir not set:
+      // Use installPath directly as the game root (supports ANY folder structure)
+      if (getGameInstallPath() !== installPath) {
+        setGameInstallPath(installPath);
+        log.info(chalk.cyan('[ensureCustomInstallDirSynced] Using direct installPath (supports any folder structure):'), installPath);
+      }
+    }
+  } else if (storage?.paths?.customInstallDir) {
+    // Only customInstallDir is set (no installPath) - use standard structure
     if (getCustomInstallDir() !== storage.paths.customInstallDir) {
       setCustomInstallDir(storage.paths.customInstallDir);
-      log.info(chalk.cyan('[ensureCustomInstallDirSynced] Synced customInstallDir from storage:'), storage.paths.customInstallDir);
-    }
-  } else if (storage?.paths?.installPath) {
-    // If installPath is set but customInstallDir is not, derive it from installPath
-    // This handles cases where users manually set paths in storage.json
-    const installPath = storage.paths.installPath;
-    const derivedCustomDir = installPath.replace(/[\\\\/]Game$/i, '');
-
-    // Only set if it's not the default AppData path and different from current
-    const userDataPath = app.getPath('userData');
-    if (!derivedCustomDir.includes(userDataPath) && getCustomInstallDir() !== derivedCustomDir) {
-      setCustomInstallDir(derivedCustomDir);
-      // Update storage to persist the derived customInstallDir
-      await updateStorage((data: StorageJson) => {
-        data.paths.customInstallDir = derivedCustomDir;
-      });
-      log.info(chalk.cyan('[ensureCustomInstallDirSynced] Derived and synced customInstallDir from installPath:'), derivedCustomDir);
+      log.info(chalk.cyan('[ensureCustomInstallDirSynced] Using customInstallDir from storage:'), storage.paths.customInstallDir);
     }
   }
 }
@@ -360,36 +379,55 @@ app.once('ready', async () => {
     }
 
     // Step 2: Load custom installation directory from storage (if set)
-    const { setCustomInstallDir } = require('./paths');
+    // Strategy: installPath is the absolute source of truth when set (supports ANY folder structure)
+    const { setCustomInstallDir, setGameInstallPath } = require('./paths');
 
-    if (storageData.paths.customInstallDir) {
-      const customDir = storageData.paths.customInstallDir;
-      setCustomInstallDir(customDir);
-      log.info(
-        chalk.cyan('[startup] Using custom installation directory:'),
-        customDir,
-      );
-    } else if (storageData.paths.installPath) {
-      // If installPath is set but customInstallDir is not, derive it from installPath
-      // This handles cases where users manually set paths in storage.json
+    if (storageData.paths.installPath) {
       const installPath = storageData.paths.installPath;
-      // Remove /Game or \Game suffix to get the base directory
-      const derivedCustomDir = installPath.replace(/[\\/]Game$/i, '');
-
-      // Only set if it's not the default AppData path
       const userDataPath = require('electron').app.getPath('userData');
-      if (!derivedCustomDir.includes(userDataPath)) {
-        setCustomInstallDir(derivedCustomDir);
-        // Update storage to include the derived customInstallDir for future launches
-        storageData.paths.customInstallDir = derivedCustomDir;
-        await writeStorage(storageData);
-        log.info(
-          chalk.cyan('[startup] Derived custom installation directory from installPath:'),
-          derivedCustomDir,
-        );
+
+      // Skip if this is the default AppData path
+      if (!installPath.includes(userDataPath)) {
+        // Check if customInstallDir + /Game would produce this installPath
+        // This is the "standard" new launcher structure
+        if (storageData.paths.customInstallDir) {
+          const expectedInstallPath = path.join(storageData.paths.customInstallDir, 'Game');
+          const isStandardStructure = path.normalize(expectedInstallPath).toLowerCase() === path.normalize(installPath).toLowerCase();
+
+          if (isStandardStructure) {
+            // Standard structure: use customInstallDir (which gets /Game appended automatically)
+            setCustomInstallDir(storageData.paths.customInstallDir);
+            log.info(
+              chalk.cyan('[startup] Using standard structure with customInstallDir:'),
+              storageData.paths.customInstallDir,
+            );
+          } else {
+            // customInstallDir + /Game doesn't match installPath
+            // Use installPath directly (supports ANY folder structure)
+            setGameInstallPath(installPath);
+            log.info(
+              chalk.cyan('[startup] Using direct installPath (supports any folder structure):'),
+              installPath,
+            );
+          }
+        } else {
+          // No customInstallDir set - use installPath directly (supports ANY folder structure)
+          setGameInstallPath(installPath);
+          log.info(
+            chalk.cyan('[startup] Using direct installPath (supports any folder structure):'),
+            installPath,
+          );
+        }
       } else {
         log.info(chalk.cyan('[startup] No custom installation directory set'));
       }
+    } else if (storageData.paths.customInstallDir) {
+      // Only customInstallDir is set (no installPath) - use standard structure
+      setCustomInstallDir(storageData.paths.customInstallDir);
+      log.info(
+        chalk.cyan('[startup] Using custom installation directory:'),
+        storageData.paths.customInstallDir,
+      );
     } else {
       log.info(chalk.cyan('[startup] No custom installation directory set'));
     }

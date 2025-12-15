@@ -200,8 +200,8 @@ Function un.RecycleBin
   Push $R1
   Push $R2
 
-  # Add double null termination required by SHFileOperation
-  StrCpy $R1 "$R0$\0$\0"
+  # The path to delete - System::Call will handle null termination
+  StrCpy $R1 "$R0"
 
   # Allocate SHFILEOPSTRUCT
   # typedef struct _SHFILEOPSTRUCT {
@@ -215,7 +215,7 @@ Function un.RecycleBin
   #   LPCTSTR lpszProgressTitle; // offset 26, 4 bytes
   # } SHFILEOPSTRUCT;
 
-  System::Call '*(&t1024 "${R1}")i.r2'  # pFrom - source path
+  System::Call '*(&t1024 "$R1")i.r2'  # pFrom - source path
 
   # Allocate the structure
   # hwnd=0, wFunc=FO_DELETE(3), pFrom=r2, pTo=0, fFlags=FOF_ALLOWUNDO(0x40)|FOF_NOCONFIRMATION(0x10)|FOF_SILENT(0x4)=0x54

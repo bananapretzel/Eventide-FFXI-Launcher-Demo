@@ -6,6 +6,11 @@ import log from './logger';
 // In-memory cache for custom installation directory
 let customInstallDir: string | null = null;
 
+// In-memory cache for direct game install path override
+// When set, this is used directly instead of customInstallDir + "/Game"
+// This allows legacy users to point to existing game installations that don't follow the new folder structure
+let gameInstallPath: string | null = null;
+
 /**
  * Set custom installation directory (called after reading from storage.json)
  */
@@ -18,6 +23,21 @@ export function setCustomInstallDir(dir: string | null): void {
  */
 export function getCustomInstallDir(): string | null {
   return customInstallDir;
+}
+
+/**
+ * Set direct game install path override (for legacy launcher migrations)
+ * When set, this path is used directly for gameRoot instead of computing customInstallDir + "/Game"
+ */
+export function setGameInstallPath(dir: string | null): void {
+  gameInstallPath = dir;
+}
+
+/**
+ * Get direct game install path override
+ */
+export function getGameInstallPath(): string | null {
+  return gameInstallPath;
 }
 
 /**
@@ -48,14 +68,38 @@ export function getEventidePaths(forceDefault: boolean = true) {
   const root = app.getPath("userData");
 
   // Determine if we should return actual paths or empty strings
-  const shouldReturnPaths = forceDefault || customInstallDir !== null;
+  const shouldReturnPaths = forceDefault || customInstallDir !== null || gameInstallPath !== null;
 
   // Use custom directory if set, otherwise default to userData/Eventide (or empty if not forced)
   const baseInstallDir = customInstallDir || (shouldReturnPaths ? path.join(root, "Eventide") : "");
 
-  // Game and Downloads go to the installation directory (custom or default)
-  const gameRoot = baseInstallDir ? path.join(baseInstallDir, "Game") : "";
-  const dlRoot   = baseInstallDir ? path.join(baseInstallDir, "Downloads") : "";
+  // Game path: use direct override if set (for legacy launcher migrations),
+  // otherwise compute from base directory
+  // This allows users migrating from the old launcher to point directly to their existing game files
+  // without the launcher assuming a specific folder structure
+  let gameRoot: string;
+  if (gameInstallPath) {
+    // Direct override - use the path exactly as specified
+    gameRoot = gameInstallPath;
+  } else if (baseInstallDir) {
+    // Standard path - append "Game" to base directory
+    gameRoot = path.join(baseInstallDir, "Game");
+  } else {
+    gameRoot = "";
+  }
+
+  // Downloads path - derive from gameRoot's parent directory if using override,
+  // otherwise use standard base directory
+  let dlRoot: string;
+  if (gameInstallPath) {
+    // When using direct game path, put downloads in sibling "Downloads" folder
+    const parentDir = path.dirname(gameInstallPath);
+    dlRoot = path.join(parentDir, "Downloads");
+  } else if (baseInstallDir) {
+    dlRoot = path.join(baseInstallDir, "Downloads");
+  } else {
+    dlRoot = "";
+  }
 
   // Config, storage, and logs always stay in userData for consistency
   const logsRoot = path.join(root, "logs");
