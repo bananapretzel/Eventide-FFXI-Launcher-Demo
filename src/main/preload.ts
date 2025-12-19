@@ -68,6 +68,8 @@ const electronHandler = {
     },
   },
   readIniFile: () => ipcRenderer.invoke('read-ini-file'),
+  /** Read settings from eventide.ini - returns actual game configuration values */
+  readIniSettings: () => ipcRenderer.invoke('read-ini-settings'),
   updateIniCredentials: (username: string, password: string, installDir?: string) =>
     ipcRenderer.invoke('update-ini-auth-and-run', username, password, installDir),
   readExtensions: () => ipcRenderer.invoke('read-extensions'),

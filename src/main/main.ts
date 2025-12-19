@@ -37,7 +37,9 @@ import {
   getDefaultPluginsObject,
 } from './defaultExtensions';
 import { isUrlSafeForExternal, sanitizeInput } from './security';
-import { applySettingsToIni } from './config/iniMappings';
+import { applySettingsToIni, extractSettingsFromIni } from './config/iniMappings';
+import { ensureDirectPlay } from './directplay';
+import { readGamepadConfig, applyGamepadConfigToIni } from './gamepad';
 
 // Cache for manifest data to avoid redundant network calls
 interface ManifestCache {
@@ -304,6 +306,10 @@ async function extractBaseGameIfNeeded(
         '[startup] Game zip is downloaded but not extracted. Extracting now...',
       ),
     );
+
+    // Note: DirectPlay check is NOT done here because this is auto-extraction at startup.
+    // DirectPlay prompt should only appear when user explicitly clicks download/extract button.
+
     const g: any = global;
     if (g.mainWindow && g.mainWindow.webContents) {
       g.mainWindow.webContents.send('extract:start');
@@ -1302,6 +1308,9 @@ ipcMain.handle(
     expectedSize?: number,
   ) => {
     try {
+      // Check and prompt for DirectPlay on Windows before download/extraction
+      await ensureDirectPlay();
+
       const paths = getEventidePaths();
       log.info(
         chalk.cyan(
@@ -1625,6 +1634,43 @@ ipcMain.handle('read-ini-file', async () => {
   }
 });
 
+/**
+ * IPC handler to read settings from the INI file.
+ * This extracts the current game configuration values from eventide.ini
+ * and returns them in the settings format used by the UI.
+ * Use this to sync the launcher UI with actual game settings.
+ */
+ipcMain.handle('read-ini-settings', async () => {
+  try {
+    // Ensure customInstallDir is synced from storage before getting paths
+    await ensureCustomInstallDirSynced();
+    const paths = getEventidePaths();
+    const iniPath = path.join(paths.gameRoot, 'config', 'boot', INI_FILENAME);
+
+    if (!fs.existsSync(iniPath)) {
+      log.info(chalk.yellow('[INI] INI file does not exist yet, returning empty settings'));
+      return { success: true, data: {}, error: null };
+    }
+
+    log.info(chalk.cyan('[INI] Reading settings from INI file at'), iniPath);
+    const iniContent = fs.readFileSync(iniPath, 'utf-8');
+    const iniConfig = ini.parse(iniContent);
+
+    // Extract settings from the INI config
+    const settings = extractSettingsFromIni(iniConfig);
+    log.info(chalk.cyan('[INI] Successfully extracted settings from INI file'));
+
+    return { success: true, data: settings, error: null };
+  } catch (error) {
+    log.error(chalk.red(`[INI] Error reading settings from INI file: ${String(error)}`));
+    return {
+      success: false,
+      data: {},
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+});
+
 ipcMain.handle(
   'update-ini-auth-and-run',
   async (_event, username: string, password: string, installDir?: string) => {
@@ -1723,6 +1769,16 @@ ipcMain.handle(
 
           // Apply settings from settings.json to INI config
           applySettingsToIni(settings, config);
+
+          // Read and apply gamepad/controller settings from system registry
+          // This supports Windows 10/11 and Linux via Wine
+          try {
+            log.info(chalk.cyan('[Gamepad] Reading gamepad configuration from registry...'));
+            const gamepadConfig = await readGamepadConfig();
+            applyGamepadConfigToIni(config, gamepadConfig);
+          } catch (gamepadErr) {
+            log.warn(chalk.yellow('[Gamepad] Failed to read gamepad config, using existing INI values:'), gamepadErr);
+          }
 
           // Always write the INI file after updating the command (even if only password changes)
           // Use whitespace option to add spaces around '=' (e.g., "0000 = 0" instead of "0000=0")
@@ -2225,22 +2281,42 @@ async function launchGameWithBatch(installDir: string, launchScript: string) {
       // Pipe stdout/stderr to a log file for later inspection
       try {
         const outStream = fs.createWriteStream(logPath, { flags: 'a' });
-        if (child.stdout) child.stdout.pipe(outStream);
-        if (child.stderr) child.stderr.pipe(outStream);
+        let streamEnded = false;
+
+        // Helper to safely write to the stream
+        const safeWrite = (data: string) => {
+          if (!streamEnded && outStream.writable) {
+            try {
+              outStream.write(data);
+            } catch {
+              // Ignore write errors
+            }
+          }
+        };
+
+        // Helper to safely end the stream
+        const safeEnd = () => {
+          if (!streamEnded && outStream.writable) {
+            streamEnded = true;
+            try {
+              outStream.end();
+            } catch {
+              // Ignore end errors
+            }
+          }
+        };
+
+        // Pipe with { end: false } to prevent auto-ending when source streams close
+        if (child.stdout) child.stdout.pipe(outStream, { end: false });
+        if (child.stderr) child.stderr.pipe(outStream, { end: false });
+
         child.on('error', (err) => {
-          try {
-            outStream.write(`spawn error: ${String(err)}\n`);
-          } catch {}
+          safeWrite(`spawn error: ${String(err)}\n`);
         });
+
         child.on('close', (code, signal) => {
-          try {
-            outStream.write(
-              `child exit code=${String(code)} signal=${String(signal)}\n`,
-            );
-          } catch {}
-          try {
-            outStream.end();
-          } catch {}
+          safeWrite(`child exit code=${String(code)} signal=${String(signal)}\n`);
+          safeEnd();
         });
       } catch (e) {
         // ignore logging failures
@@ -2414,6 +2490,9 @@ ipcMain.handle('game:extract', async () => {
       }
       return { success: false, error: errorMsg };
     }
+
+    // Check and prompt for DirectPlay on Windows before extraction
+    await ensureDirectPlay();
 
     // Send extraction start event
     if (mainWindow) {
@@ -2618,6 +2697,9 @@ ipcMain.handle('game:download', async () => {
         `[game:download] Write permissions verified for downloads directory`,
       ),
     );
+
+    // Check and prompt for DirectPlay on Windows before download/extraction
+    await ensureDirectPlay();
 
     // Progress callbacks
     const onDownloadProgress = (dl: number, total: number) => {
@@ -2840,6 +2922,9 @@ ipcMain.handle('game:resume-download', async () => {
     }
 
     log.info(chalk.green(`[game:resume-download] Resuming download: ${progress.bytesDownloaded} / ${progress.totalBytes} bytes`));
+
+    // Check and prompt for DirectPlay on Windows before download/extraction
+    await ensureDirectPlay();
 
     // Ensure customInstallDir is synced from storage
     await ensureCustomInstallDirSynced();

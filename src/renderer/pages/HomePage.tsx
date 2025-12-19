@@ -228,6 +228,16 @@ export default function HomePage(props: HomePageProps) {
     if (state.status === 'downloading') {
       const currentBytes = getDownloaded(state) || 0;
       const now = Date.now();
+
+      // Initialize refs on first progress event to ensure accurate time tracking
+      // This fixes time remaining not showing on Linux/Wine where component mount time
+      // differs significantly from actual download start
+      if (lastBytesRef.current === 0 && currentBytes > 0) {
+        lastBytesRef.current = currentBytes;
+        lastSpeedTimeRef.current = now;
+        return; // Wait for next progress event to calculate speed
+      }
+
       const timeDiff = (now - lastSpeedTimeRef.current) / 1000; // in seconds
 
       if (timeDiff >= 1 && currentBytes > lastBytesRef.current) {

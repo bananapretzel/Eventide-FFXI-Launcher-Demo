@@ -1083,6 +1083,9 @@ export default function SettingsPage() {
   };
 
   // Load settings on mount
+  // We read from BOTH the launcher config AND the INI file.
+  // The INI file represents the actual game settings, so its values take priority.
+  // This ensures a fresh launcher install shows the actual configured game settings.
   useEffect(() => {
     const loadSettings = async () => {
       try {
@@ -1090,17 +1093,52 @@ export default function SettingsPage() {
           setError('Electron preload API not available.');
           return;
         }
-        const result = await window.electron.readSettings();
-        if (result.success && result.data) {
-          // Ensure bgWidth and bgHeight always have defaults
-          const loaded = { ...result.data };
-          loaded.ffxi = loaded.ffxi || {};
-          if (typeof loaded.ffxi.bgWidth === 'undefined')
-            loaded.ffxi.bgWidth = 3840;
-          if (typeof loaded.ffxi.bgHeight === 'undefined')
-            loaded.ffxi.bgHeight = 2160;
-          setSettings(loaded);
+
+        // Read launcher config (for non-INI settings like credentials, etc.)
+        const configResult = await window.electron.readSettings();
+        const launcherConfig = configResult.success
+          ? configResult.data || {}
+          : {};
+
+        // Read settings directly from the INI file (actual game configuration)
+        // This is the source of truth for game settings
+        let iniSettings: Record<string, any> = {};
+        if (window.electron?.readIniSettings) {
+          try {
+            const iniResult = await window.electron.readIniSettings();
+            if (iniResult.success && iniResult.data) {
+              iniSettings = iniResult.data;
+              log.info(
+                '[Settings] Loaded settings from INI file:',
+                iniSettings,
+              );
+            }
+          } catch (iniErr) {
+            log.warn(
+              '[Settings] Could not read INI settings, using launcher config only:',
+              iniErr,
+            );
+          }
         }
+
+        // Merge: start with launcher config, then overlay INI settings
+        // INI settings take priority as they represent actual game configuration
+        const merged: Settings = { ...launcherConfig };
+
+        // Merge ffxi settings - INI takes priority over launcher config
+        const mergedFfxi = {
+          ...(launcherConfig.ffxi || {}),
+          ...(iniSettings.ffxi || {}),
+        };
+
+        // Apply defaults only for values that don't exist in either source
+        if (typeof mergedFfxi.bgWidth === 'undefined')
+          mergedFfxi.bgWidth = 2880;
+        if (typeof mergedFfxi.bgHeight === 'undefined')
+          mergedFfxi.bgHeight = 1620;
+
+        merged.ffxi = mergedFfxi;
+        setSettings(merged);
       } catch {
         handleShowToast('Error loading settings');
       }
@@ -1549,7 +1587,12 @@ export default function SettingsPage() {
                     }}
                   >
                     {isUninstalling
-                      ? `Uninstalling... (${Math.floor(uninstallElapsed / 60).toString().padStart(2, '0')}:${(uninstallElapsed % 60).toString().padStart(2, '0')} elapsed)`
+                      ? `Uninstalling... (${Math.floor(uninstallElapsed / 60)
+                          .toString()
+                          .padStart(
+                            2,
+                            '0',
+                          )}:${(uninstallElapsed % 60).toString().padStart(2, '0')} elapsed)`
                       : 'Remove all game files, downloads, and launcher configuration.'}
                   </span>
                 </div>
@@ -1574,7 +1617,7 @@ export default function SettingsPage() {
                     setIsUninstalling(true);
                     setUninstallElapsed(0);
                     uninstallTimerRef.current = setInterval(() => {
-                      setUninstallElapsed(prev => prev + 1);
+                      setUninstallElapsed((prev) => prev + 1);
                     }, 1000);
 
                     try {

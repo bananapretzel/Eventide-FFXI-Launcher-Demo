@@ -275,9 +275,20 @@ export async function downloadFileResumable(
       }
 
       let dl = currentByte;
+      let fileEnded = false;
       // Use append mode if resuming with 206, otherwise overwrite
       const writeOptions = res.statusCode === 206 ? { flags: 'a' } : { flags: 'w' };
       const file = createWriteStream(dest, writeOptions);
+
+      // Helper to safely end the file stream
+      const safeEndFile = (callback?: () => void) => {
+        if (!fileEnded && file.writable) {
+          fileEnded = true;
+          file.end(callback);
+        } else if (callback) {
+          callback();
+        }
+      };
 
       // Emit initial progress
       if (onProgress) {
@@ -289,7 +300,7 @@ export async function downloadFileResumable(
         log.info(chalk.yellow(`[downloadFileResumable] Download paused/aborted at ${dl} bytes`));
         req.destroy();
         // Wait for file to close before resolving to ensure bytes are flushed to disk
-        file.end(() => {
+        safeEndFile(() => {
           resolve({
             completed: false,
             bytesDownloaded: dl,
@@ -312,7 +323,17 @@ export async function downloadFileResumable(
         onProgress?.(dl, total);
       });
 
-      res.pipe(file);
+      // Use { end: false } to prevent auto-ending when response stream closes
+      // This allows us to control when the file stream ends
+      res.pipe(file, { end: false });
+
+      // Manually end the file stream when response ends
+      res.on('end', () => {
+        // Only end if not already aborted
+        if (!signal?.aborted) {
+          safeEndFile();
+        }
+      });
 
       file.on('finish', () => {
         if (signal) {
