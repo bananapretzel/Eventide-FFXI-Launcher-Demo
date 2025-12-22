@@ -1,4 +1,4 @@
-﻿// Test setup file
+// Test setup file
 import fetch from 'node-fetch';
 
 // Mock electron-log before any imports use it
@@ -14,12 +14,25 @@ jest.mock('electron-log', () => {
       silly: mockFn,
       log: mockFn,
       transports: {
-        file: { level: 'debug', resolvePathFn: null, format: '', getFile: () => ({ path: '/mock/log/path' }) },
+        file: {
+          level: 'debug',
+          resolvePathFn: null,
+          format: '',
+          getFile: () => ({ path: '/mock/log/path' }),
+        },
         console: { level: 'debug', format: '' },
         ipc: { level: 'debug' },
         remote: { level: 'debug' },
       },
-      functions: { log: mockFn, info: mockFn, warn: mockFn, error: mockFn, debug: mockFn, verbose: mockFn, silly: mockFn },
+      functions: {
+        log: mockFn,
+        info: mockFn,
+        warn: mockFn,
+        error: mockFn,
+        debug: mockFn,
+        verbose: mockFn,
+        silly: mockFn,
+      },
       catchErrors: mockFn,
       initialize: mockFn,
       scope: () => this,

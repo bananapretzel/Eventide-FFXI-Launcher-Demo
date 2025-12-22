@@ -1,4 +1,4 @@
-import type { Post } from "../types/feed";
+import type { Post } from '../types/feed';
 import log from '../logger';
 
 interface PatchNote {
@@ -37,28 +37,30 @@ export async function fetchPatchNotes(): Promise<Post[]> {
     const reversedNotes = [...patchNotes].reverse();
 
     // Transform to Post format
-    const posts: Post[] = reversedNotes.map((note: PatchNote, index: number) => {
-      // Format date and time without seconds
-      const date = new Date(note.timestamp);
-      const formattedDate = date.toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
-      });
-      const formattedTime = date.toLocaleTimeString('en-US', {
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true
-      });
+    const posts: Post[] = reversedNotes.map(
+      (note: PatchNote, index: number) => {
+        // Format date and time without seconds
+        const date = new Date(note.timestamp);
+        const formattedDate = date.toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        });
+        const formattedTime = date.toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+        });
 
-      return {
-        id: String(index + 1),
-        title: `${formattedDate}, ${formattedTime}`,
-        body: note.message,
-        timestamp: note.timestamp,
-        author: note.name
-      };
-    });
+        return {
+          id: String(index + 1),
+          title: `${formattedDate}, ${formattedTime}`,
+          body: note.message,
+          timestamp: note.timestamp,
+          author: note.name,
+        };
+      },
+    );
 
     // Update cache
     cachedPosts = posts;

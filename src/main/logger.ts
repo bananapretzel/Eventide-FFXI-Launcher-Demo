@@ -24,39 +24,33 @@ function sanitizeLogMessage(message: unknown): unknown {
     let sanitized = message;
 
     // Remove Windows user paths (C:\Users\USERNAME\...)
-    sanitized = sanitized.replace(
-      /([A-Za-z]:\\Users\\)[^\\]+/gi,
-      '$1<user>'
-    );
+    sanitized = sanitized.replace(/([A-Za-z]:\\Users\\)[^\\]+/gi, '$1<user>');
 
     // Remove Unix user paths (/home/username/... or /Users/username/...)
-    sanitized = sanitized.replace(
-      /(\/(?:home|Users)\/)[^/]+/gi,
-      '$1<user>'
-    );
+    sanitized = sanitized.replace(/(\/(?:home|Users)\/)[^/]+/gi, '$1<user>');
 
     // Remove Wine prefix paths with usernames
     sanitized = sanitized.replace(
       /(\.wine\/drive_c\/users\/)[^/]+/gi,
-      '$1<user>'
+      '$1<user>',
     );
 
     // Remove AppData paths with usernames
     sanitized = sanitized.replace(
       /(AppData\\(?:Local|Roaming)\\)/gi,
-      'AppData\\<type>\\'
+      'AppData\\<type>\\',
     );
 
     // Remove email addresses
     sanitized = sanitized.replace(
       /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g,
-      '<email>'
+      '<email>',
     );
 
     // Remove potential credentials/tokens (basic patterns)
     sanitized = sanitized.replace(
       /(password|passwd|pwd|token|secret|apikey|api_key|auth|credential)[=:]\s*["']?[^"'\s]+["']?/gi,
-      '$1=<redacted>'
+      '$1=<redacted>',
     );
 
     return sanitized;
@@ -65,7 +59,9 @@ function sanitizeLogMessage(message: unknown): unknown {
   if (typeof message === 'object') {
     if (message instanceof Error) {
       // Sanitize error messages but preserve error type
-      const sanitizedError = new Error(sanitizeLogMessage(message.message) as string);
+      const sanitizedError = new Error(
+        sanitizeLogMessage(message.message) as string,
+      );
       sanitizedError.name = message.name;
       // Don't include stack traces in production
       if (!isProduction) {
@@ -106,7 +102,7 @@ function sanitizeLogMessage(message: unknown): unknown {
  */
 function createSanitizedLogFn(
   originalFn: (...args: unknown[]) => void,
-  level: 'debug' | 'info' | 'warn' | 'error'
+  level: 'debug' | 'info' | 'warn' | 'error',
 ): (...args: unknown[]) => void {
   return (...args: unknown[]) => {
     // In production, skip debug logs entirely
@@ -134,7 +130,8 @@ if (isProduction) {
 // Set log file location and size limit
 if (app) {
   const userDataPath = app.getPath('userData');
-  log.transports.file.resolvePathFn = () => path.join(userDataPath, 'logs', 'main.log');
+  log.transports.file.resolvePathFn = () =>
+    path.join(userDataPath, 'logs', 'main.log');
   log.transports.file.maxSize = MAX_LOG_SIZE;
 }
 
@@ -143,7 +140,8 @@ if (isProduction) {
   log.transports.file.format = '[{y}-{m}-{d} {h}:{i}:{s}] [{level}] {text}';
   log.transports.console.format = '[{level}] {text}';
 } else {
-  log.transports.file.format = '[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [{level}] {text}';
+  log.transports.file.format =
+    '[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [{level}] {text}';
   log.transports.console.format = '[{h}:{i}:{s}.{ms}] [{level}] {text}';
 }
 
@@ -162,4 +160,3 @@ const sanitizedLogger = {
 
 // Export the sanitized logger
 export default sanitizedLogger;
-

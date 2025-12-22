@@ -1,5 +1,10 @@
 // Storage module tests
 // Mock electron-log - uses __mocks__/electron-log.js
+import * as path from 'path';
+import * as fs from 'fs';
+import * as os from 'os';
+import { hasRequiredGameFiles } from '../storage';
+
 jest.mock('electron-log');
 
 // Mock electron
@@ -19,11 +24,6 @@ jest.mock('../../main/paths', () => ({
     downloadRoot: '/mock/downloads',
   })),
 }));
-
-import { hasRequiredGameFiles } from '../storage';
-import * as path from 'path';
-import * as fs from 'fs';
-import * as os from 'os';
 
 describe('Storage Module', () => {
   const testDir = path.join(os.tmpdir(), 'eventide-storage-test');

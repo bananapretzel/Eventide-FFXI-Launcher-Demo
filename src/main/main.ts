@@ -1,5 +1,3 @@
-import './logger'; // Initialize logger configuration
-import log from './logger';
 import chalk from 'chalk';
 import path from 'path';
 import fs from 'fs-extra';
@@ -9,11 +7,11 @@ import { spawn } from 'child_process';
 import ini from 'ini';
 import { app, BrowserWindow, ipcMain, shell, dialog, screen } from 'electron';
 import { autoUpdater } from 'electron-updater';
+import log from './logger';
 import { getEventidePaths, ensureDirs } from './paths';
 import { resolveHtmlPath, openPathCrossPlatform } from './util';
 import { RELEASE_JSON_URL } from './config';
 import { INI_FILENAME } from '../core/constants';
-import { getClientVersion } from '../core/versions';
 import {
   getReleaseJson,
   getPatchManifest,
@@ -23,23 +21,45 @@ import {
   readStorage,
   writeStorage,
   updateStorage,
-  hasRequiredGameFiles,
   getDefaultStorage,
-  validateStorageJson,
   StorageJson,
+  getDownloadProgress,
+  saveDownloadProgress,
 } from '../core/storage';
 import { bootstrap as logicBootstrap } from '../logic/bootstrap';
-import { writeJson, readJson } from '../core/fs';
-import { downloadGame } from '../logic/download';
+import {
+  writeJson,
+  readJson,
+  listPivotOverlayFolders,
+  readPivotIniOverlayOrder,
+  writePivotIniOverlayOrder,
+} from '../core/fs';
 import { applyPatches } from '../logic/patch';
 import {
   getDefaultAddonsObject,
   getDefaultPluginsObject,
 } from './defaultExtensions';
 import { isUrlSafeForExternal, sanitizeInput } from './security';
-import { applySettingsToIni, extractSettingsFromIni } from './config/iniMappings';
+import {
+  applySettingsToIni,
+  extractSettingsFromIni,
+} from './config/iniMappings';
 import { ensureDirectPlay } from './directplay';
 import { readGamepadConfig, applyGamepadConfigToIni } from './gamepad';
+
+// ============================================================================
+// RESUMABLE DOWNLOAD: Pause/Resume Handlers
+// ============================================================================
+
+// Import resumable download functions
+import {
+  downloadGame,
+  pauseDownload,
+  checkForResumableDownload,
+  cancelDownload,
+  downloadGameResumable,
+} from '../logic/download';
+import { getPartialDownloadSize } from '../core/net';
 
 // Cache for manifest data to avoid redundant network calls
 interface ManifestCache {
@@ -54,6 +74,29 @@ const manifestCache: ManifestCache = {
   timestamp: null,
 };
 
+// Track which release URL the app is using.
+// In production builds we always force this to the configured constant.
+let currentReleaseUrl: string = RELEASE_JSON_URL;
+
+function getEffectiveReleaseUrl(candidate: string | undefined | null): string {
+  if (app.isPackaged) {
+    return RELEASE_JSON_URL;
+  }
+  const value = (candidate || '').trim();
+  if (!value) {
+    return RELEASE_JSON_URL;
+  }
+  try {
+    const u = new URL(value);
+    if (u.protocol === 'http:' || u.protocol === 'https:') {
+      return value;
+    }
+  } catch {
+    // ignore
+  }
+  return RELEASE_JSON_URL;
+}
+
 /**
  * Helper function to ensure paths are synced from storage
  * This prevents the launcher from falling back to AppData paths when storage has custom paths set
@@ -65,10 +108,15 @@ const manifestCache: ManifestCache = {
  */
 async function ensureCustomInstallDirSynced(): Promise<void> {
   const storage = await readStorage();
-  const { setCustomInstallDir, getCustomInstallDir, setGameInstallPath, getGameInstallPath } = require('./paths');
+  const {
+    setCustomInstallDir,
+    getCustomInstallDir,
+    setGameInstallPath,
+    getGameInstallPath,
+  } = require('./paths');
 
   if (storage?.paths?.installPath) {
-    const installPath = storage.paths.installPath;
+    const { installPath } = storage.paths;
     const userDataPath = app.getPath('userData');
 
     // Skip if this is the default AppData path
@@ -76,14 +124,24 @@ async function ensureCustomInstallDirSynced(): Promise<void> {
       // Check if customInstallDir + /Game would produce this installPath
       // This is the "standard" new launcher structure
       if (storage.paths.customInstallDir) {
-        const expectedInstallPath = path.join(storage.paths.customInstallDir, 'Game');
-        const isStandardStructure = path.normalize(expectedInstallPath).toLowerCase() === path.normalize(installPath).toLowerCase();
+        const expectedInstallPath = path.join(
+          storage.paths.customInstallDir,
+          'Game',
+        );
+        const isStandardStructure =
+          path.normalize(expectedInstallPath).toLowerCase() ===
+          path.normalize(installPath).toLowerCase();
 
         if (isStandardStructure) {
           // Standard structure: use customInstallDir (which gets /Game appended automatically)
           if (getCustomInstallDir() !== storage.paths.customInstallDir) {
             setCustomInstallDir(storage.paths.customInstallDir);
-            log.info(chalk.cyan('[ensureCustomInstallDirSynced] Using standard structure with customInstallDir:'), storage.paths.customInstallDir);
+            log.info(
+              chalk.cyan(
+                '[ensureCustomInstallDirSynced] Using standard structure with customInstallDir:',
+              ),
+              storage.paths.customInstallDir,
+            );
           }
           return;
         }
@@ -93,14 +151,24 @@ async function ensureCustomInstallDirSynced(): Promise<void> {
       // Use installPath directly as the game root (supports ANY folder structure)
       if (getGameInstallPath() !== installPath) {
         setGameInstallPath(installPath);
-        log.info(chalk.cyan('[ensureCustomInstallDirSynced] Using direct installPath (supports any folder structure):'), installPath);
+        log.info(
+          chalk.cyan(
+            '[ensureCustomInstallDirSynced] Using direct installPath (supports any folder structure):',
+          ),
+          installPath,
+        );
       }
     }
   } else if (storage?.paths?.customInstallDir) {
     // Only customInstallDir is set (no installPath) - use standard structure
     if (getCustomInstallDir() !== storage.paths.customInstallDir) {
       setCustomInstallDir(storage.paths.customInstallDir);
-      log.info(chalk.cyan('[ensureCustomInstallDirSynced] Using customInstallDir from storage:'), storage.paths.customInstallDir);
+      log.info(
+        chalk.cyan(
+          '[ensureCustomInstallDirSynced] Using customInstallDir from storage:',
+        ),
+        storage.paths.customInstallDir,
+      );
     }
   }
 }
@@ -185,9 +253,11 @@ ipcMain.handle(
   'launcher:bootstrap',
   async (_event, releaseUrl: string, installDir: string) => {
     try {
+      const effectiveReleaseUrl = getEffectiveReleaseUrl(releaseUrl);
+      currentReleaseUrl = effectiveReleaseUrl;
       // Get release, patchManifest, clientVersion from logic/bootstrap
       const { release, patchManifest, clientVersion } = await logicBootstrap(
-        releaseUrl,
+        effectiveReleaseUrl,
         installDir,
       );
       // Get baseGameDownloaded and baseGameExtracted from storage.json
@@ -225,16 +295,19 @@ app.setName('Eventide Launcher');
 app.on('web-contents-created', (_event, contents) => {
   // Security: Prevent navigation to untrusted domains
   contents.on('will-navigate', (event, navigationUrl) => {
-    const allowedUrls = [
-      'file://',
-      'devtools://',
-      'about:blank'
-    ];
+    const allowedUrls = ['file://', 'about:blank'];
+    if (!app.isPackaged) {
+      allowedUrls.push('devtools://');
+    }
 
-    const isAllowed = allowedUrls.some(allowed => navigationUrl.startsWith(allowed));
+    const isAllowed = allowedUrls.some((allowed) =>
+      navigationUrl.startsWith(allowed),
+    );
 
     if (!isAllowed) {
-      log.warn(chalk.yellow(`[Security] Blocked navigation to: ${navigationUrl}`));
+      log.warn(
+        chalk.yellow(`[Security] Blocked navigation to: ${navigationUrl}`),
+      );
       event.preventDefault();
     }
   });
@@ -245,9 +318,11 @@ app.on('web-contents-created', (_event, contents) => {
 
     // Only allow opening trusted URLs in external browser
     if (isUrlSafeForExternal(url)) {
-      shell.openExternal(url).catch(err =>
-        log.error(chalk.red('[Security] Error opening external URL:'), err)
-      );
+      shell
+        .openExternal(url)
+        .catch((err) =>
+          log.error(chalk.red('[Security] Error opening external URL:'), err),
+        );
     }
 
     return { action: 'deny' };
@@ -255,7 +330,9 @@ app.on('web-contents-created', (_event, contents) => {
 
   // Security: Verify webview creation (if webviews are used)
   contents.on('will-attach-webview', (event, webPreferences, params) => {
-    log.warn(chalk.yellow('[Security] Webview attachment attempted, verifying...'));
+    log.warn(
+      chalk.yellow('[Security] Webview attachment attempted, verifying...'),
+    );
 
     // Delete preload scripts if unused or verify their location
     delete webPreferences.preload;
@@ -290,7 +367,7 @@ async function extractBaseGameIfNeeded(
   try {
     const { extractZip } = require('../core/fs');
     // Use provided ZIP name or fall back to default
-    const zipName = baseGameZipName || 'Eventide-test.zip';
+    const zipName = baseGameZipName || 'Eventide.zip';
     const baseGameZipPath = path.join(dlRoot, zipName);
 
     if (!fs.existsSync(baseGameZipPath)) {
@@ -337,10 +414,15 @@ async function extractBaseGameIfNeeded(
           });
         }
       } catch (deleteErr) {
-        log.warn(chalk.yellow('[startup] Could not delete corrupted ZIP:'), deleteErr);
+        log.warn(
+          chalk.yellow('[startup] Could not delete corrupted ZIP:'),
+          deleteErr,
+        );
       }
 
-      throw new Error(`Extraction failed: ${extractErr instanceof Error ? extractErr.message : String(extractErr)}. The ZIP file may be corrupted. Please download the game again.`);
+      throw new Error(
+        `Extraction failed: ${extractErr instanceof Error ? extractErr.message : String(extractErr)}. The ZIP file may be corrupted. Please download the game again.`,
+      );
     }
 
     // Update storage atomically
@@ -389,7 +471,7 @@ app.once('ready', async () => {
     const { setCustomInstallDir, setGameInstallPath } = require('./paths');
 
     if (storageData.paths.installPath) {
-      const installPath = storageData.paths.installPath;
+      const { installPath } = storageData.paths;
       const userDataPath = require('electron').app.getPath('userData');
 
       // Skip if this is the default AppData path
@@ -397,14 +479,21 @@ app.once('ready', async () => {
         // Check if customInstallDir + /Game would produce this installPath
         // This is the "standard" new launcher structure
         if (storageData.paths.customInstallDir) {
-          const expectedInstallPath = path.join(storageData.paths.customInstallDir, 'Game');
-          const isStandardStructure = path.normalize(expectedInstallPath).toLowerCase() === path.normalize(installPath).toLowerCase();
+          const expectedInstallPath = path.join(
+            storageData.paths.customInstallDir,
+            'Game',
+          );
+          const isStandardStructure =
+            path.normalize(expectedInstallPath).toLowerCase() ===
+            path.normalize(installPath).toLowerCase();
 
           if (isStandardStructure) {
             // Standard structure: use customInstallDir (which gets /Game appended automatically)
             setCustomInstallDir(storageData.paths.customInstallDir);
             log.info(
-              chalk.cyan('[startup] Using standard structure with customInstallDir:'),
+              chalk.cyan(
+                '[startup] Using standard structure with customInstallDir:',
+              ),
               storageData.paths.customInstallDir,
             );
           } else {
@@ -412,7 +501,9 @@ app.once('ready', async () => {
             // Use installPath directly (supports ANY folder structure)
             setGameInstallPath(installPath);
             log.info(
-              chalk.cyan('[startup] Using direct installPath (supports any folder structure):'),
+              chalk.cyan(
+                '[startup] Using direct installPath (supports any folder structure):',
+              ),
               installPath,
             );
           }
@@ -420,7 +511,9 @@ app.once('ready', async () => {
           // No customInstallDir set - use installPath directly (supports ANY folder structure)
           setGameInstallPath(installPath);
           log.info(
-            chalk.cyan('[startup] Using direct installPath (supports any folder structure):'),
+            chalk.cyan(
+              '[startup] Using direct installPath (supports any folder structure):',
+            ),
             installPath,
           );
         }
@@ -438,7 +531,8 @@ app.once('ready', async () => {
       log.info(chalk.cyan('[startup] No custom installation directory set'));
     }
 
-    const hasCustomOrDefaultDir = !!storageData.paths.customInstallDir || !!storageData.paths.installPath;
+    const hasCustomOrDefaultDir =
+      !!storageData.paths.customInstallDir || !!storageData.paths.installPath;
 
     // Step 3: Create essential directories (logs, userData) but NOT game directories on first launch
     // Game directories will be created when user selects installation location
@@ -623,7 +717,8 @@ app.once('ready', async () => {
 
     // Step 6: Auto-extract if ZIP exists and storage says not extracted
     // Note: We trust storage.json - no filesystem checks performed
-    const baseGameZipName = release?.game?.fullUrl?.split('/').pop() || 'Eventide-test.zip';
+    const baseGameZipName =
+      release?.game?.fullUrl?.split('/').pop() || 'Eventide.zip';
     const baseGameZipPath = path.join(dlRoot, baseGameZipName);
     const zipExists = fs.existsSync(baseGameZipPath);
 
@@ -638,14 +733,23 @@ app.once('ready', async () => {
       );
     }
 
-    if (zipExists && !storageData.gameState.baseGame.isExtracted && !downloadInProgress) {
+    if (
+      zipExists &&
+      !storageData.gameState.baseGame.isExtracted &&
+      !downloadInProgress
+    ) {
       try {
         log.info(
           chalk.cyan(
             '[startup] Game zip exists but not extracted. Extracting now...',
           ),
         );
-        await extractBaseGameIfNeeded(storageData, dlRoot, gameRoot, baseGameZipName);
+        await extractBaseGameIfNeeded(
+          storageData,
+          dlRoot,
+          gameRoot,
+          baseGameZipName,
+        );
         // Extraction sets isExtracted = true in storage automatically
         // IMPORTANT: Reset version to base version after extraction (even if storage had a different version)
         storageData.gameState.installedVersion = baseVersion;
@@ -796,7 +900,9 @@ ipcMain.handle('eventide:get-paths', async () => {
 
     // Check if user has selected an installation directory
     const storage = await readStorage();
-    const hasSelectedDir = !!(storage?.paths?.customInstallDir || storage?.paths?.installPath);
+    const hasSelectedDir = !!(
+      storage?.paths?.customInstallDir || storage?.paths?.installPath
+    );
 
     // Only return actual paths if user has selected a directory
     // Otherwise return empty strings to indicate no selection made yet
@@ -815,8 +921,11 @@ ipcMain.handle('select-install-directory', async () => {
   try {
     // Use current install directory or user home as default path
     const storage = require('./paths');
-    const currentInstallDir = storage.getInstallDirectory?.() || app.getPath('home');
-    const defaultPath = fs.existsSync(currentInstallDir) ? currentInstallDir : app.getPath('home');
+    const currentInstallDir =
+      storage.getInstallDirectory?.() || app.getPath('home');
+    const defaultPath = fs.existsSync(currentInstallDir)
+      ? currentInstallDir
+      : app.getPath('home');
 
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory', 'createDirectory'],
@@ -835,7 +944,10 @@ ipcMain.handle('select-install-directory', async () => {
 
     // Validate the final installation directory
     const { validateInstallDirectory } = require('./paths');
-    const validation = await validateInstallDirectory(finalInstallDir, 10 * 1024 * 1024 * 1024); // 10GB minimum
+    const validation = await validateInstallDirectory(
+      finalInstallDir,
+      10 * 1024 * 1024 * 1024,
+    ); // 10GB minimum
 
     if (!validation.valid) {
       return { success: false, error: validation.error };
@@ -895,10 +1007,9 @@ ipcMain.handle('open-external-url', async (_event, url: string) => {
       }
 
       return { success: true };
-    } else {
-      log.warn(chalk.yellow(`[open-external-url] Blocked unsafe URL: ${url}`));
-      return { success: false, error: 'URL is not allowed' };
     }
+    log.warn(chalk.yellow(`[open-external-url] Blocked unsafe URL: ${url}`));
+    return { success: false, error: 'URL is not allowed' };
   } catch (error) {
     log.error(chalk.red('[open-external-url] Error:'), error);
     return {
@@ -909,37 +1020,46 @@ ipcMain.handle('open-external-url', async (_event, url: string) => {
 });
 
 // IPC handler to set custom installation directory
-ipcMain.handle('set-install-directory', async (_event, dirPath: string | null) => {
-  try {
-    const { setCustomInstallDir, getEventidePaths } = require('./paths');
+ipcMain.handle(
+  'set-install-directory',
+  async (_event, dirPath: string | null) => {
+    try {
+      const {
+        setCustomInstallDir,
+        getEventidePaths: getPathsFromModule,
+      } = require('./paths');
 
-    // Update the in-memory cache
-    setCustomInstallDir(dirPath);
+      // Update the in-memory cache
+      setCustomInstallDir(dirPath);
 
-    // Update storage.json with custom dir and actual paths
-    await updateStorage((data: StorageJson) => {
-      data.paths.customInstallDir = dirPath || '';
+      // Update storage.json with custom dir and actual paths
+      await updateStorage((data: StorageJson) => {
+        data.paths.customInstallDir = dirPath || '';
 
-      // Update actual install and download paths now that user has chosen
-      const paths = getEventidePaths();
-      data.paths.installPath = paths.gameRoot;
-      data.paths.downloadPath = paths.dlRoot;
-    });
+        // Update actual install and download paths now that user has chosen
+        const paths = getPathsFromModule();
+        data.paths.installPath = paths.gameRoot;
+        data.paths.downloadPath = paths.dlRoot;
+      });
 
-    // Recreate directories at new location (including game directories)
-    ensureDirs(true);
+      // Recreate directories at new location (including game directories)
+      ensureDirs(true);
 
-    log.info(chalk.cyan('[set-install-directory] Updated install directory to:'), dirPath || 'default');
+      log.info(
+        chalk.cyan('[set-install-directory] Updated install directory to:'),
+        dirPath || 'default',
+      );
 
-    return { success: true };
-  } catch (error) {
-    log.error(chalk.red('[set-install-directory] Error:'), error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    };
-  }
-});
+      return { success: true };
+    } catch (error) {
+      log.error(chalk.red('[set-install-directory] Error:'), error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  },
+);
 
 const SERVICE_NAME = 'EventideLauncher';
 const KEYTAR_ACCOUNT_USERNAME = 'eventide-username';
@@ -1069,6 +1189,22 @@ async function readConfigHandler() {
 ipcMain.handle('read-settings', readConfigHandler);
 ipcMain.handle('read-config', readConfigHandler);
 
+// Pivot: list overlay folders under <gameRoot>/polplugins/DATs
+ipcMain.handle('pivot:list-overlays', async () => {
+  try {
+    await ensureCustomInstallDirSynced();
+    const paths = getEventidePaths();
+    const overlays = await listPivotOverlayFolders(paths.gameRoot);
+    return { success: true, data: overlays };
+  } catch (error) {
+    log.error(chalk.red('[pivot:list-overlays] Error:'), error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+});
+
 // Version normalization utility
 function isZeroVersion(v: string): boolean {
   if (!v) return true;
@@ -1083,7 +1219,7 @@ ipcMain.handle('write-settings', async (_event, data: any) => {
     const configPath = paths.config;
     // Ensure essential directories exist (logs, userData) but not necessarily game dirs
     ensureDirs(false);
-    // Log the data to be written
+    // Avoid logging raw config data (may include secrets like passwords/tokens)
     try {
       const json = JSON.stringify(data);
       if (json.length > 1000000) {
@@ -1099,8 +1235,10 @@ ipcMain.handle('write-settings', async (_event, data: any) => {
         };
       }
       log.info(
-        chalk.cyan('[write-settings] Writing config data:'),
-        json.slice(0, 500) + (json.length > 500 ? '...truncated' : ''),
+        chalk.cyan(
+          '[write-settings] Writing config (redacted). Top-level keys:',
+        ),
+        Object.keys(data || {}).slice(0, 50),
       );
       log.info(chalk.cyan('[config] Writing config file at'), configPath);
       await writeJson(configPath, data);
@@ -1175,8 +1313,10 @@ ipcMain.handle('write-default-script', async () => {
     if (fs.existsSync(defaultScriptPath)) {
       try {
         const existingContent = fs.readFileSync(defaultScriptPath, 'utf-8');
-        const startMarker = '########## Custom user addons and plugins start here  ##########';
-        const endMarker = '########## Custom user addons and plugins ends here ##########';
+        const startMarker =
+          '########## Custom user addons and plugins start here  ##########';
+        const endMarker =
+          '########## Custom user addons and plugins ends here ##########';
 
         const startIndex = existingContent.indexOf(startMarker);
         const endIndex = existingContent.indexOf(endMarker);
@@ -1189,13 +1329,17 @@ ipcMain.handle('write-default-script', async () => {
 
           if (customUserContent) {
             log.info(
-              chalk.cyan('[write-default-script] Preserved custom user settings'),
+              chalk.cyan(
+                '[write-default-script] Preserved custom user settings',
+              ),
             );
           }
         }
       } catch (err) {
         log.warn(
-          chalk.yellow('[write-default-script] Could not read existing file, custom settings will not be preserved:'),
+          chalk.yellow(
+            '[write-default-script] Could not read existing file, custom settings will not be preserved:',
+          ),
           err,
         );
       }
@@ -1219,7 +1363,10 @@ ipcMain.handle('write-default-script', async () => {
     });
 
     // Blank line between plugins and addons
-    if ((requiredPlugins.length > 0 || enabledPlugins.length > 0) && enabledAddons.length > 0) {
+    if (
+      (requiredPlugins.length > 0 || enabledPlugins.length > 0) &&
+      enabledAddons.length > 0
+    ) {
       lines.push('');
     }
 
@@ -1254,14 +1401,18 @@ ipcMain.handle('write-default-script', async () => {
     lines.push('');
     lines.push('########## END DO NOT MODIFY AREA ##########');
     lines.push('');
-    lines.push('########## Custom user addons and plugins start here  ##########');
+    lines.push(
+      '########## Custom user addons and plugins start here  ##########',
+    );
     lines.push('');
     // Add preserved custom content
     if (customUserContent) {
       lines.push(customUserContent);
     }
 
-    lines.push('########## Custom user addons and plugins ends here ##########');
+    lines.push(
+      '########## Custom user addons and plugins ends here ##########',
+    );
     const scriptContent = lines.join('\n');
 
     // Ensure scripts directory exists
@@ -1301,15 +1452,21 @@ ipcMain.handle(
   'launcher:downloadGame',
   async (
     _event,
-    fullUrl: string,
-    sha256: string,
-    installDir: string,
-    baseVersion: string,
-    expectedSize?: number,
+    _fullUrl: string,
+    _sha256: string,
+    _installDir: string,
+    _baseVersion: string,
+    _expectedSize?: number,
   ) => {
     try {
       // Check and prompt for DirectPlay on Windows before download/extraction
       await ensureDirectPlay();
+
+      // Derive download parameters from the trusted release.json rather than trusting renderer input.
+      const release = await getReleaseJson(
+        getEffectiveReleaseUrl(currentReleaseUrl),
+      );
+      const { fullUrl, sha256, baseVersion, sizeBytes } = release.game;
 
       const paths = getEventidePaths();
       log.info(
@@ -1336,7 +1493,7 @@ ipcMain.handle(
         paths.gameRoot,
         paths.dlRoot,
         baseVersion,
-        expectedSize,
+        sizeBytes,
         onDownloadProgress,
         onExtractProgress,
       );
@@ -1392,8 +1549,13 @@ ipcMain.handle('write-extensions', async (_event, data) => {
 
 ipcMain.handle(
   'launcher:applyPatches',
-  async (_event, patchManifest: any, installDir: string) => {
+  async (_event, _patchManifest: any, installDir: string) => {
     try {
+      // Fetch manifest from the trusted release.json rather than trusting renderer input.
+      const release = await getReleaseJson(
+        getEffectiveReleaseUrl(currentReleaseUrl),
+      );
+      const patchManifest = await getPatchManifest(release.patchManifestUrl);
       await applyPatches(patchManifest, installDir);
       return { success: true };
     } catch (err) {
@@ -1480,7 +1642,7 @@ app.on('ready', () => {
     transparent: true, // Enable transparency for borderless window
     resizable: false, // Disable drag resizing - use Ctrl+scroll or Ctrl+=/- to scale
     backgroundColor: '#00FFFFFF',
-    titleBarStyle: !!isDev ? 'default' : 'hidden',
+    titleBarStyle: isDev ? 'default' : 'hidden',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -1493,9 +1655,11 @@ app.on('ready', () => {
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     // Only allow opening safe URLs in external browser
     if (isUrlSafeForExternal(url)) {
-      shell.openExternal(url).catch(err =>
-        log.error(chalk.red('[Security] Error opening external URL:'), err)
-      );
+      shell
+        .openExternal(url)
+        .catch((err) =>
+          log.error(chalk.red('[Security] Error opening external URL:'), err),
+        );
     }
 
     return { action: 'deny' };
@@ -1506,19 +1670,23 @@ app.on('ready', () => {
     const allowedUrls = [
       resolveHtmlPath('index.html'),
       'file://',
-      'devtools://'
+      'devtools://',
     ];
 
-    const isAllowed = allowedUrls.some(allowed => navigationUrl.startsWith(allowed));
+    const isAllowed = allowedUrls.some((allowed) =>
+      navigationUrl.startsWith(allowed),
+    );
 
     if (!isAllowed) {
-      log.warn(chalk.yellow(`[Security] Blocked navigation to: ${navigationUrl}`));
+      log.warn(
+        chalk.yellow(`[Security] Blocked navigation to: ${navigationUrl}`),
+      );
       event.preventDefault();
     }
   });
 
   // Open DevTools automatically in development mode
-  if (process.env.NODE_ENV !== 'production') {
+  if (!app.isPackaged) {
     mainWindow.webContents.openDevTools({ mode: 'right' });
   }
   mainWindow.on('closed', () => {
@@ -1529,7 +1697,12 @@ app.on('ready', () => {
 
   // Create desktop shortcut on first run (only in production)
   if (process.env.NODE_ENV === 'production') {
-    const { createDesktopShortcut, createLinuxDesktopFile, removeWineDesktopFile, isRunningUnderWine } = require('./util');
+    const {
+      createDesktopShortcut,
+      createLinuxDesktopFile,
+      removeWineDesktopFile,
+      isRunningUnderWine,
+    } = require('./util');
 
     // On Wine/Linux: create proper .desktop file and clean up broken Wine-generated ones
     if (isRunningUnderWine()) {
@@ -1538,7 +1711,9 @@ app.on('ready', () => {
         .then((result: { success: boolean; error?: string }) => {
           if (result.success) {
             log.info(
-              chalk.green('[startup] Linux .desktop file created or already exists'),
+              chalk.green(
+                '[startup] Linux .desktop file created or already exists',
+              ),
             );
           } else {
             log.warn(
@@ -1546,9 +1721,13 @@ app.on('ready', () => {
               result.error,
             );
           }
+          return undefined;
         })
         .catch((err: Error) => {
-          log.error(chalk.red('[startup] Error creating Linux .desktop file:'), err);
+          log.error(
+            chalk.red('[startup] Error creating Linux .desktop file:'),
+            err,
+          );
         });
     } else {
       // On native Windows: create standard shortcut
@@ -1556,7 +1735,9 @@ app.on('ready', () => {
         .then((result: { success: boolean; error?: string }) => {
           if (result.success) {
             log.info(
-              chalk.green('[startup] Desktop shortcut created or already exists'),
+              chalk.green(
+                '[startup] Desktop shortcut created or already exists',
+              ),
             );
           } else {
             log.warn(
@@ -1564,9 +1745,13 @@ app.on('ready', () => {
               result.error,
             );
           }
+          return undefined;
         })
         .catch((err: Error) => {
-          log.error(chalk.red('[startup] Error creating desktop shortcut:'), err);
+          log.error(
+            chalk.red('[startup] Error creating desktop shortcut:'),
+            err,
+          );
         });
     }
   }
@@ -1648,7 +1833,11 @@ ipcMain.handle('read-ini-settings', async () => {
     const iniPath = path.join(paths.gameRoot, 'config', 'boot', INI_FILENAME);
 
     if (!fs.existsSync(iniPath)) {
-      log.info(chalk.yellow('[INI] INI file does not exist yet, returning empty settings'));
+      log.info(
+        chalk.yellow(
+          '[INI] INI file does not exist yet, returning empty settings',
+        ),
+      );
       return { success: true, data: {}, error: null };
     }
 
@@ -1662,7 +1851,9 @@ ipcMain.handle('read-ini-settings', async () => {
 
     return { success: true, data: settings, error: null };
   } catch (error) {
-    log.error(chalk.red(`[INI] Error reading settings from INI file: ${String(error)}`));
+    log.error(
+      chalk.red(`[INI] Error reading settings from INI file: ${String(error)}`),
+    );
     return {
       success: false,
       data: {},
@@ -1744,7 +1935,12 @@ ipcMain.handle(
               `[INI] Appending --user and --pass to command: [REDACTED]`,
             ),
           );
-          commandParts.push('--user', sanitizedUsername, '--pass', sanitizedPassword);
+          commandParts.push(
+            '--user',
+            sanitizedUsername,
+            '--pass',
+            sanitizedPassword,
+          );
         } else {
           log.info(
             chalk.cyan(
@@ -1773,11 +1969,20 @@ ipcMain.handle(
           // Read and apply gamepad/controller settings from system registry
           // This supports Windows 10/11 and Linux via Wine
           try {
-            log.info(chalk.cyan('[Gamepad] Reading gamepad configuration from registry...'));
+            log.info(
+              chalk.cyan(
+                '[Gamepad] Reading gamepad configuration from registry...',
+              ),
+            );
             const gamepadConfig = await readGamepadConfig();
             applyGamepadConfigToIni(config, gamepadConfig);
           } catch (gamepadErr) {
-            log.warn(chalk.yellow('[Gamepad] Failed to read gamepad config, using existing INI values:'), gamepadErr);
+            log.warn(
+              chalk.yellow(
+                '[Gamepad] Failed to read gamepad config, using existing INI values:',
+              ),
+              gamepadErr,
+            );
           }
 
           // Always write the INI file after updating the command (even if only password changes)
@@ -1821,15 +2026,28 @@ ipcMain.handle(
   'write-config',
   async (
     _event,
-    data: { username?: string; password?: string; rememberCredentials?: boolean; guiScale?: number; darkMode?: boolean },
+    data: {
+      username?: string;
+      password?: string;
+      rememberCredentials?: boolean;
+      guiScale?: number;
+      darkMode?: boolean;
+    },
   ) => {
     try {
       // Sanitize inputs to remove control characters
-      const sanitizedUsername = data.username ? sanitizeInput(data.username) : '';
-      const sanitizedPassword = data.password ? sanitizeInput(data.password) : '';
+      const sanitizedUsername = data.username
+        ? sanitizeInput(data.username)
+        : '';
+      const sanitizedPassword = data.password
+        ? sanitizeInput(data.password)
+        : '';
 
       // Validate boolean input
-      const rememberCredentials = data.rememberCredentials !== undefined ? Boolean(data.rememberCredentials) : undefined;
+      const rememberCredentials =
+        data.rememberCredentials !== undefined
+          ? Boolean(data.rememberCredentials)
+          : undefined;
 
       const paths = getEventidePaths();
       ensureDirs(false);
@@ -1839,7 +2057,7 @@ ipcMain.handle(
       if (fs.existsSync(configPath)) {
         try {
           existingConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-        } catch (e) {
+        } catch (_e) {
           log.warn(
             chalk.yellow(
               '[config] Could not parse existing config.json, starting fresh.',
@@ -1891,7 +2109,9 @@ ipcMain.handle(
         } else if (rememberCredentials === false) {
           log.info(chalk.cyan('[keytar] Deleting credentials from keytar'));
           // Add delay to prevent race conditions with password deletion
-          await new Promise((resolve) => setTimeout(resolve, 500));
+          await new Promise((resolve) => {
+            setTimeout(resolve, 500);
+          });
           await keytar.deletePassword(SERVICE_NAME, KEYTAR_ACCOUNT_USERNAME);
           await keytar.deletePassword(SERVICE_NAME, KEYTAR_ACCOUNT_PASSWORD);
           log.info(chalk.cyan('[keytar] Credentials deleted'));
@@ -1958,7 +2178,8 @@ ipcMain.handle('open-game-folder', async () => {
     if (!gameFolder) {
       return {
         success: false,
-        error: 'No installation directory configured. Please select an installation directory first.',
+        error:
+          'No installation directory configured. Please select an installation directory first.',
       };
     }
 
@@ -1991,7 +2212,9 @@ ipcMain.handle('uninstall-game', async () => {
 
     // Delete game folder
     if (paths.gameRoot && fs.existsSync(paths.gameRoot)) {
-      log.info(chalk.cyan(`[uninstall-game] Deleting game folder: ${paths.gameRoot}`));
+      log.info(
+        chalk.cyan(`[uninstall-game] Deleting game folder: ${paths.gameRoot}`),
+      );
       const result = await robustRemove(paths.gameRoot);
       if (result.skippedPaths.length > 0) {
         skippedItems.push(...result.skippedPaths);
@@ -2000,7 +2223,11 @@ ipcMain.handle('uninstall-game', async () => {
 
     // Delete downloads folder
     if (paths.dlRoot && fs.existsSync(paths.dlRoot)) {
-      log.info(chalk.cyan(`[uninstall-game] Deleting downloads folder: ${paths.dlRoot}`));
+      log.info(
+        chalk.cyan(
+          `[uninstall-game] Deleting downloads folder: ${paths.dlRoot}`,
+        ),
+      );
       const result = await robustRemove(paths.dlRoot);
       if (result.skippedPaths.length > 0) {
         skippedItems.push(...result.skippedPaths);
@@ -2012,7 +2239,11 @@ ipcMain.handle('uninstall-game', async () => {
     if (parentDir && fs.existsSync(parentDir)) {
       const remainingFiles = fs.readdirSync(parentDir);
       if (remainingFiles.length === 0) {
-        log.info(chalk.cyan(`[uninstall-game] Deleting empty parent folder: ${parentDir}`));
+        log.info(
+          chalk.cyan(
+            `[uninstall-game] Deleting empty parent folder: ${parentDir}`,
+          ),
+        );
         const result = await robustRemove(parentDir);
         if (result.skippedPaths.length > 0) {
           skippedItems.push(...result.skippedPaths);
@@ -2021,7 +2252,11 @@ ipcMain.handle('uninstall-game', async () => {
     }
 
     // Remove desktop shortcuts
-    const { removeDesktopShortcut, removeLinuxDesktopFile, isRunningUnderWine } = require('./util');
+    const {
+      removeDesktopShortcut,
+      removeLinuxDesktopFile,
+      isRunningUnderWine,
+    } = require('./util');
     if (isRunningUnderWine()) {
       await removeLinuxDesktopFile();
     } else {
@@ -2038,16 +2273,28 @@ ipcMain.handle('uninstall-game', async () => {
     // Note: Some files may be locked by the running app, so we use robustRemove
     const userDataPath = paths.userData;
     if (userDataPath && fs.existsSync(userDataPath)) {
-      log.info(chalk.cyan(`[uninstall-game] Deleting config folder: ${userDataPath}`));
-      const result = await robustRemove(userDataPath, { continueOnError: true });
+      log.info(
+        chalk.cyan(`[uninstall-game] Deleting config folder: ${userDataPath}`),
+      );
+      const result = await robustRemove(userDataPath, {
+        continueOnError: true,
+      });
       if (result.skippedPaths.length > 0) {
         skippedItems.push(...result.skippedPaths);
-        log.info(chalk.yellow(`[uninstall-game] Some config files are in use and will be cleaned up when the app closes`));
+        log.info(
+          chalk.yellow(
+            `[uninstall-game] Some config files are in use and will be cleaned up when the app closes`,
+          ),
+        );
       }
     }
 
     if (skippedItems.length > 0) {
-      log.info(chalk.yellow(`[uninstall-game] Uninstallation mostly complete. ${skippedItems.length} items could not be deleted (in use)`));
+      log.info(
+        chalk.yellow(
+          `[uninstall-game] Uninstallation mostly complete. ${skippedItems.length} items could not be deleted (in use)`,
+        ),
+      );
     } else {
       log.info(chalk.green('[uninstall-game] Uninstallation complete'));
     }
@@ -2077,9 +2324,10 @@ ipcMain.handle(
 
       const paths = getEventidePaths();
       // Plugins are in gameRoot/plugins, addons are in gameRoot/config/addons
-      const extensionFolder = folderType === 'plugins'
-        ? path.join(paths.gameRoot, 'plugins')
-        : path.join(paths.gameRoot, 'config', folderType);
+      const extensionFolder =
+        folderType === 'plugins'
+          ? path.join(paths.gameRoot, 'plugins')
+          : path.join(paths.gameRoot, 'config', folderType);
 
       // Ensure folder exists
       if (!fs.existsSync(extensionFolder)) {
@@ -2175,7 +2423,9 @@ ipcMain.handle('reapply-patches', async () => {
         for (const file of files) {
           // Skip the base game ZIP
           if (file === baseZipName) {
-            log.info(chalk.cyan(`[reapply-patches] Preserving base game: ${file}`));
+            log.info(
+              chalk.cyan(`[reapply-patches] Preserving base game: ${file}`),
+            );
             continue;
           }
 
@@ -2189,19 +2439,28 @@ ipcMain.handle('reapply-patches', async () => {
             const filePath = path.join(downloadsDir, file);
             try {
               await fs.unlink(filePath);
-              log.info(chalk.cyan(`[reapply-patches] Deleted patch file: ${file}`));
+              log.info(
+                chalk.cyan(`[reapply-patches] Deleted patch file: ${file}`),
+              );
             } catch (unlinkErr) {
-              log.warn(chalk.yellow(`[reapply-patches] Failed to delete ${file}:`), unlinkErr);
+              log.warn(
+                chalk.yellow(`[reapply-patches] Failed to delete ${file}:`),
+                unlinkErr,
+              );
             }
           }
         }
       }
     } catch (manifestErr) {
       log.warn(
-        chalk.yellow('[reapply-patches] Could not fetch manifest to identify patch files:'),
+        chalk.yellow(
+          '[reapply-patches] Could not fetch manifest to identify patch files:',
+        ),
         manifestErr,
       );
-      log.warn(chalk.yellow('[reapply-patches] Continuing with version reset only'));
+      log.warn(
+        chalk.yellow('[reapply-patches] Continuing with version reset only'),
+      );
     }
 
     // Update storage to reset version
@@ -2211,7 +2470,11 @@ ipcMain.handle('reapply-patches', async () => {
       data.gameState.patches.appliedVersion = '1.0.0';
     });
 
-    log.info(chalk.green('[reapply-patches] Version reset and patch files deleted successfully'));
+    log.info(
+      chalk.green(
+        '[reapply-patches] Version reset and patch files deleted successfully',
+      ),
+    );
     return { success: true };
   } catch (error) {
     log.error(chalk.red('[reapply-patches] Error resetting version:'), error);
@@ -2230,17 +2493,20 @@ try {
     __dirname,
     NODE_ENV: process.env.NODE_ENV,
   });
-} catch (e) {}
+} catch (_e) {
+  // ignore
+}
 
 // Centralized launcher helper: prefer the batch wrapper and capture output
 async function launchGameWithBatch(installDir: string, launchScript: string) {
   return new Promise<{ success: boolean; error?: string }>((resolve) => {
     try {
       if (!fs.existsSync(launchScript)) {
-        return resolve({
+        resolve({
           success: false,
           error: `Launch script not found: ${launchScript}`,
         });
+        return;
       }
 
       // Use logsRoot for launcher logs
@@ -2253,7 +2519,9 @@ async function launchGameWithBatch(installDir: string, launchScript: string) {
           logPath,
           `\n--- Launcher invoke at ${new Date().toISOString()} ---\n`,
         );
-      } catch {}
+      } catch (_e) {
+        // ignore
+      }
 
       let child;
       if (process.platform === 'win32') {
@@ -2269,7 +2537,10 @@ async function launchGameWithBatch(installDir: string, launchScript: string) {
         try {
           fs.chmodSync(launchScript, '755');
         } catch (chmodErr) {
-          log.warn(chalk.yellow('[launch] Could not chmod launch script:'), chmodErr);
+          log.warn(
+            chalk.yellow('[launch] Could not chmod launch script:'),
+            chmodErr,
+          );
         }
         child = spawn('/bin/bash', [launchScript], {
           detached: true,
@@ -2315,10 +2586,12 @@ async function launchGameWithBatch(installDir: string, launchScript: string) {
         });
 
         child.on('close', (code, signal) => {
-          safeWrite(`child exit code=${String(code)} signal=${String(signal)}\n`);
+          safeWrite(
+            `child exit code=${String(code)} signal=${String(signal)}\n`,
+          );
           safeEnd();
         });
-      } catch (e) {
+      } catch (_e) {
         // ignore logging failures
       }
 
@@ -2328,10 +2601,12 @@ async function launchGameWithBatch(installDir: string, launchScript: string) {
       // detach and let the game run independently
       try {
         child.unref();
-      } catch (e) {}
-      return resolve({ success: true });
+      } catch (_e) {
+        // ignore
+      }
+      resolve({ success: true });
     } catch (err) {
-      return resolve({ success: false, error: String(err) });
+      resolve({ success: false, error: String(err) });
     }
   });
 }
@@ -2368,11 +2643,15 @@ ipcMain.handle('game:check', async () => {
 
     // Check if user has selected an installation directory
     const storage = await readStorage();
-    const hasSelectedDir = !!(storage?.paths?.customInstallDir || storage?.paths?.installPath);
+    const hasSelectedDir = !!(
+      storage?.paths?.customInstallDir || storage?.paths?.installPath
+    );
 
     // If no directory selected, always return 'missing' state
     if (!hasSelectedDir) {
-      log.info(chalk.cyan('[game:check] No installation directory selected yet'));
+      log.info(
+        chalk.cyan('[game:check] No installation directory selected yet'),
+      );
       return {
         exists: false,
         launcherState: 'missing',
@@ -2384,14 +2663,9 @@ ipcMain.handle('game:check', async () => {
       };
     }
 
-    const paths = getEventidePaths(true); // Safe to use default since dir is selected
-    const installDir = paths.gameRoot;
-    const downloadsDir = paths.dlRoot;
-
     // Fetch release and patch manifest using cache
-    const { release, patchManifest } = await getCachedManifests();
+    const { patchManifest } = await getCachedManifests();
     const latestVersion = String(patchManifest.latestVersion ?? '0');
-    const { baseVersion } = release.game;
 
     // Read storage.json - this is the single source of truth for game state
     let currentVersion = '0.0.0';
@@ -2404,38 +2678,64 @@ ipcMain.handle('game:check', async () => {
       baseExtracted = !!storage.gameState.baseGame.isExtracted;
     }
 
-    log.info(chalk.cyan('[game:check] Storage state - downloaded:'), baseDownloaded, 'extracted:', baseExtracted, 'version:', currentVersion);
+    log.info(
+      chalk.cyan('[game:check] Storage state - downloaded:'),
+      baseDownloaded,
+      'extracted:',
+      baseExtracted,
+      'version:',
+      currentVersion,
+    );
 
     // Check if there's a download in progress
     const downloadInProgress = storage?.gameState?.downloadProgress != null;
 
-    log.info(chalk.cyan('[game:check] Trusting storage.json - download in progress:'), downloadInProgress);
+    log.info(
+      chalk.cyan('[game:check] Trusting storage.json - download in progress:'),
+      downloadInProgress,
+    );
 
     // State determination - TRUST storage.json as absolute source of truth:
     // 1. If extracted=true -> Game is ready (or needs update if version differs)
     // 2. If downloaded=true but extracted=false -> needs-extraction
     // 3. Otherwise -> missing (need to download)
 
-    let launcherState: 'missing' | 'ready' | 'update-available' | 'needs-extraction';
+    let launcherState:
+      | 'missing'
+      | 'ready'
+      | 'update-available'
+      | 'needs-extraction';
 
     if (baseExtracted) {
       // Game has been extracted - it's either ready or needs an update
       if (currentVersion === latestVersion) {
         launcherState = 'ready';
-        log.info(chalk.green('[game:check] Game is ready - version matches latest'));
+        log.info(
+          chalk.green('[game:check] Game is ready - version matches latest'),
+        );
       } else {
         launcherState = 'update-available';
-        log.info(chalk.cyan(`[game:check] Update available - current: ${currentVersion}, latest: ${latestVersion}`));
+        log.info(
+          chalk.cyan(
+            `[game:check] Update available - current: ${currentVersion}, latest: ${latestVersion}`,
+          ),
+        );
       }
     } else if (baseDownloaded && !downloadInProgress) {
       // Storage says downloaded - offer extraction
       // Trust storage.json as source of truth - extraction handler will report error if ZIP is actually missing
       launcherState = 'needs-extraction';
-      log.info(chalk.yellow('[game:check] Base game downloaded but not extracted - showing extract button'));
+      log.info(
+        chalk.yellow(
+          '[game:check] Base game downloaded but not extracted - showing extract button',
+        ),
+      );
     } else {
       // Not downloaded and no ZIP - show download button
       launcherState = 'missing';
-      log.info(chalk.cyan('[game:check] Game not installed - showing download button'));
+      log.info(
+        chalk.cyan('[game:check] Game not installed - showing download button'),
+      );
     }
 
     log.info(chalk.cyan('[game:check] currentVersion:'), currentVersion);
@@ -2464,7 +2764,9 @@ ipcMain.handle('game:check', async () => {
  */
 ipcMain.handle('game:extract', async () => {
   try {
-    log.info(chalk.cyan('[game:extract] Starting extraction of existing ZIP...'));
+    log.info(
+      chalk.cyan('[game:extract] Starting extraction of existing ZIP...'),
+    );
 
     // Ensure customInstallDir is synced from storage
     await ensureCustomInstallDirSynced();
@@ -2473,10 +2775,11 @@ ipcMain.handle('game:extract', async () => {
     const downloadsDir = paths.dlRoot;
 
     const { release, patchManifest } = await getCachedManifests();
-    const baseVersion = release.game.baseVersion;
+    const { baseVersion } = release.game;
     const latestVersion = String(patchManifest.latestVersion ?? '0');
 
-    const baseGameZipName = release?.game?.fullUrl?.split('/').pop() || 'Eventide-test.zip';
+    const baseGameZipName =
+      release?.game?.fullUrl?.split('/').pop() || 'Eventide.zip';
     const baseGameZipPath = path.join(downloadsDir, baseGameZipName);
 
     if (!fs.existsSync(baseGameZipPath)) {
@@ -2512,10 +2815,16 @@ ipcMain.handle('game:extract', async () => {
       // Verify extracted files
       const verification = await verifyExtractedFiles(installDir, 100);
       if (!verification.success) {
-        throw new Error(`Extraction verification failed: expected at least 100 files, found ${verification.fileCount}`);
+        throw new Error(
+          `Extraction verification failed: expected at least 100 files, found ${verification.fileCount}`,
+        );
       }
 
-      log.info(chalk.green(`[game:extract] Extraction complete - ${verification.fileCount} files extracted`));
+      log.info(
+        chalk.green(
+          `[game:extract] Extraction complete - ${verification.fileCount} files extracted`,
+        ),
+      );
 
       // Update storage
       await updateStorage((s: StorageJson) => {
@@ -2564,51 +2873,51 @@ ipcMain.handle('game:extract', async () => {
 // (legacy patching logic removed)
 // (legacy patching logic removed)
 
-// Debug helper: return last download progress recorded in main (useful from renderer DevTools)
-ipcMain.handle('debug:get-last-progress', async () => {
-  try {
-    return {
-      success: true,
-      data: (global as any).__lastDownloadProgress ?? null,
-    };
-  } catch (err) {
-    return { success: false, error: String(err) };
-  }
-});
+// Debug helpers (dev only)
+if (!app.isPackaged) {
+  // Return last download progress recorded in main (useful from renderer DevTools)
+  ipcMain.handle('debug:get-last-progress', async () => {
+    try {
+      return {
+        success: true,
+        data: (global as any).lastDownloadProgress ?? null,
+      };
+    } catch (err) {
+      return { success: false, error: String(err) };
+    }
+  });
 
-// Debug helper: return last structured download info (release, assetUrl, patch manifest checks, patch apply result)
-ipcMain.handle('debug:get-last-download-info', async () => {
-  try {
-    return { success: true, data: (global as any).__lastDownloadInfo ?? null };
-  } catch (err) {
-    return { success: false, error: String(err) };
-  }
-});
+  // Return last structured download info (release, assetUrl, patch manifest checks, patch apply result)
+  ipcMain.handle('debug:get-last-download-info', async () => {
+    try {
+      return {
+        success: true,
+        data: (global as any).lastDownloadInfo ?? null,
+      };
+    } catch (err) {
+      return { success: false, error: String(err) };
+    }
+  });
 
-// Debug helper: return last computed download checksum
-ipcMain.handle('debug:get-last-checksum', async () => {
-  try {
-    return {
-      success: true,
-      data: (global as any).__lastDownloadChecksum ?? null,
-    };
-  } catch (err) {
-    return { success: false, error: String(err) };
-  }
-});
+  // Return last computed checksum info
+  ipcMain.handle('debug:get-last-checksum', async () => {
+    try {
+      return {
+        success: true,
+        data: (global as any).lastChecksumInfo ?? null,
+      };
+    } catch (err) {
+      return { success: false, error: String(err) };
+    }
+  });
+}
 
-// Handler to clear all downloads and reset state
 ipcMain.handle('clear-downloads', async () => {
   try {
+    // Ensure customInstallDir is synced from storage
+    await ensureCustomInstallDirSynced();
     const paths = getEventidePaths();
     const downloadsDir = paths.dlRoot;
-
-    log.info(
-      chalk.cyan(
-        '[clear-downloads] Clearing downloads directory:',
-        downloadsDir,
-      ),
-    );
 
     // Delete all files in downloads directory
     if (fs.existsSync(downloadsDir)) {
@@ -2830,15 +3139,6 @@ ipcMain.handle('game:download', async () => {
   }
 });
 
-// ============================================================================
-// RESUMABLE DOWNLOAD: Pause/Resume Handlers
-// ============================================================================
-
-// Import resumable download functions
-import { pauseDownload, checkForResumableDownload, cancelDownload, downloadGameResumable } from '../logic/download';
-import { getDownloadProgress, clearDownloadProgress, saveDownloadProgress, DownloadProgress } from '../core/storage';
-import { getPartialDownloadSize } from '../core/net';
-
 /**
  * Pause the current download
  */
@@ -2849,7 +3149,9 @@ ipcMain.handle('game:pause-download', async () => {
 
     // Wait a short time for the file stream to flush to disk
     // This ensures getPartialDownloadSize returns accurate bytes
-    await new Promise(resolve => setTimeout(resolve, 200));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 200);
+    });
 
     // Get current download progress from storage
     const progress = await getDownloadProgress();
@@ -2857,7 +3159,11 @@ ipcMain.handle('game:pause-download', async () => {
     if (progress) {
       // Get actual file size from disk (most accurate source)
       const actualBytes = getPartialDownloadSize(progress.destPath);
-      log.info(chalk.cyan(`[game:pause-download] Actual bytes on disk: ${actualBytes}`));
+      log.info(
+        chalk.cyan(
+          `[game:pause-download] Actual bytes on disk: ${actualBytes}`,
+        ),
+      );
 
       // If totalBytes is 0 or missing, try to get it from the release manifest
       let totalBytes = progress.totalBytes || 0;
@@ -2865,9 +3171,17 @@ ipcMain.handle('game:pause-download', async () => {
         try {
           const { release } = await getCachedManifests();
           totalBytes = release.game.sizeBytes || 0;
-          log.info(chalk.cyan(`[game:pause-download] Got totalBytes from manifest: ${totalBytes}`));
-        } catch (e) {
-          log.warn(chalk.yellow('[game:pause-download] Could not get size from manifest'));
+          log.info(
+            chalk.cyan(
+              `[game:pause-download] Got totalBytes from manifest: ${totalBytes}`,
+            ),
+          );
+        } catch (_e) {
+          log.warn(
+            chalk.yellow(
+              '[game:pause-download] Could not get size from manifest',
+            ),
+          );
         }
       }
 
@@ -2875,7 +3189,7 @@ ipcMain.handle('game:pause-download', async () => {
       const updatedProgress = {
         ...progress,
         bytesDownloaded: actualBytes,
-        totalBytes: totalBytes,
+        totalBytes,
         isPaused: true,
         lastUpdatedAt: Date.now(),
       };
@@ -2886,11 +3200,13 @@ ipcMain.handle('game:pause-download', async () => {
           status: 'paused',
           message: 'Download paused',
           bytesDownloaded: actualBytes,
-          totalBytes: totalBytes,
+          totalBytes,
         });
       }
     } else {
-      log.warn(chalk.yellow('[game:pause-download] No progress found in storage'));
+      log.warn(
+        chalk.yellow('[game:pause-download] No progress found in storage'),
+      );
       if (mainWindow) {
         mainWindow.webContents.send('game:status', {
           status: 'paused',
@@ -2913,15 +3229,23 @@ ipcMain.handle('game:pause-download', async () => {
  */
 ipcMain.handle('game:resume-download', async () => {
   try {
-    log.info(chalk.cyan('[game:resume-download] Checking for resumable download...'));
+    log.info(
+      chalk.cyan('[game:resume-download] Checking for resumable download...'),
+    );
 
     const progress = await checkForResumableDownload();
     if (!progress) {
-      log.warn(chalk.yellow('[game:resume-download] No resumable download found'));
+      log.warn(
+        chalk.yellow('[game:resume-download] No resumable download found'),
+      );
       return { success: false, error: 'No download to resume' };
     }
 
-    log.info(chalk.green(`[game:resume-download] Resuming download: ${progress.bytesDownloaded} / ${progress.totalBytes} bytes`));
+    log.info(
+      chalk.green(
+        `[game:resume-download] Resuming download: ${progress.bytesDownloaded} / ${progress.totalBytes} bytes`,
+      ),
+    );
 
     // Check and prompt for DirectPlay on Windows before download/extraction
     await ensureDirectPlay();
@@ -3036,7 +3360,11 @@ ipcMain.handle('game:check-resumable', async () => {
         try {
           const { release } = await getCachedManifests();
           totalBytes = release.game.sizeBytes || 0;
-          log.info(chalk.cyan(`[game:check-resumable] Got totalBytes from manifest: ${totalBytes}`));
+          log.info(
+            chalk.cyan(
+              `[game:check-resumable] Got totalBytes from manifest: ${totalBytes}`,
+            ),
+          );
 
           // Update progress with correct totalBytes
           if (totalBytes > 0) {
@@ -3045,15 +3373,24 @@ ipcMain.handle('game:check-resumable', async () => {
               totalBytes,
             });
           }
-        } catch (e) {
-          log.warn(chalk.yellow('[game:check-resumable] Could not get size from manifest'));
+        } catch (_e) {
+          log.warn(
+            chalk.yellow(
+              '[game:check-resumable] Could not get size from manifest',
+            ),
+          );
         }
       }
 
       const bytesDownloaded = progress.bytesDownloaded || 0;
-      const percentComplete = totalBytes > 0 ? Math.round((bytesDownloaded / totalBytes) * 100) : 0;
+      const percentComplete =
+        totalBytes > 0 ? Math.round((bytesDownloaded / totalBytes) * 100) : 0;
 
-      log.info(chalk.cyan(`[game:check-resumable] Found resumable: ${bytesDownloaded} / ${totalBytes} (${percentComplete}%)`));
+      log.info(
+        chalk.cyan(
+          `[game:check-resumable] Found resumable: ${bytesDownloaded} / ${totalBytes} (${percentComplete}%)`,
+        ),
+      );
       return {
         hasResumable: true,
         bytesDownloaded,
@@ -3108,7 +3445,8 @@ ipcMain.handle('game:import-existing', async () => {
     }
 
     // quick check for main executable (platform-specific)
-    const exeName = process.platform === 'win32' ? 'ashita-cli.exe' : 'ashita-cli';
+    const exeName =
+      process.platform === 'win32' ? 'ashita-cli.exe' : 'ashita-cli';
     const mainExe = path.join(installDir, exeName);
     if (!fs.existsSync(mainExe)) {
       log.error(
@@ -3137,7 +3475,13 @@ ipcMain.handle('game:import-existing', async () => {
     try {
       const { release } = await getCachedManifests();
       if (release?.game) {
-        manifest = { ...(release.game), version: release.game.baseVersion ?? release.latestVersion ?? release.game.version };
+        manifest = {
+          ...release.game,
+          version:
+            release.game.baseVersion ??
+            release.latestVersion ??
+            release.game.version,
+        };
       } else {
         manifest = release;
       }
@@ -3194,8 +3538,7 @@ ipcMain.handle('game:update', async () => {
 
     const paths = getEventidePaths();
     const installDir = paths.gameRoot;
-    const projectRoot = path.resolve(__dirname, '../../');
-    const { release, patchManifest } = await getCachedManifests();
+    const { patchManifest } = await getCachedManifests();
 
     // Progress callbacks
     const onPatchProgress = (patch: string, dl: number, total: number) => {
@@ -3302,6 +3645,66 @@ ipcMain.handle('game:launch', async () => {
     await ensureCustomInstallDirSynced();
     const paths = getEventidePaths();
     const installDir = paths.gameRoot;
+
+    // Ensure pivot.ini overlays reflect current launcher ordering
+    try {
+      const config = (await readJson<any>(paths.config)) || {};
+      const configuredOrder: unknown = config?.pivot?.overlayOrder;
+
+      // Determine desired order:
+      // 1) Saved launcher config
+      // 2) Existing pivot.ini order (if present)
+      // 3) Folder scan order
+      let desired: string[] = [];
+      if (Array.isArray(configuredOrder)) {
+        desired = configuredOrder.filter((x) => typeof x === 'string');
+      } else {
+        const pivotOrder = await readPivotIniOverlayOrder(installDir);
+        if (
+          pivotOrder.success &&
+          pivotOrder.overlays &&
+          pivotOrder.overlays.length > 0
+        ) {
+          desired = pivotOrder.overlays;
+        }
+      }
+
+      const available = await listPivotOverlayFolders(installDir);
+      const availableSet = new Set(available.map((n) => n.toLowerCase()));
+      const cleanedDesired = desired
+        .filter((n) => typeof n === 'string')
+        .map((n) => n.trim())
+        .filter(Boolean)
+        .filter((n) => availableSet.has(n.toLowerCase()));
+
+      const inDesired = new Set(cleanedDesired.map((n) => n.toLowerCase()));
+      const merged = [
+        'Eventide',
+        ...cleanedDesired.filter((n) => n.toLowerCase() !== 'eventide'),
+      ];
+      for (const name of available) {
+        if (
+          !inDesired.has(name.toLowerCase()) &&
+          name.toLowerCase() !== 'eventide'
+        ) {
+          merged.push(name);
+        }
+      }
+
+      const writePivot = await writePivotIniOverlayOrder(installDir, merged);
+      if (!writePivot.success) {
+        log.warn(
+          chalk.yellow('[game:launch] Failed to write pivot.ini overlays:'),
+          writePivot.error,
+        );
+      }
+    } catch (pivotErr) {
+      log.warn(
+        chalk.yellow('[game:launch] Pivot overlay update failed (non-fatal):'),
+        pivotErr,
+      );
+    }
+
     // Always use Windows batch file - on Linux, Wine will handle it
     const launchScript = path.join(installDir, 'Launch_Eventide.bat');
 
@@ -3353,6 +3756,10 @@ ipcMain.handle('game:launch', async () => {
 });
 
 if (process.env.NODE_ENV === 'production') {
-  const sourceMapSupport = require('source-map-support');
+  try {
+    require('source-map-support').install();
+  } catch (_e) {
+    // ignore
+  }
   // (legacy patching logic removed)
 }

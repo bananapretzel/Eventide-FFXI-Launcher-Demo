@@ -1,4 +1,4 @@
-﻿// Filesystem module tests
+// Filesystem module tests
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -7,7 +7,7 @@ import { fileExists, readJson, writeJson, verifyExtractedFiles } from '../fs';
 jest.mock('electron-log', () => ({
   info: jest.fn(),
   warn: jest.fn(),
-  error: jest.fn()
+  error: jest.fn(),
 }));
 
 describe('Filesystem Module', () => {
@@ -22,7 +22,7 @@ describe('Filesystem Module', () => {
   afterEach(() => {
     if (fs.existsSync(testDir)) {
       const files = fs.readdirSync(testDir);
-      files.forEach(file => {
+      files.forEach((file) => {
         const filePath = path.join(testDir, file);
         if (fs.statSync(filePath).isDirectory()) {
           fs.rmSync(filePath, { recursive: true });

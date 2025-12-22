@@ -805,10 +805,7 @@ describe('HomePage Component', () => {
           screen.getByRole('button', { name: /Retry/i }),
         ).toBeInTheDocument();
         expect(
-          screen.getByRole('button', { name: /Clear Downloads/i }),
-        ).toBeInTheDocument();
-        expect(
-          screen.getByRole('button', { name: /View Log/i }),
+          screen.getByText(/Check your internet connection/i),
         ).toBeInTheDocument();
       });
     });
@@ -852,7 +849,7 @@ describe('HomePage Component', () => {
       });
     });
 
-    it('should handle clear downloads action', async () => {
+    it('should suggest clearing downloads for corrupted download', async () => {
       mockElectron.invoke.mockImplementation((channel: string) => {
         if (channel === 'game:check') {
           return Promise.resolve({
@@ -863,9 +860,6 @@ describe('HomePage Component', () => {
         }
         if (channel === 'game:download') {
           return Promise.reject(new Error('SHA256 mismatch'));
-        }
-        if (channel === 'clear-downloads') {
-          return Promise.resolve({ success: true });
         }
         return Promise.resolve({ success: true });
       });
@@ -884,20 +878,10 @@ describe('HomePage Component', () => {
       });
 
       await waitFor(() => {
+        expect(screen.getByText(/Download Corrupted/i)).toBeInTheDocument();
         expect(
-          screen.getByRole('button', { name: /Clear Downloads/i }),
+          screen.getByText(/clearing downloads and downloading again/i),
         ).toBeInTheDocument();
-      });
-
-      const clearButton = screen.getByRole('button', {
-        name: /Clear Downloads/i,
-      });
-      await act(async () => {
-        fireEvent.click(clearButton);
-      });
-
-      await waitFor(() => {
-        expect(mockElectron.invoke).toHaveBeenCalledWith('clear-downloads');
       });
     });
 

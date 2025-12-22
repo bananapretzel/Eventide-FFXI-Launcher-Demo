@@ -1,4 +1,3 @@
-
 export type LauncherState =
   | 'NOT_INSTALLED'
   | 'DOWNLOADING'
@@ -10,8 +9,6 @@ export type LauncherState =
   | 'CHECKING_FOR_UPDATES'
   | 'PATCHING'
   | 'PATCH_FAILED';
-
-
 
 export interface StateContext {
   clientVersion: string | null;
@@ -25,7 +22,6 @@ export interface StateContext {
   patchError?: string;
 }
 
-
 export function getLauncherState(ctx: StateContext): LauncherState {
   if (ctx.isDownloading) return 'DOWNLOADING';
   if (ctx.isExtracting) return 'EXTRACTING';
@@ -38,19 +34,29 @@ export function getLauncherState(ctx: StateContext): LauncherState {
   return 'READY_TO_PLAY';
 }
 
-
 export function getButtonLabel(state: LauncherState): string {
   switch (state) {
-    case 'NOT_INSTALLED': return 'Download';
-    case 'DOWNLOADING': return 'Downloading...';
-    case 'DOWNLOAD_FAILED': return 'Download Failed';
-    case 'DOWNLOADED': return 'Extract';
-    case 'EXTRACTING': return 'Extracting...';
-    case 'EXTRACT_FAILED': return 'Extract Failed';
-    case 'READY_TO_PLAY': return 'Play';
-    case 'CHECKING_FOR_UPDATES': return 'Checking for Updates...';
-    case 'PATCHING': return 'Patching...';
-    case 'PATCH_FAILED': return 'Patch Failed';
-    default: return '';
+    case 'NOT_INSTALLED':
+      return 'Download';
+    case 'DOWNLOADING':
+      return 'Downloading...';
+    case 'DOWNLOAD_FAILED':
+      return 'Download Failed';
+    case 'DOWNLOADED':
+      return 'Extract';
+    case 'EXTRACTING':
+      return 'Extracting...';
+    case 'EXTRACT_FAILED':
+      return 'Extract Failed';
+    case 'READY_TO_PLAY':
+      return 'Play';
+    case 'CHECKING_FOR_UPDATES':
+      return 'Checking for Updates...';
+    case 'PATCHING':
+      return 'Patching...';
+    case 'PATCH_FAILED':
+      return 'Patch Failed';
+    default:
+      return '';
   }
 }

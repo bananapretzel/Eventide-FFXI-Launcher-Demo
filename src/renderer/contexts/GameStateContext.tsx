@@ -1,4 +1,11 @@
-﻿import React, { createContext, useContext, useReducer, useEffect, ReactNode } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useReducer,
+  useEffect,
+  useMemo,
+  ReactNode,
+} from 'react';
 import { safeInvoke } from '../utils/ipc';
 import log from '../logger';
 
@@ -56,7 +63,9 @@ interface GameStateContextType {
   dispatch: React.Dispatch<GameAction>;
 }
 
-const GameStateContext = createContext<GameStateContextType | undefined>(undefined);
+const GameStateContext = createContext<GameStateContextType | undefined>(
+  undefined,
+);
 
 function gameReducer(_: GameState, action: GameAction): GameState {
   try {
@@ -177,36 +186,41 @@ export function GameStateProvider({ children }: { children: ReactNode }) {
           },
         );
 
-        unsubExtract = ipc.on(
-          'extract:progress',
-          (_ev: any, payload: any) => {
-            try {
-              const { current, total } = payload ?? {};
-              const percent = total ? Math.round((current / total) * 100) : 0;
-              dispatch({
-                type: 'EXTRACT_PROGRESS',
-                p: percent,
-                current,
-                total,
-              });
-            } catch (err) {
-              log.error(
-                '[GameStateProvider] extract:progress handler error:',
-                err,
-              );
-            }
-          },
-        );
+        unsubExtract = ipc.on('extract:progress', (_ev: any, payload: any) => {
+          try {
+            const { current, total } = payload ?? {};
+            const percent = total ? Math.round((current / total) * 100) : 0;
+            dispatch({
+              type: 'EXTRACT_PROGRESS',
+              p: percent,
+              current,
+              total,
+            });
+          } catch (err) {
+            log.error(
+              '[GameStateProvider] extract:progress handler error:',
+              err,
+            );
+          }
+        });
 
         unsubStatus = ipc.on('game:status', (_ev: any, payload: any) => {
           try {
-            const { status, remoteVersion, installedVersion, message, bytesDownloaded, totalBytes } =
-              payload ?? {};
+            const {
+              status,
+              remoteVersion,
+              installedVersion,
+              message,
+              bytesDownloaded,
+              totalBytes,
+            } = payload ?? {};
             if (status === 'downloaded' || status === 'ready') {
               dispatch({ type: 'SET', state: { status: 'ready' } });
             } else if (status === 'paused') {
               // Handle paused status from main process
-              const progress = totalBytes ? Math.round((bytesDownloaded / totalBytes) * 100) : 0;
+              const progress = totalBytes
+                ? Math.round((bytesDownloaded / totalBytes) * 100)
+                : 0;
               dispatch({
                 type: 'PAUSE',
                 p: progress,
@@ -232,10 +246,7 @@ export function GameStateProvider({ children }: { children: ReactNode }) {
               dispatch({ type: 'SET', state: { status: 'missing' } });
             }
           } catch (err) {
-            log.error(
-              '[GameStateProvider] game:status handler error:',
-              err,
-            );
+            log.error('[GameStateProvider] game:status handler error:', err);
           }
         });
       }
@@ -270,8 +281,10 @@ export function GameStateProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const contextValue = useMemo(() => ({ state, dispatch }), [state, dispatch]);
+
   return (
-    <GameStateContext.Provider value={{ state, dispatch }}>
+    <GameStateContext.Provider value={contextValue}>
       {children}
     </GameStateContext.Provider>
   );

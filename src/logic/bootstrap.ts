@@ -1,11 +1,11 @@
-import { getReleaseJson, getPatchManifest } from '../core/manifest';
-import { getClientVersion } from '../core/versions';
 import log from 'electron-log';
 import chalk from 'chalk';
+import { getReleaseJson, getPatchManifest } from '../core/manifest';
+import { getClientVersion } from '../core/versions';
 
 export async function bootstrap(
   releaseUrl: string,
-  installDir: string
+  installDir: string,
 ): Promise<{
   release: Awaited<ReturnType<typeof getReleaseJson>>;
   patchManifest: Awaited<ReturnType<typeof getPatchManifest>>;
@@ -18,11 +18,19 @@ export async function bootstrap(
   log.info(chalk.green(`[bootstrap] Fetched release info`));
 
   const patchManifest = await getPatchManifest(release.patchManifestUrl);
-  log.info(chalk.green(`[bootstrap] Fetched patch manifest: ${patchManifest.patches?.length || 0} patches available, latest=${patchManifest.latestVersion}`));
+  log.info(
+    chalk.green(
+      `[bootstrap] Fetched patch manifest: ${patchManifest.patches?.length || 0} patches available, latest=${patchManifest.latestVersion}`,
+    ),
+  );
 
   // Get version from AppData storage.json (installDir is ignored by getClientVersion)
   const clientVersion = await getClientVersion(installDir);
-  log.info(chalk.cyan(`[bootstrap] Current client version: ${clientVersion || 'not installed'}`));
+  log.info(
+    chalk.cyan(
+      `[bootstrap] Current client version: ${clientVersion || 'not installed'}`,
+    ),
+  );
 
   return { release, patchManifest, clientVersion };
 }

@@ -7,12 +7,12 @@ export enum ErrorCategory {
   FILESYSTEM = 'filesystem',
   VERIFICATION = 'verification',
   CONFIGURATION = 'configuration',
-  UNKNOWN = 'unknown'
+  UNKNOWN = 'unknown',
 }
 
 export enum ErrorSeverity {
   RETRYABLE = 'retryable',
-  FATAL = 'fatal'
+  FATAL = 'fatal',
 }
 
 export interface CategorizedError {
@@ -30,7 +30,11 @@ export interface CategorizedError {
 export function categorizeError(error: any): CategorizedError {
   const errorMessage = String(error?.message || error);
 
-  log.info(chalk.cyan(`[categorizeError] Analyzing error: ${errorMessage.substring(0, 100)}`));
+  log.info(
+    chalk.cyan(
+      `[categorizeError] Analyzing error: ${errorMessage.substring(0, 100)}`,
+    ),
+  );
 
   // Network errors - retryable
   if (
@@ -51,9 +55,9 @@ export function categorizeError(error: any): CategorizedError {
         'Check your internet connection',
         'Disable VPN or proxy if enabled',
         'Check firewall settings',
-        'Try again in a few moments'
+        'Try again in a few moments',
       ],
-      originalError: error instanceof Error ? error : undefined
+      originalError: error instanceof Error ? error : undefined,
     };
   }
 
@@ -73,9 +77,9 @@ export function categorizeError(error: any): CategorizedError {
         'The download may have been interrupted',
         'Try downloading again',
         'Check available disk space',
-        'If problem persists, contact support'
+        'If problem persists, contact support',
       ],
-      originalError: error instanceof Error ? error : undefined
+      originalError: error instanceof Error ? error : undefined,
     };
   }
 
@@ -94,9 +98,9 @@ export function categorizeError(error: any): CategorizedError {
         'Run the launcher as Administrator',
         'Check folder permissions',
         'Ensure antivirus is not blocking the launcher',
-        'Try installing to a different location'
+        'Try installing to a different location',
       ],
-      originalError: error instanceof Error ? error : undefined
+      originalError: error instanceof Error ? error : undefined,
     };
   }
 
@@ -113,9 +117,9 @@ export function categorizeError(error: any): CategorizedError {
       suggestions: [
         'Free up disk space on your drive',
         'Game requires at least 10GB of free space',
-        'Try installing to a different drive'
+        'Try installing to a different drive',
       ],
-      originalError: error instanceof Error ? error : undefined
+      originalError: error instanceof Error ? error : undefined,
     };
   }
 
@@ -133,9 +137,9 @@ export function categorizeError(error: any): CategorizedError {
         'Installation may be incomplete',
         'Try downloading again',
         'Check if antivirus quarantined files',
-        'Verify installation path is correct'
+        'Verify installation path is correct',
       ],
-      originalError: error instanceof Error ? error : undefined
+      originalError: error instanceof Error ? error : undefined,
     };
   }
 
@@ -155,9 +159,9 @@ export function categorizeError(error: any): CategorizedError {
       suggestions: [
         'Download the full game installation',
         'Do not download individual patches',
-        'Contact support if you need help'
+        'Contact support if you need help',
       ],
-      originalError: error instanceof Error ? error : undefined
+      originalError: error instanceof Error ? error : undefined,
     };
   }
 
@@ -176,9 +180,9 @@ export function categorizeError(error: any): CategorizedError {
         'Downloaded archive may be corrupted',
         'Check available disk space',
         'Ensure antivirus is not blocking extraction',
-        'Try downloading again'
+        'Try downloading again',
       ],
-      originalError: error instanceof Error ? error : undefined
+      originalError: error instanceof Error ? error : undefined,
     };
   }
 
@@ -192,9 +196,9 @@ export function categorizeError(error: any): CategorizedError {
       'Try the operation again',
       'Restart the launcher',
       'Contact support if the problem persists',
-      `Error details: ${errorMessage.substring(0, 100)}`
+      `Error details: ${errorMessage.substring(0, 100)}`,
     ],
-    originalError: error instanceof Error ? error : undefined
+    originalError: error instanceof Error ? error : undefined,
   };
 }
 
@@ -206,7 +210,7 @@ export function formatErrorForUser(error: CategorizedError): string {
 
   if (error.suggestions.length > 0) {
     message += `**What you can try:**\n`;
-    error.suggestions.forEach(suggestion => {
+    error.suggestions.forEach((suggestion) => {
       message += `• ${suggestion}\n`;
     });
   }

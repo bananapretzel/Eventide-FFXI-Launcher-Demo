@@ -3,7 +3,7 @@
   --bg-1: #e0f7fa;
   --bg-2: hsl(168, 50%, 80%);
   --bg-3: hsl(171, 78%, 95%);
-  --panel: #ffffff;
+  --panel: #FBFBFB;
   --panel-soft: #f8f9fa;
   --ink: #004d40;
   --ink-soft: #00796b;
@@ -36,8 +36,8 @@
   --toggle-track-hover: #c9cbcd;
   --slider-track: #b0bec5;
   --disabled-bg: #9e9e9e;
-  --white: #ffffff;
-  --white-black: white;
+  --white: #FBFBFB;
+  --white-black: #FBFBFB;
   --white-black-reverse: black;
 }
 

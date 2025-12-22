@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Format bytes into human-readable string
  * @param n Number of bytes
  * @param precision Optional decimal places (default: auto-determine based on size)
@@ -13,8 +13,17 @@ export function formatBytes(n?: number, precision?: number): string {
     val /= 1024;
     idx += 1;
   }
-  // If precision is specified, use it; otherwise use 2 decimals for GB+ and 1 for smaller
-  const decimals = precision !== undefined ? precision : (idx >= 3 ? 2 : (val >= 10 || idx === 0 ? 0 : 1));
+
+  let decimals: number;
+  if (precision !== undefined) {
+    decimals = precision;
+  } else if (idx >= 3) {
+    decimals = 2;
+  } else if (val >= 10 || idx === 0) {
+    decimals = 0;
+  } else {
+    decimals = 1;
+  }
   return `${val.toFixed(decimals)} ${units[idx]}`;
 }
 
@@ -34,7 +43,12 @@ export function formatSpeed(bytesPerSecond?: number): string {
  * @returns Formatted string like "05:23" or "1:23:45" for hours
  */
 export function formatTimeRemaining(remainingSeconds: number): string {
-  if (!remainingSeconds || remainingSeconds <= 0 || !isFinite(remainingSeconds)) return '--:--';
+  if (
+    !remainingSeconds ||
+    remainingSeconds <= 0 ||
+    !Number.isFinite(remainingSeconds)
+  )
+    return '--:--';
 
   const hours = Math.floor(remainingSeconds / 3600);
   const mins = Math.floor((remainingSeconds % 3600) / 60);

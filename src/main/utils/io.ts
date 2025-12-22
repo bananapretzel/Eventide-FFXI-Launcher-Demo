@@ -11,11 +11,16 @@ import log from '../logger';
  */
 export async function fetchJson<T = any>(url: string): Promise<T> {
   try {
-    const response: AxiosResponse<T> = await axios.get(url, { responseType: 'json' });
+    const response: AxiosResponse<T> = await axios.get(url, {
+      responseType: 'json',
+    });
     return response.data;
   } catch (err: any) {
     if (err.response) {
-      log.error(`[fetchJson] Axios error for ${url}. Status: ${err.response.status}. Data:`, err.response.data);
+      log.error(
+        `[fetchJson] Axios error for ${url}. Status: ${err.response.status}. Data:`,
+        err.response.data,
+      );
     } else {
       log.error(`[fetchJson] Axios error for ${url}:`, err);
     }
@@ -34,12 +39,14 @@ export async function downloadToFile(url: string, dest: string): Promise<void> {
   try {
     const response = await axios.get(url, { responseType: 'stream' });
     response.data.pipe(writer);
-    return await new Promise<void>((resolve, reject) => {
+    await new Promise<void>((resolve, reject) => {
       writer.on('finish', () => resolve());
       writer.on('error', reject);
     });
   } catch (err: any) {
-    throw new Error(`downloadToFile failed for ${url} -> ${dest}: ${err?.message || err}`);
+    throw new Error(
+      `downloadToFile failed for ${url} -> ${dest}: ${err?.message || err}`,
+    );
   }
 }
 
@@ -52,7 +59,7 @@ export function readJsonFile<T = any>(filePath: string): T | undefined {
   if (!fs.existsSync(filePath)) return undefined;
   try {
     return fs.readJsonSync(filePath);
-  } catch (err) {
+  } catch (_err) {
     return undefined;
   }
 }
@@ -67,7 +74,7 @@ export function writeJsonFile(filePath: string, data: any): boolean {
   try {
     fs.writeJsonSync(filePath, data, { spaces: 2 });
     return true;
-  } catch (err) {
+  } catch (_err) {
     return false;
   }
 }

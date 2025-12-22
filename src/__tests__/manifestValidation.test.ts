@@ -12,7 +12,7 @@ const manifestSchema: JSONSchemaType<any> = {
     requiredFiles: {
       type: 'array',
       items: { type: 'string' },
-      nullable: true
+      nullable: true,
     },
     patchManifestUrl: { type: 'string', nullable: true },
     patchNotesUrl: { type: 'string', nullable: true },
@@ -23,18 +23,22 @@ const manifestSchema: JSONSchemaType<any> = {
       items: {
         type: 'object',
         properties: {
-          url: { type: 'string', nullable: true }
+          url: { type: 'string', nullable: true },
         },
         required: [],
-        additionalProperties: true
+        additionalProperties: true,
       },
-      nullable: true
+      nullable: true,
     },
     game: { type: 'object', nullable: true, additionalProperties: true },
-    patches: { type: 'array', items: { type: 'object', additionalProperties: true }, nullable: true },
+    patches: {
+      type: 'array',
+      items: { type: 'object', additionalProperties: true },
+      nullable: true,
+    },
   },
   required: [],
-  additionalProperties: true
+  additionalProperties: true,
 };
 
 const ajv = new Ajv();
@@ -49,7 +53,9 @@ describe('Manifest Schema Validation', () => {
       requiredFiles: ['ashita-cli.exe'],
       assets: [{ url: 'https://example.com/game.zip' }],
       game: { foo: 'bar' },
-      patches: [{ from: '1.0.0', to: '1.0.1', url: 'https://example.com/patch.zip' }]
+      patches: [
+        { from: '1.0.0', to: '1.0.1', url: 'https://example.com/patch.zip' },
+      ],
     };
     expect(validateManifest(manifest)).toBe(true);
     expect(validateManifest.errors).toBeNull();
@@ -82,7 +88,7 @@ describe('Manifest Schema Validation', () => {
       requiredFiles: null,
       assets: null,
       game: null,
-      patches: null
+      patches: null,
     };
     expect(validateManifest(manifest)).toBe(true);
   });

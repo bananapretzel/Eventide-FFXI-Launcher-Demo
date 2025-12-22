@@ -1,5 +1,13 @@
-﻿// Error categorization tests
+// Error categorization tests
 // Mock electron-log with explicit mock implementation
+import {
+  categorizeError,
+  formatErrorForUser,
+  isRetryable,
+  ErrorCategory,
+  ErrorSeverity,
+} from '../errors';
+
 jest.mock('electron-log', () => {
   const mockFn = jest.fn();
   const mockLogger = {
@@ -11,7 +19,12 @@ jest.mock('electron-log', () => {
     silly: mockFn,
     log: mockFn,
     transports: {
-      file: { level: 'debug', resolvePathFn: null, format: '', getFile: () => ({ path: '/mock' }) },
+      file: {
+        level: 'debug',
+        resolvePathFn: null,
+        format: '',
+        getFile: () => ({ path: '/mock' }),
+      },
       console: { level: 'debug', format: '' },
       ipc: { level: 'debug' },
       remote: { level: 'debug' },
@@ -28,8 +41,6 @@ jest.mock('electron-log', () => {
   };
 });
 
-import { categorizeError, formatErrorForUser, isRetryable, ErrorCategory, ErrorSeverity } from '../errors';
-
 describe('Error Categorization System', () => {
   describe('categorizeError', () => {
     it('should categorize network errors as NETWORK/RETRYABLE', () => {
@@ -40,10 +51,10 @@ describe('Error Categorization System', () => {
         new Error('ECONNRESET'),
         new Error('network error occurred'),
         new Error('HTTP 500 error'),
-        new Error('fetch failed')
+        new Error('fetch failed'),
       ];
 
-      errors.forEach(error => {
+      errors.forEach((error) => {
         const result = categorizeError(error);
         expect(result.category).toBe(ErrorCategory.NETWORK);
         expect(result.severity).toBe(ErrorSeverity.RETRYABLE);
@@ -57,10 +68,10 @@ describe('Error Categorization System', () => {
         new Error('Size mismatch detected'),
         new Error('SHA256 mismatch'),
         new Error('checksum validation failed'),
-        new Error('verification failed')
+        new Error('verification failed'),
       ];
 
-      errors.forEach(error => {
+      errors.forEach((error) => {
         const result = categorizeError(error);
         expect(result.category).toBe(ErrorCategory.VERIFICATION);
         expect(result.severity).toBe(ErrorSeverity.RETRYABLE);
@@ -73,25 +84,27 @@ describe('Error Categorization System', () => {
       const errors = [
         new Error('EACCES: permission denied'),
         new Error('EPERM: operation not permitted'),
-        new Error('permission denied')
+        new Error('permission denied'),
       ];
 
-      errors.forEach(error => {
+      errors.forEach((error) => {
         const result = categorizeError(error);
         expect(result.category).toBe(ErrorCategory.FILESYSTEM);
         expect(result.severity).toBe(ErrorSeverity.FATAL);
         expect(result.userMessage).toContain('Permission');
-        expect(result.suggestions).toContain('Run the launcher as Administrator');
+        expect(result.suggestions).toContain(
+          'Run the launcher as Administrator',
+        );
       });
     });
 
     it('should categorize disk space errors as FILESYSTEM/FATAL', () => {
       const errors = [
         new Error('ENOSPC: no space left on device'),
-        new Error('disk full')
+        new Error('disk full'),
       ];
 
-      errors.forEach(error => {
+      errors.forEach((error) => {
         const result = categorizeError(error);
         expect(result.category).toBe(ErrorCategory.FILESYSTEM);
         expect(result.severity).toBe(ErrorSeverity.FATAL);
@@ -103,10 +116,10 @@ describe('Error Categorization System', () => {
       const errors = [
         new Error('Invalid configuration'),
         new Error('config missing'),
-        new Error('settings error')
+        new Error('settings error'),
       ];
 
-      errors.forEach(error => {
+      errors.forEach((error) => {
         const result = categorizeError(error);
         expect(result.category).toBe(ErrorCategory.CONFIGURATION);
       });

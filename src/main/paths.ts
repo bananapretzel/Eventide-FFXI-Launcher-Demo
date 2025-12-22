@@ -1,6 +1,6 @@
-import { app } from "electron";
-import path from "path";
-import fs from "fs";
+import { app } from 'electron';
+import path from 'path';
+import fs from 'fs';
 import log from './logger';
 
 // In-memory cache for custom installation directory
@@ -65,13 +65,15 @@ export function getGameInstallPath(): string | null {
  * @param forceDefault - If false and no custom dir is set, returns empty strings for game paths
  */
 export function getEventidePaths(forceDefault: boolean = true) {
-  const root = app.getPath("userData");
+  const root = app.getPath('userData');
 
   // Determine if we should return actual paths or empty strings
-  const shouldReturnPaths = forceDefault || customInstallDir !== null || gameInstallPath !== null;
+  const shouldReturnPaths =
+    forceDefault || customInstallDir !== null || gameInstallPath !== null;
 
   // Use custom directory if set, otherwise default to userData/Eventide (or empty if not forced)
-  const baseInstallDir = customInstallDir || (shouldReturnPaths ? path.join(root, "Eventide") : "");
+  const baseInstallDir =
+    customInstallDir || (shouldReturnPaths ? path.join(root, 'Eventide') : '');
 
   // Game path: use direct override if set (for legacy launcher migrations),
   // otherwise compute from base directory
@@ -83,9 +85,9 @@ export function getEventidePaths(forceDefault: boolean = true) {
     gameRoot = gameInstallPath;
   } else if (baseInstallDir) {
     // Standard path - append "Game" to base directory
-    gameRoot = path.join(baseInstallDir, "Game");
+    gameRoot = path.join(baseInstallDir, 'Game');
   } else {
-    gameRoot = "";
+    gameRoot = '';
   }
 
   // Downloads path - derive from gameRoot's parent directory if using override,
@@ -94,17 +96,17 @@ export function getEventidePaths(forceDefault: boolean = true) {
   if (gameInstallPath) {
     // When using direct game path, put downloads in sibling "Downloads" folder
     const parentDir = path.dirname(gameInstallPath);
-    dlRoot = path.join(parentDir, "Downloads");
+    dlRoot = path.join(parentDir, 'Downloads');
   } else if (baseInstallDir) {
-    dlRoot = path.join(baseInstallDir, "Downloads");
+    dlRoot = path.join(baseInstallDir, 'Downloads');
   } else {
-    dlRoot = "";
+    dlRoot = '';
   }
 
   // Config, storage, and logs always stay in userData for consistency
-  const logsRoot = path.join(root, "logs");
-  const config   = path.join(root, "config.json");
-  const storage  = path.join(root, "storage.json");
+  const logsRoot = path.join(root, 'logs');
+  const config = path.join(root, 'config.json');
+  const storage = path.join(root, 'storage.json');
 
   return { userData: root, root, gameRoot, dlRoot, logsRoot, config, storage };
 }
@@ -139,24 +141,33 @@ export function ensureDirs(includeGameDirs: boolean = true) {
  * Validates if a directory is suitable for game installation
  * Checks: exists, is writable, has enough space
  */
-export async function validateInstallDirectory(dir: string, requiredSpaceBytes: number = 10 * 1024 * 1024 * 1024): Promise<{ valid: boolean; error?: string }> {
+export async function validateInstallDirectory(
+  dir: string,
+  requiredSpaceBytes: number = 10 * 1024 * 1024 * 1024,
+): Promise<{ valid: boolean; error?: string }> {
   try {
     // Check if directory exists or can be created
     if (!fs.existsSync(dir)) {
       try {
         fs.mkdirSync(dir, { recursive: true });
       } catch (err) {
-        return { valid: false, error: `Cannot create directory: ${err instanceof Error ? err.message : String(err)}` };
+        return {
+          valid: false,
+          error: `Cannot create directory: ${err instanceof Error ? err.message : String(err)}`,
+        };
       }
     }
 
     // Check if directory is writable
-    const testFile = path.join(dir, '.write-test-' + Date.now());
+    const testFile = path.join(dir, `.write-test-${Date.now()}`);
     try {
       fs.writeFileSync(testFile, 'test');
       fs.unlinkSync(testFile);
     } catch (err) {
-      return { valid: false, error: `Directory is not writable: ${err instanceof Error ? err.message : String(err)}` };
+      return {
+        valid: false,
+        error: `Directory is not writable: ${err instanceof Error ? err.message : String(err)}`,
+      };
     }
 
     // Check disk space (basic check)
@@ -166,13 +177,21 @@ export async function validateInstallDirectory(dir: string, requiredSpaceBytes: 
       const availableSpace = stats.bavail * stats.bsize;
       if (availableSpace < requiredSpaceBytes) {
         const availableGB = (availableSpace / (1024 * 1024 * 1024)).toFixed(2);
-        const requiredGB = (requiredSpaceBytes / (1024 * 1024 * 1024)).toFixed(2);
-        return { valid: false, error: `Insufficient disk space. Available: ${availableGB} GB, Required: ${requiredGB} GB` };
+        const requiredGB = (requiredSpaceBytes / (1024 * 1024 * 1024)).toFixed(
+          2,
+        );
+        return {
+          valid: false,
+          error: `Insufficient disk space. Available: ${availableGB} GB, Required: ${requiredGB} GB`,
+        };
       }
     }
 
     return { valid: true };
   } catch (err) {
-    return { valid: false, error: `Validation error: ${err instanceof Error ? err.message : String(err)}` };
+    return {
+      valid: false,
+      error: `Validation error: ${err instanceof Error ? err.message : String(err)}`,
+    };
   }
 }

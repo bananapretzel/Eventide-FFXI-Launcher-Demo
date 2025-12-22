@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Safe IPC invoke helper for renderer process
  * Prefers window.electron.invoke if available,
  * otherwise falls back to sendMessage + once-reply pattern.

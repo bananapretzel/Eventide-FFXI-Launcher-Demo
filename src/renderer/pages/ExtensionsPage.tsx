@@ -10,6 +10,8 @@ type ExtensionItem = {
   enabled: boolean;
 };
 
+const REQUIRED_PLUGINS = ['Addons', 'Screenshot', 'Sequencer', 'Thirdparty'];
+
 function Toggle({
   checked,
   onChange,
@@ -85,15 +87,24 @@ function Column({
 }) {
   const openFolder = async () => {
     try {
-      const folderType = title.toLowerCase().includes('addon') ? 'addons' : 'plugins';
-      const result = await window.electron.invoke('open-extension-folder', folderType);
+      const folderType = title.toLowerCase().includes('addon')
+        ? 'addons'
+        : 'plugins';
+      const result = await window.electron.invoke(
+        'open-extension-folder',
+        folderType,
+      );
       if (!result.success) {
         // eslint-disable-next-line no-alert
-        alert(`Failed to open ${title} folder${result.error ? `:\n\n${result.error}` : ''}`);
+        alert(
+          `Failed to open ${title} folder${result.error ? `:\n\n${result.error}` : ''}`,
+        );
       }
     } catch (err) {
       // eslint-disable-next-line no-alert
-      alert(`Error opening ${title} folder: ${err instanceof Error ? err.message : String(err)}`);
+      alert(
+        `Error opening ${title} folder: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   };
 
@@ -126,7 +137,7 @@ export default function ExtensionsPage() {
   const [error, setError] = useState<string | null>(null);
 
   // Required plugins that should always be loaded and hidden from UI
-  const requiredPlugins = ['Addons', 'Screenshot', 'Sequencer', 'Thirdparty'];
+  const requiredPlugins = REQUIRED_PLUGINS;
 
   // Load extensions from config.json on mount
   useEffect(() => {
@@ -151,7 +162,9 @@ export default function ExtensionsPage() {
                 version: value.version || '',
                 enabled: value.enabled ?? true,
               }))
-              .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+              .sort((a, b) =>
+                a.name.toLowerCase().localeCompare(b.name.toLowerCase()),
+              );
             setAddons(addonsArray);
           }
 
@@ -167,27 +180,29 @@ export default function ExtensionsPage() {
                 version: value.version || '',
                 enabled: value.enabled ?? true,
               }))
-              .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+              .sort((a, b) =>
+                a.name.toLowerCase().localeCompare(b.name.toLowerCase()),
+              );
             setPlugins(pluginsArray);
           }
         }
-      } catch (error) {
-        log.error('Failed to load extensions:', error);
+      } catch (err) {
+        log.error('Failed to load extensions:', err);
         setError('Failed to load extensions from config.');
       }
     };
 
     loadExtensions();
-  }, []);
+  }, [requiredPlugins]);
 
   // Update addon enabled state
   const updateAddonEnabled = async (id: string, value: boolean) => {
     try {
       // Update local state
-      setAddons(prev =>
-        prev.map(addon =>
-          addon.id === id ? { ...addon, enabled: value } : addon
-        )
+      setAddons((prev) =>
+        prev.map((addon) =>
+          addon.id === id ? { ...addon, enabled: value } : addon,
+        ),
       );
 
       // Read current config
@@ -203,8 +218,8 @@ export default function ExtensionsPage() {
         // Write back to config using writeSettings (preserves all fields)
         await window.electron.writeSettings(config);
       }
-    } catch (error) {
-      log.error('Failed to update addon:', error);
+    } catch (err) {
+      log.error('Failed to update addon:', err);
     }
   };
 
@@ -212,10 +227,10 @@ export default function ExtensionsPage() {
   const updatePluginEnabled = async (id: string, value: boolean) => {
     try {
       // Update local state
-      setPlugins(prev =>
-        prev.map(plugin =>
-          plugin.id === id ? { ...plugin, enabled: value } : plugin
-        )
+      setPlugins((prev) =>
+        prev.map((plugin) =>
+          plugin.id === id ? { ...plugin, enabled: value } : plugin,
+        ),
       );
 
       // Read current config
@@ -231,8 +246,8 @@ export default function ExtensionsPage() {
         // Write back to config using writeSettings (preserves all fields)
         await window.electron.writeSettings(config);
       }
-    } catch (error) {
-      log.error('Failed to update plugin:', error);
+    } catch (err) {
+      log.error('Failed to update plugin:', err);
     }
   };
 
@@ -240,11 +255,7 @@ export default function ExtensionsPage() {
     <div className="extensions-page">
       {error && <div className="error-message">{error}</div>}
       <div className="ext-columns">
-        <Column
-          title="ADDONS"
-          items={addons}
-          setEnabled={updateAddonEnabled}
-        />
+        <Column title="ADDONS" items={addons} setEnabled={updateAddonEnabled} />
         <Column
           title="PLUGINS"
           items={plugins}

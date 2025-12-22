@@ -34,6 +34,7 @@ interface Settings {
   };
   pivot?: {
     overlayEnabled?: boolean;
+    overlayOrder?: string[];
   };
 }
 
@@ -1056,6 +1057,24 @@ export default function SettingsPage() {
   const uninstallTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [uninstallElapsed, setUninstallElapsed] = useState(0);
 
+  const [pivotOverlays, setPivotOverlays] = useState<string[]>(['Eventide']);
+  const pivotDragIndexRef = useRef<number | null>(null);
+  const [pivotDraggingIndex, setPivotDraggingIndex] = useState<number | null>(
+    null,
+  );
+  const pivotDragGhostRef = useRef<HTMLDivElement | null>(null);
+
+  const cleanupPivotDragGhost = () => {
+    if (pivotDragGhostRef.current) {
+      try {
+        document.body.removeChild(pivotDragGhostRef.current);
+      } catch {
+        // ignore
+      }
+      pivotDragGhostRef.current = null;
+    }
+  };
+
   // Get installDir on mount
   useEffect(() => {
     async function fetchPaths() {
@@ -1214,6 +1233,103 @@ export default function SettingsPage() {
     saveSettings(newSettings);
   };
 
+  const reorderPivotOverlays = (fromIndex: number, toIndex: number) => {
+    // Eventide is pinned at index 0
+    if (fromIndex <= 0 || toIndex <= 0) return;
+    if (fromIndex === toIndex) return;
+    setPivotOverlays((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      const pinned = [
+        'Eventide',
+        ...next.filter((x) => x.toLowerCase() !== 'eventide'),
+      ];
+      updateSetting('pivot.overlayOrder', pinned);
+      return pinned;
+    });
+  };
+
+  // Load Pivot overlays list from the filesystem via main process
+  useEffect(() => {
+    let cancelled = false;
+
+    if (category !== 'pivot') {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const norm = (s: string) => (s || '').trim();
+    const uniq = (arr: string[]) => {
+      const seen = new Set<string>();
+      const out: string[] = [];
+      arr.forEach((item) => {
+        const n = norm(item);
+        if (n) {
+          const k = n.toLowerCase();
+          if (!seen.has(k)) {
+            seen.add(k);
+            out.push(n);
+          }
+        }
+      });
+      return out;
+    };
+    const ensureEventideFirst = (arr: string[]) => {
+      const cleaned = arr.map(norm).filter(Boolean);
+      const rest = cleaned.filter((x) => x.toLowerCase() !== 'eventide');
+      return ['Eventide', ...rest];
+    };
+
+    const load = async () => {
+      try {
+        if (!window.electron?.invoke) return;
+        const res = await window.electron.invoke('pivot:list-overlays');
+        const available = Array.isArray(res?.data)
+          ? res.data.filter((x: any) => typeof x === 'string')
+          : [];
+
+        const availableOrder = ensureEventideFirst(uniq(available));
+        const availableSet = new Set(
+          availableOrder.map((x) => x.toLowerCase()),
+        );
+
+        const saved = settings?.pivot?.overlayOrder;
+        const desired = Array.isArray(saved)
+          ? saved.filter((x: any) => typeof x === 'string')
+          : [];
+
+        const filteredDesired = desired
+          .map(norm)
+          .filter(Boolean)
+          .filter((x) => availableSet.has(x.toLowerCase()));
+
+        const merged = ensureEventideFirst(uniq(filteredDesired));
+        const used = new Set(merged.map((x) => x.toLowerCase()));
+        availableOrder.forEach((name) => {
+          const key = name.toLowerCase();
+          if (key !== 'eventide' && !used.has(key)) {
+            merged.push(name);
+          }
+        });
+
+        if (!cancelled) {
+          setPivotOverlays(merged);
+        }
+      } catch (e) {
+        log.warn('[SettingsPage] Failed to load Pivot overlays:', e);
+        if (!cancelled) setPivotOverlays(['Eventide']);
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [category]);
+
   // Keep subTab valid when category changes
   React.useEffect(() => {
     const subs = CATEGORY_DEFS[category]?.subTabs || [];
@@ -1288,22 +1404,129 @@ export default function SettingsPage() {
         {category === 'pivot' && (
           <Card title="Overlays">
             <Row>
-              <Field
-                label="Eventide"
-                htmlFor="pivot-overlay"
-                tooltip="Applies Eventide's DATs to the game."
-              >
-                <div className="toggle" aria-label="Eventide overlay">
-                  <input
-                    id="pivot-overlay"
-                    type="checkbox"
-                    checked
-                    disabled
-                    style={{ background: '#cfd8dc' }}
-                  />
-                  <span aria-hidden />
+              <div style={{ width: '100%' }}>
+                <div
+                  style={{
+                    fontSize: '13px',
+                    color: 'var(--ink, #004D40)',
+                    lineHeight: 1.4,
+                    marginBottom: '10px',
+                  }}
+                >
+                  Click & Drag overlays to set priority. Top is applied first,
+                  bottom is applied last.
                 </div>
-              </Field>
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px',
+                  }}
+                  aria-label="Pivot overlays"
+                >
+                  {pivotOverlays.map((name, idx) => {
+                    const isPinned = idx === 0;
+                    const display = isPinned ? `${name} (required)` : name;
+
+                    let opacity = 1;
+                    if (isPinned) {
+                      opacity = 0.9;
+                    } else if (pivotDraggingIndex === idx) {
+                      opacity = 0.55;
+                    }
+
+                    return (
+                      <div
+                        key={name}
+                        draggable={!isPinned}
+                        onDragStart={(e) => {
+                          if (isPinned) return;
+                          pivotDragIndexRef.current = idx;
+                          setPivotDraggingIndex(idx);
+
+                          cleanupPivotDragGhost();
+                          // Make the drag preview (ghost) less opaque
+                          try {
+                            const source = e.currentTarget as HTMLDivElement;
+                            const ghost = source.cloneNode(
+                              true,
+                            ) as HTMLDivElement;
+                            const rect = source.getBoundingClientRect();
+                            ghost.style.opacity = '5';
+                            ghost.style.position = 'absolute';
+                            ghost.style.top = '-1000px';
+                            ghost.style.left = '-1000px';
+                            ghost.style.pointerEvents = 'none';
+                            ghost.style.width = `${rect.width}px`;
+                            document.body.appendChild(ghost);
+                            pivotDragGhostRef.current = ghost;
+
+                            if (e.dataTransfer) {
+                              e.dataTransfer.effectAllowed = 'move';
+                              e.dataTransfer.setDragImage(ghost, 20, 20);
+                            }
+                          } catch {
+                            // If cloning or setDragImage fails, fall back to default behavior
+                          }
+                        }}
+                        onDragOver={(e) => {
+                          if (isPinned) return;
+                          e.preventDefault();
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const from = pivotDragIndexRef.current;
+                          pivotDragIndexRef.current = null;
+                          setPivotDraggingIndex(null);
+                          cleanupPivotDragGhost();
+                          if (typeof from !== 'number') return;
+                          reorderPivotOverlays(from, idx);
+                        }}
+                        onDragEnd={() => {
+                          pivotDragIndexRef.current = null;
+                          setPivotDraggingIndex(null);
+                          cleanupPivotDragGhost();
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '10px 12px',
+                          border:
+                            '1px solid var(--success-border, var(--border-color))',
+                          borderRadius: '10px',
+                          background: 'var(--bg-3, var(--panel))',
+                          color: 'var(--ink, #111827)',
+                          opacity,
+                          cursor: isPinned ? 'default' : 'grab',
+                          userSelect: 'none',
+                        }}
+                        aria-label={
+                          isPinned
+                            ? `Pivot overlay ${name} required`
+                            : `Pivot overlay ${name}`
+                        }
+                      >
+                        <div
+                          style={{ display: 'flex', flexDirection: 'column' }}
+                        >
+                          <span style={{ fontWeight: 600 }}>{display}</span>
+                        </div>
+
+                        <span
+                          aria-hidden
+                          style={{
+                            fontSize: '12px',
+                            color: 'var(--ink-soft, #6b7280)',
+                          }}
+                        >
+                          {isPinned ? 'Pinned' : 'Drag'}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </Row>
           </Card>
         )}

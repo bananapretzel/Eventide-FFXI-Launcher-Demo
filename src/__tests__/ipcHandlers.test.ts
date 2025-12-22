@@ -1,7 +1,3 @@
-import { ipcMain } from 'electron';
-import path from 'path';
-import { app } from 'electron';
-
 // Mock electron-log with explicit mock implementation
 jest.mock('electron-log', () => {
   const mockFn = jest.fn();
@@ -14,7 +10,13 @@ jest.mock('electron-log', () => {
     silly: mockFn,
     log: mockFn,
     transports: {
-      file: { level: 'debug', resolvePathFn: null, format: '', getFile: () => ({ path: '/mock' }), maxSize: 5000000 },
+      file: {
+        level: 'debug',
+        resolvePathFn: null,
+        format: '',
+        getFile: () => ({ path: '/mock' }),
+        maxSize: 5000000,
+      },
       console: { level: 'debug', format: '' },
       ipc: { level: 'debug' },
       remote: { level: 'debug' },
@@ -41,7 +43,13 @@ jest.mock('../main/logger', () => {
       error: mockFn,
       debug: mockFn,
       transports: {
-        file: { level: 'debug', resolvePathFn: null, format: '', getFile: () => ({ path: '/mock' }), maxSize: 5000000 },
+        file: {
+          level: 'debug',
+          resolvePathFn: null,
+          format: '',
+          getFile: () => ({ path: '/mock' }),
+          maxSize: 5000000,
+        },
         console: { level: 'debug', format: '' },
       },
       functions: { log: mockFn, info: mockFn, warn: mockFn, error: mockFn },
@@ -61,12 +69,12 @@ jest.mock('../main/paths', () => ({
   ensureDirs: jest.fn(),
 }));
 
-
-
 // Mock fs-extra with all needed methods
 const mockFsExtra = {
   existsSync: jest.fn().mockReturnValue(true),
-  readFileSync: jest.fn().mockReturnValue('{"username":"testuser","rememberCredentials":false}'),
+  readFileSync: jest
+    .fn()
+    .mockReturnValue('{"username":"testuser","rememberCredentials":false}'),
   readJson: jest.fn().mockResolvedValue({ addons: {}, plugins: {} }),
   writeJson: jest.fn().mockResolvedValue(undefined),
   mkdirSync: jest.fn(),
@@ -74,7 +82,7 @@ const mockFsExtra = {
     readFile: jest.fn(),
     writeFile: jest.fn(),
     rename: jest.fn(),
-  }
+  },
 };
 
 jest.mock('fs-extra', () => mockFsExtra);
@@ -143,20 +151,22 @@ jest.mock('electron', () => {
 jest.mock('fs', () => ({
   ...jest.requireActual('fs'),
   existsSync: jest.fn().mockReturnValue(true),
-  readFileSync: jest.fn().mockReturnValue('{"username":"testuser","rememberCredentials":false}'),
+  readFileSync: jest
+    .fn()
+    .mockReturnValue('{"username":"testuser","rememberCredentials":false}'),
   mkdirSync: jest.fn(),
   promises: {
     readFile: jest.fn(),
     writeFile: jest.fn(),
     rename: jest.fn(),
-  }
+  },
 }));
 
 describe('IPC Handlers - config/settings/extensions', () => {
   const mockReadJsonFile = jest.fn();
   const mockWriteJsonFile = jest.fn();
   const mockGetResourcePath = jest.fn((file) => `/mock/path/${file}`);
-  let handlers: Record<string, Function> = {};
+  const handlers: Record<string, Function> = {};
 
   beforeAll(() => {
     jest.resetModules();
@@ -194,7 +204,9 @@ describe('IPC Handlers - config/settings/extensions', () => {
 
     // Reset all fs-extra mocks
     mockFsExtra.existsSync.mockReturnValue(true);
-    mockFsExtra.readFileSync.mockReturnValue('{"username":"testuser","rememberCredentials":false}');
+    mockFsExtra.readFileSync.mockReturnValue(
+      '{"username":"testuser","rememberCredentials":false}',
+    );
     mockFsExtra.readJson.mockResolvedValue({ addons: {}, plugins: {} });
     mockFsExtra.writeJson.mockResolvedValue(undefined);
   });
@@ -203,19 +215,23 @@ describe('IPC Handlers - config/settings/extensions', () => {
     const keytar = require('keytar');
 
     mockFsExtra.existsSync.mockReturnValue(true);
-    mockFsExtra.readFileSync.mockReturnValue(JSON.stringify({
-      username: 'u',
-      password: '',
-      rememberCredentials: true,
-      launcherVersion: '1.2.3'
-    }));
+    mockFsExtra.readFileSync.mockReturnValue(
+      JSON.stringify({
+        username: 'u',
+        password: '',
+        rememberCredentials: true,
+        launcherVersion: '1.2.3',
+      }),
+    );
 
     // Mock keytar to return username and password
-    keytar.getPassword.mockImplementation((service: string, account: string) => {
-      if (account === 'eventide-username') return Promise.resolve('u');
-      if (account === 'eventide-password') return Promise.resolve('');
-      return Promise.resolve('');
-    });
+    keytar.getPassword.mockImplementation(
+      (service: string, account: string) => {
+        if (account === 'eventide-username') return Promise.resolve('u');
+        if (account === 'eventide-password') return Promise.resolve('');
+        return Promise.resolve('');
+      },
+    );
 
     const handler = handlers['read-config'];
     expect(handler).toBeInstanceOf(Function);
@@ -229,10 +245,12 @@ describe('IPC Handlers - config/settings/extensions', () => {
     const coreFs = require('../core/fs');
     (coreFs.writeJson as jest.Mock).mockResolvedValue(undefined);
     mockFsExtra.existsSync.mockReturnValue(true);
-    mockFsExtra.readFileSync.mockReturnValue(JSON.stringify({
-      username: 'olduser',
-      rememberCredentials: false
-    }));
+    mockFsExtra.readFileSync.mockReturnValue(
+      JSON.stringify({
+        username: 'olduser',
+        rememberCredentials: false,
+      }),
+    );
 
     const handler = handlers['write-config'];
     expect(handler).toBeInstanceOf(Function);
@@ -244,10 +262,12 @@ describe('IPC Handlers - config/settings/extensions', () => {
 
   it('read-settings returns settings data', async () => {
     mockFsExtra.existsSync.mockReturnValue(true);
-    mockFsExtra.readFileSync.mockReturnValue(JSON.stringify({
-      foo: 'bar',
-      launcherVersion: '1.2.3'
-    }));
+    mockFsExtra.readFileSync.mockReturnValue(
+      JSON.stringify({
+        foo: 'bar',
+        launcherVersion: '1.2.3',
+      }),
+    );
 
     const handler = handlers['read-settings'];
     expect(handler).toBeInstanceOf(Function);
@@ -269,7 +289,10 @@ describe('IPC Handlers - config/settings/extensions', () => {
   });
 
   it('read-extensions returns extensions data', async () => {
-    const extensionsData = { addons: { test: 'addon' }, plugins: { test: 'plugin' } };
+    const extensionsData = {
+      addons: { test: 'addon' },
+      plugins: { test: 'plugin' },
+    };
     mockFsExtra.existsSync.mockReturnValue(true);
     mockFsExtra.readJson.mockResolvedValue(extensionsData);
 

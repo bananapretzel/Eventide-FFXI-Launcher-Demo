@@ -9,8 +9,8 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { dialog } from 'electron';
-import log from './logger';
 import chalk from 'chalk';
+import log from './logger';
 
 const execAsync = promisify(exec);
 
@@ -29,19 +29,27 @@ export async function isDirectPlayEnabled(): Promise<boolean> {
     // Use DISM to query the DirectPlay feature state
     const { stdout } = await execAsync(
       'dism /online /get-featureinfo /featurename:DirectPlay',
-      { windowsHide: true }
+      { windowsHide: true },
     );
 
     // Check if the feature is enabled
-    const isEnabled = stdout.toLowerCase().includes('state : enabled') ||
-                      stdout.toLowerCase().includes('state: enabled');
+    const isEnabled =
+      stdout.toLowerCase().includes('state : enabled') ||
+      stdout.toLowerCase().includes('state: enabled');
 
-    log.info(chalk.cyan(`[DirectPlay] Feature state check: ${isEnabled ? 'Enabled' : 'Disabled'}`));
+    log.info(
+      chalk.cyan(
+        `[DirectPlay] Feature state check: ${isEnabled ? 'Enabled' : 'Disabled'}`,
+      ),
+    );
     return isEnabled;
   } catch (err) {
     // If DISM fails, try alternative method using registry
-    log.warn(chalk.yellow('[DirectPlay] DISM check failed, trying registry check'), err);
-    return await checkDirectPlayRegistry();
+    log.warn(
+      chalk.yellow('[DirectPlay] DISM check failed, trying registry check'),
+      err,
+    );
+    return checkDirectPlayRegistry();
   }
 }
 
@@ -52,11 +60,15 @@ async function checkDirectPlayRegistry(): Promise<boolean> {
   try {
     const { stdout } = await execAsync(
       'reg query "HKLM\\SOFTWARE\\Microsoft\\DirectPlay" /s',
-      { windowsHide: true }
+      { windowsHide: true },
     );
     // If the query succeeds and has content, DirectPlay components exist
     const hasContent = stdout.trim().length > 50;
-    log.info(chalk.cyan(`[DirectPlay] Registry check: ${hasContent ? 'Found' : 'Not found'}`));
+    log.info(
+      chalk.cyan(
+        `[DirectPlay] Registry check: ${hasContent ? 'Found' : 'Not found'}`,
+      ),
+    );
     return hasContent;
   } catch {
     // Registry key doesn't exist or error - assume not installed
@@ -70,7 +82,9 @@ async function checkDirectPlayRegistry(): Promise<boolean> {
  * This triggers the same UI that other launchers use
  * @returns Promise<'enabled' | 'skipped' | 'error'> - Result of the operation
  */
-export async function promptEnableDirectPlay(): Promise<'enabled' | 'skipped' | 'error'> {
+export async function promptEnableDirectPlay(): Promise<
+  'enabled' | 'skipped' | 'error'
+> {
   if (process.platform !== 'win32') {
     return 'skipped';
   }
@@ -81,10 +95,11 @@ export async function promptEnableDirectPlay(): Promise<'enabled' | 'skipped' | 
       type: 'info',
       title: 'DirectPlay Required',
       message: 'Final Fantasy XI requires DirectPlay to run properly.',
-      detail: 'DirectPlay is a Windows feature that needs to be enabled. ' +
-              'Would you like to enable it now?\n\n' +
-              'This will open the Windows Features dialog. ' +
-              'You may need administrator privileges.',
+      detail:
+        'DirectPlay is a Windows feature that needs to be enabled. ' +
+        'Would you like to enable it now?\n\n' +
+        'This will open the Windows Features dialog. ' +
+        'You may need administrator privileges.',
       buttons: ['Enable DirectPlay', 'Skip (Not Recommended)', 'Cancel'],
       defaultId: 0,
       cancelId: 2,
@@ -98,12 +113,16 @@ export async function promptEnableDirectPlay(): Promise<'enabled' | 'skipped' | 
 
     if (response.response === 1) {
       // User chose to skip
-      log.info(chalk.yellow('[DirectPlay] User skipped DirectPlay installation'));
+      log.info(
+        chalk.yellow('[DirectPlay] User skipped DirectPlay installation'),
+      );
       return 'skipped';
     }
 
     // User wants to enable DirectPlay
-    log.info(chalk.cyan('[DirectPlay] User accepted, launching Windows Features...'));
+    log.info(
+      chalk.cyan('[DirectPlay] User accepted, launching Windows Features...'),
+    );
 
     // Method 1: Try using OptionalFeatures.exe which opens the Windows Features dialog
     // This is what most game launchers use and shows the friendly Windows UI
@@ -117,16 +136,20 @@ export async function promptEnableDirectPlay(): Promise<'enabled' | 'skipped' | 
         type: 'info',
         title: 'Enable DirectPlay',
         message: 'Windows Features dialog has been opened.',
-        detail: 'Please find and check "Legacy Components" → "DirectPlay" in the list, ' +
-                'then click OK to install.\n\n' +
-                'After installation completes, you may need to restart your computer ' +
-                'for the changes to take effect.',
+        detail:
+          'Please find and check "Legacy Components" → "DirectPlay" in the list, ' +
+          'then click OK to install.\n\n' +
+          'After installation completes, you may need to restart your computer ' +
+          'for the changes to take effect.',
         buttons: ['OK'],
       });
 
       return 'enabled';
     } catch (optionalFeaturesErr) {
-      log.warn(chalk.yellow('[DirectPlay] OptionalFeatures.exe failed'), optionalFeaturesErr);
+      log.warn(
+        chalk.yellow('[DirectPlay] OptionalFeatures.exe failed'),
+        optionalFeaturesErr,
+      );
     }
 
     // Method 2: Try using DISM to enable it directly (requires elevation)
@@ -134,8 +157,11 @@ export async function promptEnableDirectPlay(): Promise<'enabled' | 'skipped' | 
       log.info(chalk.cyan('[DirectPlay] Trying DISM to enable DirectPlay...'));
 
       // This command needs to run elevated, so we'll use PowerShell with elevation
-      const dismCommand = 'Start-Process -FilePath "dism.exe" -ArgumentList "/online /enable-feature /featurename:DirectPlay /norestart" -Verb RunAs -Wait';
-      await execAsync(`powershell -Command "${dismCommand}"`, { windowsHide: false });
+      const dismCommand =
+        'Start-Process -FilePath "dism.exe" -ArgumentList "/online /enable-feature /featurename:DirectPlay /norestart" -Verb RunAs -Wait';
+      await execAsync(`powershell -Command "${dismCommand}"`, {
+        windowsHide: false,
+      });
 
       // Verify it was enabled
       const enabled = await isDirectPlayEnabled();
@@ -145,7 +171,8 @@ export async function promptEnableDirectPlay(): Promise<'enabled' | 'skipped' | 
           type: 'info',
           title: 'DirectPlay Enabled',
           message: 'DirectPlay has been successfully enabled!',
-          detail: 'You may need to restart your computer for the changes to take full effect.',
+          detail:
+            'You may need to restart your computer for the changes to take full effect.',
           buttons: ['OK'],
         });
         return 'enabled';
@@ -163,8 +190,9 @@ export async function promptEnableDirectPlay(): Promise<'enabled' | 'skipped' | 
         type: 'info',
         title: 'Enable DirectPlay',
         message: 'Programs and Features has been opened.',
-        detail: 'Click "Turn Windows features on or off" in the left panel, ' +
-                'then find and check "Legacy Components" → "DirectPlay" in the list.',
+        detail:
+          'Click "Turn Windows features on or off" in the left panel, ' +
+          'then find and check "Legacy Components" → "DirectPlay" in the list.',
         buttons: ['OK'],
       });
 
@@ -180,12 +208,13 @@ export async function promptEnableDirectPlay(): Promise<'enabled' | 'skipped' | 
       type: 'error',
       title: 'DirectPlay Error',
       message: 'Could not enable DirectPlay automatically.',
-      detail: 'Please enable DirectPlay manually:\n\n' +
-              '1. Open Windows Settings\n' +
-              '2. Go to Apps → Optional Features\n' +
-              '3. Click "More Windows features"\n' +
-              '4. Find and check "Legacy Components" → "DirectPlay"\n' +
-              '5. Click OK and restart your computer',
+      detail:
+        'Please enable DirectPlay manually:\n\n' +
+        '1. Open Windows Settings\n' +
+        '2. Go to Apps → Optional Features\n' +
+        '3. Click "More Windows features"\n' +
+        '4. Find and check "Legacy Components" → "DirectPlay"\n' +
+        '5. Click OK and restart your computer',
       buttons: ['OK'],
     });
 
@@ -199,7 +228,9 @@ export async function promptEnableDirectPlay(): Promise<'enabled' | 'skipped' | 
  * @param skipIfAlreadyPrompted - Whether to skip if user was already prompted
  * @returns Promise<boolean> - true if DirectPlay is ready or user was informed
  */
-export async function ensureDirectPlay(skipIfAlreadyPrompted: boolean = false): Promise<boolean> {
+export async function ensureDirectPlay(
+  _skipIfAlreadyPrompted: boolean = false,
+): Promise<boolean> {
   if (process.platform !== 'win32') {
     log.info(chalk.cyan('[DirectPlay] Not on Windows, skipping'));
     return true;
@@ -214,7 +245,9 @@ export async function ensureDirectPlay(skipIfAlreadyPrompted: boolean = false): 
     return true;
   }
 
-  log.info(chalk.yellow('[DirectPlay] DirectPlay is not enabled, prompting user...'));
+  log.info(
+    chalk.yellow('[DirectPlay] DirectPlay is not enabled, prompting user...'),
+  );
 
   const result = await promptEnableDirectPlay();
 

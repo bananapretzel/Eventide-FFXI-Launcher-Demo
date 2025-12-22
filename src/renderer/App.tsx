@@ -53,15 +53,18 @@ function VersionDisplay() {
     fetchVersions();
 
     // Also listen for game status updates to refresh game version
-    const unsubscribe = window.electron?.ipcRenderer?.on('game:status', (_event: any, payload: any) => {
-      // If installedVersion is in the payload, update immediately
-      if (payload?.installedVersion && payload.installedVersion !== '0.0.0') {
-        setGameVersion(payload.installedVersion);
-      } else {
-        // Otherwise fetch versions
-        fetchVersions();
-      }
-    });
+    const unsubscribe = window.electron?.ipcRenderer?.on(
+      'game:status',
+      (_event: any, payload: any) => {
+        // If installedVersion is in the payload, update immediately
+        if (payload?.installedVersion && payload.installedVersion !== '0.0.0') {
+          setGameVersion(payload.installedVersion);
+        } else {
+          // Otherwise fetch versions
+          fetchVersions();
+        }
+      },
+    );
 
     return () => {
       if (unsubscribe) unsubscribe();

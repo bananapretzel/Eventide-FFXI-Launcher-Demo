@@ -1,5 +1,4 @@
 import path from 'path';
-import { app } from 'electron';
 
 // Re-export shared constants for convenience
 export { RELEASE_JSON_URL } from '../core/constants';

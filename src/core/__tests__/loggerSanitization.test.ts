@@ -14,39 +14,33 @@ describe('Logger Sanitization', () => {
       let sanitized = message;
 
       // Remove Windows user paths (C:\Users\USERNAME\...)
-      sanitized = sanitized.replace(
-        /([A-Za-z]:\\Users\\)[^\\]+/gi,
-        '$1<user>'
-      );
+      sanitized = sanitized.replace(/([A-Za-z]:\\Users\\)[^\\]+/gi, '$1<user>');
 
       // Remove Unix user paths (/home/username/... or /Users/username/...)
-      sanitized = sanitized.replace(
-        /(\/(?:home|Users)\/)[^/]+/gi,
-        '$1<user>'
-      );
+      sanitized = sanitized.replace(/(\/(?:home|Users)\/)[^/]+/gi, '$1<user>');
 
       // Remove Wine prefix paths with usernames
       sanitized = sanitized.replace(
         /(\.wine\/drive_c\/users\/)[^/]+/gi,
-        '$1<user>'
+        '$1<user>',
       );
 
       // Remove AppData paths with usernames
       sanitized = sanitized.replace(
         /(AppData\\(?:Local|Roaming)\\)/gi,
-        'AppData\\<type>\\'
+        'AppData\\<type>\\',
       );
 
       // Remove email addresses
       sanitized = sanitized.replace(
         /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g,
-        '<email>'
+        '<email>',
       );
 
       // Remove potential credentials/tokens (basic patterns)
       sanitized = sanitized.replace(
         /(password|passwd|pwd|token|secret|apikey|api_key|auth|credential)[=:]\s*["']?[^"'\s]+["']?/gi,
-        '$1=<redacted>'
+        '$1=<redacted>',
       );
 
       return sanitized;
@@ -54,7 +48,9 @@ describe('Logger Sanitization', () => {
 
     if (typeof message === 'object') {
       if (message instanceof Error) {
-        const sanitizedError = new Error(sanitizeLogMessage(message.message) as string);
+        const sanitizedError = new Error(
+          sanitizeLogMessage(message.message) as string,
+        );
         sanitizedError.name = message.name;
         return sanitizedError;
       }
@@ -64,7 +60,9 @@ describe('Logger Sanitization', () => {
       }
 
       const sanitizedObj: Record<string, unknown> = {};
-      for (const [key, value] of Object.entries(message as Record<string, unknown>)) {
+      for (const [key, value] of Object.entries(
+        message as Record<string, unknown>,
+      )) {
         const lowerKey = key.toLowerCase();
         if (
           lowerKey.includes('password') ||
@@ -103,9 +101,12 @@ describe('Logger Sanitization', () => {
       });
 
       it('should sanitize multiple Windows paths', () => {
-        const input = 'From C:\\Users\\Alice\\Downloads to C:\\Users\\Bob\\Games';
+        const input =
+          'From C:\\Users\\Alice\\Downloads to C:\\Users\\Bob\\Games';
         const result = sanitizeLogMessage(input);
-        expect(result).toBe('From C:\\Users\\<user>\\Downloads to C:\\Users\\<user>\\Games');
+        expect(result).toBe(
+          'From C:\\Users\\<user>\\Downloads to C:\\Users\\<user>\\Games',
+        );
       });
 
       it('should handle lowercase drive letters', () => {
@@ -276,16 +277,22 @@ describe('Logger Sanitization', () => {
         ];
         const result = sanitizeLogMessage(input) as unknown[];
         expect(result[0]).toBe('<email>');
-        expect((result[1] as Record<string, unknown>).password).toBe('<redacted>');
+        expect((result[1] as Record<string, unknown>).password).toBe(
+          '<redacted>',
+        );
         expect(result[2]).toBe('C:\\Users\\<user>\\file.txt');
       });
     });
 
     describe('Error sanitization', () => {
       it('should sanitize error messages', () => {
-        const error = new Error('Failed to load C:\\Users\\JohnDoe\\config.json');
+        const error = new Error(
+          'Failed to load C:\\Users\\JohnDoe\\config.json',
+        );
         const result = sanitizeLogMessage(error) as Error;
-        expect(result.message).toBe('Failed to load C:\\Users\\<user>\\config.json');
+        expect(result.message).toBe(
+          'Failed to load C:\\Users\\<user>\\config.json',
+        );
         expect(result.name).toBe('Error');
       });
 

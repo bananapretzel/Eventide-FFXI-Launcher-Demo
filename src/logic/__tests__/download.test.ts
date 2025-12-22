@@ -1,5 +1,13 @@
-﻿// Download logic tests
+// Download logic tests
 // Mock electron-log with explicit mock implementation
+import path from 'path';
+import { downloadGame } from '../download';
+import * as net from '../../core/net';
+import * as fs from '../../core/fs';
+import * as hash from '../../core/hash';
+import * as storage from '../../core/storage';
+import * as versions from '../../core/versions';
+
 jest.mock('electron-log', () => {
   const mockFn = jest.fn();
   const mockLogger = {
@@ -11,7 +19,12 @@ jest.mock('electron-log', () => {
     silly: mockFn,
     log: mockFn,
     transports: {
-      file: { level: 'debug', resolvePathFn: null, format: '', getFile: () => ({ path: '/mock' }) },
+      file: {
+        level: 'debug',
+        resolvePathFn: null,
+        format: '',
+        getFile: () => ({ path: '/mock' }),
+      },
       console: { level: 'debug', format: '' },
       ipc: { level: 'debug' },
       remote: { level: 'debug' },
@@ -49,14 +62,6 @@ jest.mock('../../main/paths', () => ({
   })),
 }));
 
-import { downloadGame } from '../download';
-import * as net from '../../core/net';
-import * as fs from '../../core/fs';
-import * as hash from '../../core/hash';
-import * as storage from '../../core/storage';
-import * as versions from '../../core/versions';
-import path from 'path';
-
 jest.mock('../../core/net');
 jest.mock('../../core/fs');
 jest.mock('../../core/hash');
@@ -68,7 +73,9 @@ describe('Download Logic', () => {
     jest.clearAllMocks();
 
     // Setup default mocks for net module functions
-    (net.createDownloadController as jest.Mock).mockReturnValue(new AbortController());
+    (net.createDownloadController as jest.Mock).mockReturnValue(
+      new AbortController(),
+    );
     (net.clearDownloadController as jest.Mock).mockImplementation(() => {});
     (net.abortDownload as jest.Mock).mockImplementation(() => {});
     (net.getPartialDownloadSize as jest.Mock).mockReturnValue(0);
@@ -83,20 +90,22 @@ describe('Download Logic', () => {
     (storage.getDownloadProgress as jest.Mock).mockResolvedValue(null);
     (storage.clearDownloadProgress as jest.Mock).mockResolvedValue(undefined);
     (storage.saveDownloadProgress as jest.Mock).mockResolvedValue(undefined);
-    (storage.updateStorage as jest.Mock).mockImplementation(async (updater: any) => {
-      const mockStorage = storage.getDefaultStorage();
-      updater(mockStorage);
-      return Promise.resolve();
-    });
+    (storage.updateStorage as jest.Mock).mockImplementation(
+      async (updater: any) => {
+        const mockStorage = storage.getDefaultStorage();
+        updater(mockStorage);
+        return Promise.resolve();
+      },
+    );
 
     (storage.getDefaultStorage as jest.Mock).mockReturnValue({
       schemaVersion: 2,
       paths: { installPath: '', downloadPath: '' },
       gameState: {
-        installedVersion: "0.0.0",
-        availableVersion: "0.0.0",
+        installedVersion: '0.0.0',
+        availableVersion: '0.0.0',
         baseGame: { isDownloaded: false, isExtracted: false },
-        patches: { downloadedVersion: "", appliedVersion: "" },
+        patches: { downloadedVersion: '', appliedVersion: '' },
       },
     });
   });
@@ -110,14 +119,22 @@ describe('Download Logic', () => {
     });
     const mockExtractZip = jest.fn().mockResolvedValue(undefined);
     const mockVerifySha256 = jest.fn().mockResolvedValue(true);
-    const mockVerifyExtractedFiles = jest.fn().mockResolvedValue({ success: true, fileCount: 150 });
+    const mockVerifyExtractedFiles = jest
+      .fn()
+      .mockResolvedValue({ success: true, fileCount: 150 });
     const mockSetClientVersion = jest.fn().mockResolvedValue(undefined);
 
-    (net.downloadFileResumable as jest.Mock).mockImplementation(mockDownloadFileResumable);
+    (net.downloadFileResumable as jest.Mock).mockImplementation(
+      mockDownloadFileResumable,
+    );
     (fs.extractZip as jest.Mock).mockImplementation(mockExtractZip);
     (hash.verifySha256 as jest.Mock).mockImplementation(mockVerifySha256);
-    (fs.verifyExtractedFiles as jest.Mock).mockImplementation(mockVerifyExtractedFiles);
-    (versions.setClientVersion as jest.Mock).mockImplementation(mockSetClientVersion);
+    (fs.verifyExtractedFiles as jest.Mock).mockImplementation(
+      mockVerifyExtractedFiles,
+    );
+    (versions.setClientVersion as jest.Mock).mockImplementation(
+      mockSetClientVersion,
+    );
 
     const url = 'https://example.com/game.zip';
     const sha256 = 'abc123';
@@ -126,7 +143,14 @@ describe('Download Logic', () => {
     const baseVersion = '1.0.0';
     const expectedSize = 1000000;
 
-    await downloadGame(url, sha256, installDir, dlDir, baseVersion, expectedSize);
+    await downloadGame(
+      url,
+      sha256,
+      installDir,
+      dlDir,
+      baseVersion,
+      expectedSize,
+    );
 
     expect(mockDownloadFileResumable).toHaveBeenCalledWith(
       url,
@@ -134,10 +158,17 @@ describe('Download Logic', () => {
       0, // startByte
       expectedSize,
       expect.any(Function), // progress callback wrapper
-      expect.any(Object) // AbortSignal
+      expect.any(Object), // AbortSignal
     );
-    expect(mockVerifySha256).toHaveBeenCalledWith(path.join(dlDir, 'game.zip'), sha256);
-    expect(mockExtractZip).toHaveBeenCalledWith(path.join(dlDir, 'game.zip'), installDir, undefined);
+    expect(mockVerifySha256).toHaveBeenCalledWith(
+      path.join(dlDir, 'game.zip'),
+      sha256,
+    );
+    expect(mockExtractZip).toHaveBeenCalledWith(
+      path.join(dlDir, 'game.zip'),
+      installDir,
+      undefined,
+    );
     expect(mockVerifyExtractedFiles).toHaveBeenCalledWith(installDir, 100);
     expect(mockSetClientVersion).toHaveBeenCalledWith(installDir, baseVersion);
     expect(storage.updateStorage).toHaveBeenCalledTimes(2); // Once for downloaded, once for extracted
@@ -152,14 +183,22 @@ describe('Download Logic', () => {
     });
     const mockExtractZip = jest.fn().mockResolvedValue(undefined);
     const mockVerifySha256 = jest.fn().mockResolvedValue(true);
-    const mockVerifyExtractedFiles = jest.fn().mockResolvedValue({ success: true, fileCount: 150 });
+    const mockVerifyExtractedFiles = jest
+      .fn()
+      .mockResolvedValue({ success: true, fileCount: 150 });
     const mockSetClientVersion = jest.fn().mockResolvedValue(undefined);
 
-    (net.downloadFileResumable as jest.Mock).mockImplementation(mockDownloadFileResumable);
+    (net.downloadFileResumable as jest.Mock).mockImplementation(
+      mockDownloadFileResumable,
+    );
     (fs.extractZip as jest.Mock).mockImplementation(mockExtractZip);
     (hash.verifySha256 as jest.Mock).mockImplementation(mockVerifySha256);
-    (fs.verifyExtractedFiles as jest.Mock).mockImplementation(mockVerifyExtractedFiles);
-    (versions.setClientVersion as jest.Mock).mockImplementation(mockSetClientVersion);
+    (fs.verifyExtractedFiles as jest.Mock).mockImplementation(
+      mockVerifyExtractedFiles,
+    );
+    (versions.setClientVersion as jest.Mock).mockImplementation(
+      mockSetClientVersion,
+    );
 
     const url = 'https://example.com/game.zip';
     const sha256 = 'abc123';
@@ -194,7 +233,9 @@ describe('Download Logic', () => {
     });
     const mockVerifySha256 = jest.fn().mockResolvedValue(false);
 
-    (net.downloadFileResumable as jest.Mock).mockImplementation(mockDownloadFileResumable);
+    (net.downloadFileResumable as jest.Mock).mockImplementation(
+      mockDownloadFileResumable,
+    );
     (hash.verifySha256 as jest.Mock).mockImplementation(mockVerifySha256);
 
     const url = 'https://example.com/game.zip';
@@ -203,7 +244,9 @@ describe('Download Logic', () => {
     const dlDir = '/downloads';
     const baseVersion = '1.0.0';
 
-    await expect(downloadGame(url, sha256, installDir, dlDir, baseVersion)).rejects.toThrow('SHA256 mismatch');
+    await expect(
+      downloadGame(url, sha256, installDir, dlDir, baseVersion),
+    ).rejects.toThrow('SHA256 mismatch');
 
     expect(mockDownloadFileResumable).toHaveBeenCalled();
     expect(mockVerifySha256).toHaveBeenCalled();
@@ -218,12 +261,18 @@ describe('Download Logic', () => {
     });
     const mockExtractZip = jest.fn().mockResolvedValue(undefined);
     const mockVerifySha256 = jest.fn().mockResolvedValue(true);
-    const mockVerifyExtractedFiles = jest.fn().mockResolvedValue({ success: false, fileCount: 50 });
+    const mockVerifyExtractedFiles = jest
+      .fn()
+      .mockResolvedValue({ success: false, fileCount: 50 });
 
-    (net.downloadFileResumable as jest.Mock).mockImplementation(mockDownloadFileResumable);
+    (net.downloadFileResumable as jest.Mock).mockImplementation(
+      mockDownloadFileResumable,
+    );
     (fs.extractZip as jest.Mock).mockImplementation(mockExtractZip);
     (hash.verifySha256 as jest.Mock).mockImplementation(mockVerifySha256);
-    (fs.verifyExtractedFiles as jest.Mock).mockImplementation(mockVerifyExtractedFiles);
+    (fs.verifyExtractedFiles as jest.Mock).mockImplementation(
+      mockVerifyExtractedFiles,
+    );
 
     const url = 'https://example.com/game.zip';
     const sha256 = 'abc123';
@@ -231,7 +280,9 @@ describe('Download Logic', () => {
     const dlDir = '/downloads';
     const baseVersion = '1.0.0';
 
-    await expect(downloadGame(url, sha256, installDir, dlDir, baseVersion)).rejects.toThrow('Extraction verification failed');
+    await expect(
+      downloadGame(url, sha256, installDir, dlDir, baseVersion),
+    ).rejects.toThrow('Extraction verification failed');
 
     expect(mockExtractZip).toHaveBeenCalled();
     expect(mockVerifyExtractedFiles).toHaveBeenCalledWith(installDir, 100);
@@ -246,14 +297,22 @@ describe('Download Logic', () => {
     });
     const mockExtractZip = jest.fn().mockResolvedValue(undefined);
     const mockVerifySha256 = jest.fn().mockResolvedValue(true);
-    const mockVerifyExtractedFiles = jest.fn().mockResolvedValue({ success: true, fileCount: 150 });
+    const mockVerifyExtractedFiles = jest
+      .fn()
+      .mockResolvedValue({ success: true, fileCount: 150 });
     const mockSetClientVersion = jest.fn().mockResolvedValue(undefined);
 
-    (net.downloadFileResumable as jest.Mock).mockImplementation(mockDownloadFileResumable);
+    (net.downloadFileResumable as jest.Mock).mockImplementation(
+      mockDownloadFileResumable,
+    );
     (fs.extractZip as jest.Mock).mockImplementation(mockExtractZip);
     (hash.verifySha256 as jest.Mock).mockImplementation(mockVerifySha256);
-    (fs.verifyExtractedFiles as jest.Mock).mockImplementation(mockVerifyExtractedFiles);
-    (versions.setClientVersion as jest.Mock).mockImplementation(mockSetClientVersion);
+    (fs.verifyExtractedFiles as jest.Mock).mockImplementation(
+      mockVerifyExtractedFiles,
+    );
+    (versions.setClientVersion as jest.Mock).mockImplementation(
+      mockSetClientVersion,
+    );
 
     const onProgress = jest.fn();
     const onExtractProgress = jest.fn();
@@ -265,7 +324,16 @@ describe('Download Logic', () => {
     const baseVersion = '1.0.0';
     const expectedSize = 1000000;
 
-    await downloadGame(url, sha256, installDir, dlDir, baseVersion, expectedSize, onProgress, onExtractProgress);
+    await downloadGame(
+      url,
+      sha256,
+      installDir,
+      dlDir,
+      baseVersion,
+      expectedSize,
+      onProgress,
+      onExtractProgress,
+    );
 
     expect(mockDownloadFileResumable).toHaveBeenCalledWith(
       url,
@@ -273,12 +341,12 @@ describe('Download Logic', () => {
       0, // startByte
       expectedSize,
       expect.any(Function), // progress callback wrapper
-      expect.any(Object) // AbortSignal
+      expect.any(Object), // AbortSignal
     );
     expect(mockExtractZip).toHaveBeenCalledWith(
       path.join(dlDir, 'game.zip'),
       installDir,
-      onExtractProgress
+      onExtractProgress,
     );
   });
 
@@ -291,14 +359,22 @@ describe('Download Logic', () => {
     });
     const mockExtractZip = jest.fn().mockResolvedValue(undefined);
     const mockVerifySha256 = jest.fn().mockResolvedValue(true);
-    const mockVerifyExtractedFiles = jest.fn().mockResolvedValue({ success: true, fileCount: 150 });
+    const mockVerifyExtractedFiles = jest
+      .fn()
+      .mockResolvedValue({ success: true, fileCount: 150 });
     const mockSetClientVersion = jest.fn().mockResolvedValue(undefined);
 
-    (net.downloadFileResumable as jest.Mock).mockImplementation(mockDownloadFileResumable);
+    (net.downloadFileResumable as jest.Mock).mockImplementation(
+      mockDownloadFileResumable,
+    );
     (fs.extractZip as jest.Mock).mockImplementation(mockExtractZip);
     (hash.verifySha256 as jest.Mock).mockImplementation(mockVerifySha256);
-    (fs.verifyExtractedFiles as jest.Mock).mockImplementation(mockVerifyExtractedFiles);
-    (versions.setClientVersion as jest.Mock).mockImplementation(mockSetClientVersion);
+    (fs.verifyExtractedFiles as jest.Mock).mockImplementation(
+      mockVerifyExtractedFiles,
+    );
+    (versions.setClientVersion as jest.Mock).mockImplementation(
+      mockSetClientVersion,
+    );
 
     const url = 'https://example.com/game.zip';
     const sha256 = 'abc123';

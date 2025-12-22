@@ -11,7 +11,9 @@ import { exec } from 'child_process';
  * Sleep for a specified number of milliseconds
  */
 function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 /**
@@ -27,9 +29,13 @@ export async function robustRemove(
     maxRetries?: number;
     retryDelayMs?: number;
     continueOnError?: boolean;
-  } = {}
+  } = {},
 ): Promise<{ success: boolean; skippedPaths: string[]; error?: string }> {
-  const { maxRetries = 3, retryDelayMs = 500, continueOnError = true } = options;
+  const {
+    maxRetries = 3,
+    retryDelayMs = 500,
+    continueOnError = true,
+  } = options;
   const skippedPaths: string[] = [];
 
   if (!fs.existsSync(targetPath)) {
@@ -39,7 +45,10 @@ export async function robustRemove(
   /**
    * Try to delete a single file or empty directory with retries
    */
-  async function tryDelete(itemPath: string, isDirectory: boolean): Promise<boolean> {
+  async function tryDelete(
+    itemPath: string,
+    isDirectory: boolean,
+  ): Promise<boolean> {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         if (isDirectory) {
@@ -50,16 +59,27 @@ export async function robustRemove(
         return true;
       } catch (err: unknown) {
         const error = err as NodeJS.ErrnoException;
-        const isRetryableError = error.code === 'EBUSY' || error.code === 'EPERM' || error.code === 'ENOTEMPTY';
+        const isRetryableError =
+          error.code === 'EBUSY' ||
+          error.code === 'EPERM' ||
+          error.code === 'ENOTEMPTY';
 
         if (isRetryableError && attempt < maxRetries) {
           // Wait with exponential backoff before retrying
-          const delay = retryDelayMs * Math.pow(2, attempt);
-          log.warn(chalk.yellow(`[robustRemove] ${error.code} on "${itemPath}", retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`));
+          const delay = retryDelayMs * 2 ** attempt;
+          log.warn(
+            chalk.yellow(
+              `[robustRemove] ${error.code} on "${itemPath}", retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`,
+            ),
+          );
           await sleep(delay);
         } else if (isRetryableError && continueOnError) {
           // Max retries reached, but continue with other files
-          log.warn(chalk.yellow(`[robustRemove] Could not delete "${itemPath}" after ${maxRetries} retries: ${error.code}`));
+          log.warn(
+            chalk.yellow(
+              `[robustRemove] Could not delete "${itemPath}" after ${maxRetries} retries: ${error.code}`,
+            ),
+          );
           skippedPaths.push(itemPath);
           return false;
         } else {
@@ -108,13 +128,20 @@ export async function robustRemove(
 
     const success = skippedPaths.length === 0;
     if (!success) {
-      log.warn(chalk.yellow(`[robustRemove] Completed with ${skippedPaths.length} skipped items`));
+      log.warn(
+        chalk.yellow(
+          `[robustRemove] Completed with ${skippedPaths.length} skipped items`,
+        ),
+      );
     }
 
     return { success, skippedPaths };
   } catch (err) {
     const error = err as Error;
-    log.error(chalk.red(`[robustRemove] Error deleting "${targetPath}":`), error);
+    log.error(
+      chalk.red(`[robustRemove] Error deleting "${targetPath}":`),
+      error,
+    );
     return {
       success: false,
       skippedPaths,
@@ -159,7 +186,7 @@ function getLinuxHome(): string | null {
   // Under Wine, try to derive from WINEPREFIX
   // WINEPREFIX is usually something like /home/user/.wine or /home/user/Games/wine-prefix
   if (process.env.WINEPREFIX) {
-    const match = process.env.WINEPREFIX.match(/^\/home\/([^\/]+)/);
+    const match = process.env.WINEPREFIX.match(/^\/home\/([^/]+)/);
     if (match) {
       return `/home/${match[1]}`;
     }
@@ -213,7 +240,11 @@ function windowsToUnixPath(winPath: string): string | null {
     const winePrefix = getWinePrefix();
 
     if (!winePrefix) {
-      log.warn(chalk.yellow('[windowsToUnixPath] Cannot determine Wine prefix - HOME and WINEPREFIX are both undefined'));
+      log.warn(
+        chalk.yellow(
+          '[windowsToUnixPath] Cannot determine Wine prefix - HOME and WINEPREFIX are both undefined',
+        ),
+      );
       return null;
     }
 
@@ -234,26 +265,45 @@ function windowsToUnixPath(winPath: string): string | null {
  * Commands like /bin/sh or xdg-open will NOT work because they're interpreted
  * by the Windows command processor. We use Wine-compatible methods instead.
  */
-export async function openPathCrossPlatform(targetPath: string): Promise<{ success: boolean; error?: string }> {
+export async function openPathCrossPlatform(
+  targetPath: string,
+): Promise<{ success: boolean; error?: string }> {
   try {
     if (isRunningUnderWine()) {
       const unixPath = windowsToUnixPath(targetPath);
-      log.info(chalk.cyan(`[openPathCrossPlatform] Running under Wine, path: ${targetPath}`));
+      log.info(
+        chalk.cyan(
+          `[openPathCrossPlatform] Running under Wine, path: ${targetPath}`,
+        ),
+      );
       if (unixPath) {
-        log.info(chalk.cyan(`[openPathCrossPlatform] Converted to Unix path: ${unixPath}`));
+        log.info(
+          chalk.cyan(
+            `[openPathCrossPlatform] Converted to Unix path: ${unixPath}`,
+          ),
+        );
       }
 
       // Method 1: Use Wine's explorer.exe with the Windows path (most reliable)
       // This opens Wine's built-in file explorer which works consistently
       return new Promise((resolve) => {
         const tryWineExplorer = () => {
-          log.info(chalk.cyan('[openPathCrossPlatform] Trying Wine explorer...'));
+          log.info(
+            chalk.cyan('[openPathCrossPlatform] Trying Wine explorer...'),
+          );
           exec(`explorer.exe "${targetPath}"`, (error) => {
             if (error) {
-              log.warn(chalk.yellow('[openPathCrossPlatform] Wine explorer failed:'), error.message);
+              log.warn(
+                chalk.yellow('[openPathCrossPlatform] Wine explorer failed:'),
+                error.message,
+              );
               tryWineBrowse();
             } else {
-              log.info(chalk.green('[openPathCrossPlatform] Successfully opened with Wine explorer'));
+              log.info(
+                chalk.green(
+                  '[openPathCrossPlatform] Successfully opened with Wine explorer',
+                ),
+              );
               resolve({ success: true });
             }
           });
@@ -265,10 +315,17 @@ export async function openPathCrossPlatform(targetPath: string): Promise<{ succe
           // winebrowser can sometimes delegate to the host system's file manager
           exec(`winebrowser "${targetPath}"`, (error) => {
             if (error) {
-              log.warn(chalk.yellow('[openPathCrossPlatform] winebrowser failed:'), error.message);
+              log.warn(
+                chalk.yellow('[openPathCrossPlatform] winebrowser failed:'),
+                error.message,
+              );
               tryShellOpen();
             } else {
-              log.info(chalk.green('[openPathCrossPlatform] Successfully opened with winebrowser'));
+              log.info(
+                chalk.green(
+                  '[openPathCrossPlatform] Successfully opened with winebrowser',
+                ),
+              );
               resolve({ success: true });
             }
           });
@@ -276,35 +333,66 @@ export async function openPathCrossPlatform(targetPath: string): Promise<{ succe
 
         // Method 3: Fallback to Electron's shell.openPath
         const tryShellOpen = () => {
-          log.info(chalk.cyan('[openPathCrossPlatform] Trying Electron shell.openPath fallback...'));
-          shell.openPath(targetPath).then((result) => {
-            if (result) {
-              log.error(chalk.red('[openPathCrossPlatform] All methods failed. Last error:'), result);
-              const errorMsg = unixPath
-                ? `Failed to open folder. Please navigate manually to: ${unixPath}`
-                : `Failed to open folder. Please navigate manually to: ${targetPath}`;
+          log.info(
+            chalk.cyan(
+              '[openPathCrossPlatform] Trying Electron shell.openPath fallback...',
+            ),
+          );
+          shell
+            .openPath(targetPath)
+            .then((result) => {
+              if (result) {
+                log.error(
+                  chalk.red(
+                    '[openPathCrossPlatform] All methods failed. Last error:',
+                  ),
+                  result,
+                );
+                const errorMsg = unixPath
+                  ? `Failed to open folder. Please navigate manually to: ${unixPath}`
+                  : `Failed to open folder. Please navigate manually to: ${targetPath}`;
+                resolve({
+                  success: false,
+                  error: errorMsg,
+                });
+                return undefined;
+              }
+
+              log.info(
+                chalk.green(
+                  '[openPathCrossPlatform] Successfully opened with shell.openPath',
+                ),
+              );
+              resolve({ success: true });
+              return undefined;
+            })
+            .catch((error) => {
+              log.error(
+                chalk.red(
+                  '[openPathCrossPlatform] shell.openPath threw error:',
+                ),
+                error,
+              );
               resolve({
                 success: false,
-                error: errorMsg,
+                error:
+                  error instanceof Error
+                    ? error.message
+                    : 'Failed to open path',
               });
-            } else {
-              log.info(chalk.green('[openPathCrossPlatform] Successfully opened with shell.openPath'));
-              resolve({ success: true });
-            }
-          });
+            });
         };
 
         // Start the chain of attempts
         tryWineExplorer();
       });
-    } else {
-      // Native Windows - use shell.openPath
-      const result = await shell.openPath(targetPath);
-      if (result) {
-        return { success: false, error: result };
-      }
-      return { success: true };
     }
+    // Native Windows - use shell.openPath
+    const result = await shell.openPath(targetPath);
+    if (result) {
+      return { success: false, error: result };
+    }
+    return { success: true };
   } catch (err) {
     log.error(chalk.red('[openPathCrossPlatform] Error:'), err);
     return {
@@ -322,12 +410,23 @@ export async function openPathCrossPlatform(targetPath: string): Promise<{ succe
  * to avoid duplicates and Wine compatibility issues. Users should create
  * shortcuts manually or use their desktop environment's tools.
  */
-export async function createDesktopShortcut(): Promise<{ success: boolean; error?: string }> {
+export async function createDesktopShortcut(): Promise<{
+  success: boolean;
+  error?: string;
+}> {
   try {
     // Only create shortcuts on native Windows, not under Wine
     if (isRunningUnderWine()) {
-      log.info(chalk.cyan('[createDesktopShortcut] Running under Wine - skipping shortcut creation'));
-      log.info(chalk.cyan('[createDesktopShortcut] Users should create shortcuts manually via their Linux desktop environment'));
+      log.info(
+        chalk.cyan(
+          '[createDesktopShortcut] Running under Wine - skipping shortcut creation',
+        ),
+      );
+      log.info(
+        chalk.cyan(
+          '[createDesktopShortcut] Users should create shortcuts manually via their Linux desktop environment',
+        ),
+      );
       return { success: true };
     }
 
@@ -336,7 +435,10 @@ export async function createDesktopShortcut(): Promise<{ success: boolean; error
 
     // Ensure desktop directory exists
     if (!fs.existsSync(desktopPath)) {
-      log.info(chalk.yellow('[createDesktopShortcut] Desktop folder not found at:'), desktopPath);
+      log.info(
+        chalk.yellow('[createDesktopShortcut] Desktop folder not found at:'),
+        desktopPath,
+      );
       return { success: true }; // Not an error, just no desktop folder
     }
 
@@ -344,14 +446,23 @@ export async function createDesktopShortcut(): Promise<{ success: boolean; error
 
     // Check if shortcut already exists
     if (fs.existsSync(shortcutPath)) {
-      log.info(chalk.cyan('[createDesktopShortcut] Shortcut already exists at:'), shortcutPath);
+      log.info(
+        chalk.cyan('[createDesktopShortcut] Shortcut already exists at:'),
+        shortcutPath,
+      );
       return { success: true };
     }
 
     // Also check for the alternative name that NSIS might create
-    const altShortcutPath = path.join(desktopPath, 'Eventide-FFXI-Launcher.lnk');
+    const altShortcutPath = path.join(
+      desktopPath,
+      'Eventide-FFXI-Launcher.lnk',
+    );
     if (fs.existsSync(altShortcutPath)) {
-      log.info(chalk.cyan('[createDesktopShortcut] NSIS shortcut already exists at:'), altShortcutPath);
+      log.info(
+        chalk.cyan('[createDesktopShortcut] NSIS shortcut already exists at:'),
+        altShortcutPath,
+      );
       return { success: true };
     }
 
@@ -384,17 +495,29 @@ export async function createDesktopShortcut(): Promise<{ success: boolean; error
     });
 
     if (success) {
-      log.info(chalk.green('[createDesktopShortcut] ✓ Desktop shortcut created successfully at:'), shortcutPath);
+      log.info(
+        chalk.green(
+          '[createDesktopShortcut] ✓ Desktop shortcut created successfully at:',
+        ),
+        shortcutPath,
+      );
       return { success: true };
-    } else {
-      log.warn(chalk.yellow('[createDesktopShortcut] Failed to create desktop shortcut'));
-      return { success: false, error: 'Failed to create shortcut (unknown reason)' };
     }
-  } catch (err) {
-    log.error(chalk.red('[createDesktopShortcut] Error creating desktop shortcut:'), err);
+    log.warn(
+      chalk.yellow('[createDesktopShortcut] Failed to create desktop shortcut'),
+    );
     return {
       success: false,
-      error: `Failed to create desktop shortcut: ${err instanceof Error ? err.message : String(err)}`
+      error: 'Failed to create shortcut (unknown reason)',
+    };
+  } catch (err) {
+    log.error(
+      chalk.red('[createDesktopShortcut] Error creating desktop shortcut:'),
+      err,
+    );
+    return {
+      success: false,
+      error: `Failed to create desktop shortcut: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
 }
@@ -403,11 +526,18 @@ export async function createDesktopShortcut(): Promise<{ success: boolean; error
  * Removes the desktop shortcut to the launcher (Windows only)
  * Called during uninstallation
  */
-export async function removeDesktopShortcut(): Promise<{ success: boolean; error?: string }> {
+export async function removeDesktopShortcut(): Promise<{
+  success: boolean;
+  error?: string;
+}> {
   try {
     // Only remove shortcuts on native Windows, not under Wine
     if (isRunningUnderWine()) {
-      log.info(chalk.cyan('[removeDesktopShortcut] Running under Wine - skipping shortcut removal'));
+      log.info(
+        chalk.cyan(
+          '[removeDesktopShortcut] Running under Wine - skipping shortcut removal',
+        ),
+      );
       return { success: true };
     }
 
@@ -415,7 +545,9 @@ export async function removeDesktopShortcut(): Promise<{ success: boolean; error
 
     // Check if desktop folder exists
     if (!fs.existsSync(desktopPath)) {
-      log.info(chalk.yellow('[removeDesktopShortcut] Desktop folder not found'));
+      log.info(
+        chalk.yellow('[removeDesktopShortcut] Desktop folder not found'),
+      );
       return { success: true };
     }
 
@@ -423,29 +555,46 @@ export async function removeDesktopShortcut(): Promise<{ success: boolean; error
     const shortcutPath = path.join(desktopPath, 'Eventide Launcher.lnk');
     if (fs.existsSync(shortcutPath)) {
       fs.unlinkSync(shortcutPath);
-      log.info(chalk.green('[removeDesktopShortcut] ✓ Removed desktop shortcut:'), shortcutPath);
+      log.info(
+        chalk.green('[removeDesktopShortcut] ✓ Removed desktop shortcut:'),
+        shortcutPath,
+      );
     }
 
     // Also remove the alternative name that NSIS might create
-    const altShortcutPath = path.join(desktopPath, 'Eventide-FFXI-Launcher.lnk');
+    const altShortcutPath = path.join(
+      desktopPath,
+      'Eventide-FFXI-Launcher.lnk',
+    );
     if (fs.existsSync(altShortcutPath)) {
       fs.unlinkSync(altShortcutPath);
-      log.info(chalk.green('[removeDesktopShortcut] ✓ Removed NSIS desktop shortcut:'), altShortcutPath);
+      log.info(
+        chalk.green('[removeDesktopShortcut] ✓ Removed NSIS desktop shortcut:'),
+        altShortcutPath,
+      );
     }
 
     // Also check for EventideXI.lnk (electron-builder default)
     const builderShortcutPath = path.join(desktopPath, 'EventideXI.lnk');
     if (fs.existsSync(builderShortcutPath)) {
       fs.unlinkSync(builderShortcutPath);
-      log.info(chalk.green('[removeDesktopShortcut] ✓ Removed builder desktop shortcut:'), builderShortcutPath);
+      log.info(
+        chalk.green(
+          '[removeDesktopShortcut] ✓ Removed builder desktop shortcut:',
+        ),
+        builderShortcutPath,
+      );
     }
 
     return { success: true };
   } catch (err) {
-    log.error(chalk.red('[removeDesktopShortcut] Error removing desktop shortcut:'), err);
+    log.error(
+      chalk.red('[removeDesktopShortcut] Error removing desktop shortcut:'),
+      err,
+    );
     return {
       success: false,
-      error: `Failed to remove desktop shortcut: ${err instanceof Error ? err.message : String(err)}`
+      error: `Failed to remove desktop shortcut: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
 }
@@ -456,16 +605,25 @@ export async function removeDesktopShortcut(): Promise<{ success: boolean; error
  *
  * Uses Node.js fs operations which work under Wine via the Z: drive mapping.
  */
-export async function removeLinuxDesktopFile(): Promise<{ success: boolean; error?: string }> {
+export async function removeLinuxDesktopFile(): Promise<{
+  success: boolean;
+  error?: string;
+}> {
   if (!isRunningUnderWine()) {
-    log.info(chalk.cyan('[removeLinuxDesktopFile] Not running under Wine - skipping'));
+    log.info(
+      chalk.cyan('[removeLinuxDesktopFile] Not running under Wine - skipping'),
+    );
     return { success: true };
   }
 
   try {
     const home = getLinuxHome();
     if (!home) {
-      log.warn(chalk.yellow('[removeLinuxDesktopFile] Cannot determine Linux home directory - skipping'));
+      log.warn(
+        chalk.yellow(
+          '[removeLinuxDesktopFile] Cannot determine Linux home directory - skipping',
+        ),
+      );
       return { success: true };
     }
 
@@ -476,12 +634,19 @@ export async function removeLinuxDesktopFile(): Promise<{ success: boolean; erro
     try {
       await fs.promises.access(desktopFilePathWine);
       await fs.promises.unlink(desktopFilePathWine);
-      log.info(chalk.green('[removeLinuxDesktopFile] ✓ Removed Linux .desktop file:'), desktopFilePath);
+      log.info(
+        chalk.green('[removeLinuxDesktopFile] ✓ Removed Linux .desktop file:'),
+        desktopFilePath,
+      );
       return { success: true };
     } catch (accessError: unknown) {
       const err = accessError as NodeJS.ErrnoException;
       if (err.code === 'ENOENT') {
-        log.info(chalk.cyan('[removeLinuxDesktopFile] No .desktop file found to remove'));
+        log.info(
+          chalk.cyan(
+            '[removeLinuxDesktopFile] No .desktop file found to remove',
+          ),
+        );
         return { success: true };
       }
       throw accessError;
@@ -503,9 +668,14 @@ export async function removeLinuxDesktopFile(): Promise<{ success: boolean; erro
  * like /bin/sh, mkdir -p, etc. will NOT work. We use Node.js fs operations instead,
  * which work correctly because they operate on the Wine filesystem mapping.
  */
-export async function createLinuxDesktopFile(): Promise<{ success: boolean; error?: string }> {
+export async function createLinuxDesktopFile(): Promise<{
+  success: boolean;
+  error?: string;
+}> {
   if (!isRunningUnderWine()) {
-    log.info(chalk.cyan('[createLinuxDesktopFile] Not running under Wine - skipping'));
+    log.info(
+      chalk.cyan('[createLinuxDesktopFile] Not running under Wine - skipping'),
+    );
     return { success: true };
   }
 
@@ -515,23 +685,41 @@ export async function createLinuxDesktopFile(): Promise<{ success: boolean; erro
 
     // Validate that we can determine the necessary paths
     if (!home) {
-      log.warn(chalk.yellow('[createLinuxDesktopFile] Cannot determine Linux home directory - skipping .desktop file creation'));
-      log.warn(chalk.yellow('[createLinuxDesktopFile] Set WINEPREFIX or HOME environment variable to enable this feature'));
+      log.warn(
+        chalk.yellow(
+          '[createLinuxDesktopFile] Cannot determine Linux home directory - skipping .desktop file creation',
+        ),
+      );
+      log.warn(
+        chalk.yellow(
+          '[createLinuxDesktopFile] Set WINEPREFIX or HOME environment variable to enable this feature',
+        ),
+      );
       return {
         success: false,
-        error: 'Cannot determine Linux home directory. Please set WINEPREFIX environment variable.',
+        error:
+          'Cannot determine Linux home directory. Please set WINEPREFIX environment variable.',
       };
     }
 
     if (!winePrefix) {
-      log.warn(chalk.yellow('[createLinuxDesktopFile] Cannot determine Wine prefix - skipping .desktop file creation'));
+      log.warn(
+        chalk.yellow(
+          '[createLinuxDesktopFile] Cannot determine Wine prefix - skipping .desktop file creation',
+        ),
+      );
       return {
         success: false,
-        error: 'Cannot determine Wine prefix. Please set WINEPREFIX environment variable.',
+        error:
+          'Cannot determine Wine prefix. Please set WINEPREFIX environment variable.',
       };
     }
 
-    log.info(chalk.cyan(`[createLinuxDesktopFile] Using home: ${home}, winePrefix: ${winePrefix}`));
+    log.info(
+      chalk.cyan(
+        `[createLinuxDesktopFile] Using home: ${home}, winePrefix: ${winePrefix}`,
+      ),
+    );
 
     // Get the Windows path to the executable
     const exePathWindows = app.getPath('exe');
@@ -549,13 +737,24 @@ export async function createLinuxDesktopFile(): Promise<{ success: boolean; erro
     const desktopDirWine = `Z:${desktopDir.replace(/\//g, '\\\\')}`;
     const desktopFilePathWine = `Z:${desktopFilePath.replace(/\//g, '\\\\')}`;
 
-    log.info(chalk.cyan(`[createLinuxDesktopFile] Desktop dir (Wine path): ${desktopDirWine}`));
-    log.info(chalk.cyan(`[createLinuxDesktopFile] Desktop file (Wine path): ${desktopFilePathWine}`));
+    log.info(
+      chalk.cyan(
+        `[createLinuxDesktopFile] Desktop dir (Wine path): ${desktopDirWine}`,
+      ),
+    );
+    log.info(
+      chalk.cyan(
+        `[createLinuxDesktopFile] Desktop file (Wine path): ${desktopFilePathWine}`,
+      ),
+    );
 
     // Check if it already exists using Wine path
     try {
       await fs.promises.access(desktopFilePathWine);
-      log.info(chalk.cyan('[createLinuxDesktopFile] Desktop file already exists at:'), desktopFilePath);
+      log.info(
+        chalk.cyan('[createLinuxDesktopFile] Desktop file already exists at:'),
+        desktopFilePath,
+      );
       return { success: true };
     } catch {
       // File doesn't exist, continue creating it
@@ -578,7 +777,9 @@ export async function createLinuxDesktopFile(): Promise<{ success: boolean; erro
           const iconWinePath = `Z:${iconCandidate.replace(/\//g, '\\\\')}`;
           await fs.promises.access(iconWinePath);
           iconPath = iconCandidate; // Use Unix path in .desktop file
-          log.info(chalk.cyan(`[createLinuxDesktopFile] Found icon at: ${iconPath}`));
+          log.info(
+            chalk.cyan(`[createLinuxDesktopFile] Found icon at: ${iconPath}`),
+          );
           break;
         } catch {
           // Icon not found at this path, try next
@@ -603,23 +804,39 @@ Categories=Game;
     // This works under Wine because Wine maps Z: to the Linux filesystem
     try {
       await fs.promises.mkdir(desktopDirWine, { recursive: true });
-      log.info(chalk.cyan(`[createLinuxDesktopFile] Created directory: ${desktopDir}`));
+      log.info(
+        chalk.cyan(`[createLinuxDesktopFile] Created directory: ${desktopDir}`),
+      );
     } catch (mkdirError: unknown) {
       // Directory might already exist, which is fine
       const err = mkdirError as NodeJS.ErrnoException;
       if (err.code !== 'EEXIST') {
-        log.warn(chalk.yellow(`[createLinuxDesktopFile] Could not create directory: ${err.message}`));
+        log.warn(
+          chalk.yellow(
+            `[createLinuxDesktopFile] Could not create directory: ${err.message}`,
+          ),
+        );
       }
     }
 
     // Write the .desktop file using Node.js fs
     try {
-      await fs.promises.writeFile(desktopFilePathWine, desktopFileContent, { mode: 0o755 });
-      log.info(chalk.green('[createLinuxDesktopFile] ✓ Linux .desktop file created at:'), desktopFilePath);
+      await fs.promises.writeFile(desktopFilePathWine, desktopFileContent, {
+        mode: 0o755,
+      });
+      log.info(
+        chalk.green(
+          '[createLinuxDesktopFile] ✓ Linux .desktop file created at:',
+        ),
+        desktopFilePath,
+      );
       return { success: true };
     } catch (writeError: unknown) {
       const err = writeError as Error;
-      log.error(chalk.red('[createLinuxDesktopFile] Failed to write .desktop file:'), err.message);
+      log.error(
+        chalk.red('[createLinuxDesktopFile] Failed to write .desktop file:'),
+        err.message,
+      );
       return {
         success: false,
         error: `Failed to create .desktop file: ${err.message}`,
@@ -647,7 +864,11 @@ export async function removeWineDesktopFile(): Promise<void> {
   try {
     const home = getLinuxHome();
     if (!home) {
-      log.warn(chalk.yellow('[removeWineDesktopFile] Cannot determine Linux home directory - skipping'));
+      log.warn(
+        chalk.yellow(
+          '[removeWineDesktopFile] Cannot determine Linux home directory - skipping',
+        ),
+      );
       return;
     }
 
@@ -664,12 +885,22 @@ export async function removeWineDesktopFile(): Promise<void> {
         const desktopPathWine = `Z:${desktopPath.replace(/\//g, '\\')}`;
         await fs.promises.access(desktopPathWine);
         await fs.promises.unlink(desktopPathWine);
-        log.info(chalk.green('[removeWineDesktopFile] Removed broken Wine .desktop file:'), desktopPath);
+        log.info(
+          chalk.green(
+            '[removeWineDesktopFile] Removed broken Wine .desktop file:',
+          ),
+          desktopPath,
+        );
       } catch {
         // File doesn't exist or can't be removed, ignore
       }
     }
   } catch (err) {
-    log.warn(chalk.yellow('[removeWineDesktopFile] Error cleaning up Wine .desktop files:'), err);
+    log.warn(
+      chalk.yellow(
+        '[removeWineDesktopFile] Error cleaning up Wine .desktop files:',
+      ),
+      err,
+    );
   }
 }

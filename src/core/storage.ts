@@ -1,17 +1,20 @@
-import { promises as fs } from 'fs';
+import fsSync, { promises as fs } from 'fs';
+import path from 'path';
 import { getEventidePaths } from '../main/paths';
+
+// Utility: check for required files in install dir
 
 // Simple write lock to prevent concurrent storage writes (especially on Wine)
 let writeInProgress: Promise<void> | null = null;
 
 export interface DownloadProgress {
-  url: string;           // URL being downloaded
-  destPath: string;      // Destination file path
+  url: string; // URL being downloaded
+  destPath: string; // Destination file path
   bytesDownloaded: number; // Bytes successfully downloaded
-  totalBytes: number;    // Total file size
-  sha256: string;        // Expected checksum for verification
-  isPaused: boolean;     // Whether download is paused
-  startedAt: number;     // Timestamp when download started
+  totalBytes: number; // Total file size
+  sha256: string; // Expected checksum for verification
+  isPaused: boolean; // Whether download is paused
+  startedAt: number; // Timestamp when download started
   lastUpdatedAt: number; // Timestamp of last progress update
 }
 
@@ -65,7 +68,6 @@ interface LegacyStorageJson {
   GAME_UPDATER: LegacyGameUpdaterState;
 }
 
-
 const STORAGE_SCHEMA_VERSION = 2;
 const getStoragePath = () => getEventidePaths().storage;
 
@@ -106,7 +108,12 @@ export function validateStorageJson(data: any): data is StorageJson {
   }
 
   if (data.schemaVersion !== STORAGE_SCHEMA_VERSION) return false;
-  if (!data.paths || typeof data.paths.installPath !== 'string' || typeof data.paths.downloadPath !== 'string') return false;
+  if (
+    !data.paths ||
+    typeof data.paths.installPath !== 'string' ||
+    typeof data.paths.downloadPath !== 'string'
+  )
+    return false;
   if (!data.gameState) return false;
 
   const g = data.gameState;
@@ -114,8 +121,18 @@ export function validateStorageJson(data: any): data is StorageJson {
   if (typeof g.availableVersion !== 'string') {
     g.availableVersion = '0.0.0';
   }
-  if (!g.baseGame || typeof g.baseGame.isDownloaded !== 'boolean' || typeof g.baseGame.isExtracted !== 'boolean') return false;
-  if (!g.patches || typeof g.patches.downloadedVersion !== 'string' || typeof g.patches.appliedVersion !== 'string') return false;
+  if (
+    !g.baseGame ||
+    typeof g.baseGame.isDownloaded !== 'boolean' ||
+    typeof g.baseGame.isExtracted !== 'boolean'
+  )
+    return false;
+  if (
+    !g.patches ||
+    typeof g.patches.downloadedVersion !== 'string' ||
+    typeof g.patches.appliedVersion !== 'string'
+  )
+    return false;
   return true;
 }
 
@@ -125,20 +142,36 @@ export function validateStorageJson(data: any): data is StorageJson {
 function isValidV1Schema(data: any): data is LegacyStorageJson {
   if (!data || typeof data !== 'object') return false;
   if (data.schemaVersion !== 1) return false;
-  if (!data.paths || typeof data.paths.installPath !== 'string' || typeof data.paths.downloadPath !== 'string') return false;
+  if (
+    !data.paths ||
+    typeof data.paths.installPath !== 'string' ||
+    typeof data.paths.downloadPath !== 'string'
+  )
+    return false;
   if (!data.GAME_UPDATER) return false;
   const g = data.GAME_UPDATER;
   if (typeof g.currentVersion !== 'string') return false;
-  if (!g.baseGame || typeof g.baseGame.downloaded !== 'boolean' || typeof g.baseGame.extracted !== 'boolean') return false;
-  if (!g.updater || typeof g.updater.downloaded !== 'string' || typeof g.updater.extracted !== 'string') return false;
+  if (
+    !g.baseGame ||
+    typeof g.baseGame.downloaded !== 'boolean' ||
+    typeof g.baseGame.extracted !== 'boolean'
+  )
+    return false;
+  if (
+    !g.updater ||
+    typeof g.updater.downloaded !== 'string' ||
+    typeof g.updater.extracted !== 'string'
+  )
+    return false;
   return true;
 }
-
 
 /**
  * Reads storage.json, validates, migrates if needed, and resets if corrupt/invalid. Logs if reset.
  */
-export async function readStorage(logReset?: (msg: string) => void): Promise<StorageJson | null> {
+export async function readStorage(
+  logReset?: (msg: string) => void,
+): Promise<StorageJson | null> {
   const storagePath = getStoragePath();
   try {
     const data = await fs.readFile(storagePath, 'utf-8');
@@ -146,7 +179,8 @@ export async function readStorage(logReset?: (msg: string) => void): Promise<Sto
 
     // Check for v1 schema and migrate
     if (isValidV1Schema(parsed)) {
-      if (logReset) logReset(`[storage] Migrating storage.json from schema v1 to v2`);
+      if (logReset)
+        logReset(`[storage] Migrating storage.json from schema v1 to v2`);
       const migrated = migrateV1ToV2(parsed);
       await writeStorage(migrated);
       return migrated;
@@ -154,25 +188,29 @@ export async function readStorage(logReset?: (msg: string) => void): Promise<Sto
 
     if (validateStorageJson(parsed)) {
       return parsed;
-    } else {
-      if (logReset) logReset(`[storage] Invalid or outdated schema in storage.json, resetting.`);
-      await writeStorage(getDefaultStorage());
-      return getDefaultStorage();
     }
+    if (logReset)
+      logReset(
+        `[storage] Invalid or outdated schema in storage.json, resetting.`,
+      );
+    await writeStorage(getDefaultStorage());
+    return getDefaultStorage();
   } catch (e) {
     const errorMsg = e instanceof Error ? e.message : String(e);
-    if (logReset) logReset(`[storage] Could not read storage.json (${errorMsg}), resetting.`);
+    if (logReset)
+      logReset(
+        `[storage] Could not read storage.json (${errorMsg}), resetting.`,
+      );
     await writeStorage(getDefaultStorage());
     return getDefaultStorage();
   }
 }
 
-
 // Internal write function with fallback for Wine/Linux compatibility
 // Atomic rename can fail on Wine due to EPERM or cross-filesystem issues
 async function writeStorageInternal(data: StorageJson): Promise<void> {
   const storagePath = getStoragePath();
-  const tmpPath = storagePath + '.tmp';
+  const tmpPath = `${storagePath}.tmp`;
   const jsonContent = JSON.stringify(data, null, 2);
 
   try {
@@ -185,7 +223,9 @@ async function writeStorageInternal(data: StorageJson): Promise<void> {
       // Clean up temp file if it exists
       try {
         await fs.unlink(tmpPath);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
 
       // Direct write fallback (less safe but works on Wine)
       await fs.writeFile(storagePath, jsonContent, 'utf-8');
@@ -201,7 +241,9 @@ export async function writeStorage(data: StorageJson): Promise<void> {
   if (writeInProgress) {
     try {
       await writeInProgress;
-    } catch { /* ignore errors from previous write */ }
+    } catch {
+      /* ignore errors from previous write */
+    }
   }
 
   // Start our write and track it
@@ -213,9 +255,11 @@ export async function writeStorage(data: StorageJson): Promise<void> {
   }
 }
 
-
-export async function updateStorage(updater: (data: StorageJson) => void, logReset?: (msg: string) => void): Promise<void> {
-  let data = (await readStorage(logReset)) || getDefaultStorage();
+export async function updateStorage(
+  updater: (data: StorageJson) => void,
+  logReset?: (msg: string) => void,
+): Promise<void> {
+  const data = (await readStorage(logReset)) || getDefaultStorage();
   updater(data);
   await writeStorage(data);
 }
@@ -226,13 +270,13 @@ export function getDefaultStorage(): StorageJson {
     paths: {
       installPath: '',
       downloadPath: '',
-      customInstallDir: '' // Will be set when user selects install directory
+      customInstallDir: '', // Will be set when user selects install directory
     },
     gameState: {
-      installedVersion: "0.0.0",
-      availableVersion: "0.0.0",
+      installedVersion: '0.0.0',
+      availableVersion: '0.0.0',
       baseGame: { isDownloaded: false, isExtracted: false },
-      patches: { downloadedVersion: "", appliedVersion: "" },
+      patches: { downloadedVersion: '', appliedVersion: '' },
     },
   };
 }
@@ -244,8 +288,10 @@ export function getDefaultStorage(): StorageJson {
 /**
  * Save download progress to storage for resume capability
  */
-export async function saveDownloadProgress(progress: DownloadProgress): Promise<void> {
-  await updateStorage(s => {
+export async function saveDownloadProgress(
+  progress: DownloadProgress,
+): Promise<void> {
+  await updateStorage((s) => {
     s.gameState.downloadProgress = {
       ...progress,
       lastUpdatedAt: Date.now(),
@@ -265,7 +311,7 @@ export async function getDownloadProgress(): Promise<DownloadProgress | null> {
  * Clear download progress (call after successful completion or to cancel)
  */
 export async function clearDownloadProgress(): Promise<void> {
-  await updateStorage(s => {
+  await updateStorage((s) => {
     delete s.gameState.downloadProgress;
   });
 }
@@ -274,8 +320,10 @@ export async function clearDownloadProgress(): Promise<void> {
  * Update only the bytes downloaded (for frequent progress updates without full storage write)
  * This is a lighter weight update for progress tracking
  */
-export async function updateDownloadBytes(bytesDownloaded: number): Promise<void> {
-  await updateStorage(s => {
+export async function updateDownloadBytes(
+  bytesDownloaded: number,
+): Promise<void> {
+  await updateStorage((s) => {
     if (s.gameState.downloadProgress) {
       s.gameState.downloadProgress.bytesDownloaded = bytesDownloaded;
       s.gameState.downloadProgress.lastUpdatedAt = Date.now();
@@ -287,19 +335,17 @@ export async function updateDownloadBytes(bytesDownloaded: number): Promise<void
  * Set the paused state of the current download
  */
 export async function setDownloadPaused(isPaused: boolean): Promise<void> {
-  await updateStorage(s => {
+  await updateStorage((s) => {
     if (s.gameState.downloadProgress) {
       s.gameState.downloadProgress.isPaused = isPaused;
       s.gameState.downloadProgress.lastUpdatedAt = Date.now();
     }
   });
 }
-
-// Utility: check for required files in install dir
-import path from 'path';
-import fsSync from 'fs';
 export function hasRequiredGameFiles(installDir: string): boolean {
   // Add more required files as needed
   const requiredFiles = ['ashita-cli.exe'];
-  return requiredFiles.every(f => fsSync.existsSync(path.join(installDir, f)));
+  return requiredFiles.every((f) =>
+    fsSync.existsSync(path.join(installDir, f)),
+  );
 }

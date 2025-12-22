@@ -389,6 +389,7 @@ export default function HomePage(props: HomePageProps) {
 
           if (forbiddenChars.length > 0) {
             const charList = forbiddenChars.join(', ');
+            // eslint-disable-next-line no-alert
             const confirmed = window.confirm(
               `WARNING: Your password contains forbidden character(s): ${charList}.\n\n` +
                 'These characters may cause the game to crash on launch due to command-line parsing issues.\n\n' +

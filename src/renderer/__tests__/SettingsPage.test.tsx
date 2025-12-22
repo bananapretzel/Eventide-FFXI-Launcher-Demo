@@ -1,5 +1,16 @@
 // Settings Page Tests - Troubleshooting Features
 // Mock electron-log/renderer with explicit mock implementation
+import React from 'react';
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  act,
+} from '@testing-library/react';
+import '@testing-library/jest-dom';
+import SettingsPage from '../pages/SettingsPage';
+
 jest.mock('electron-log/renderer', () => {
   const mockFn = jest.fn();
   const mockLogger = {
@@ -41,17 +52,6 @@ jest.mock('../logger', () => {
     __esModule: true,
   };
 });
-
-import React from 'react';
-import {
-  render,
-  screen,
-  fireEvent,
-  waitFor,
-  act,
-} from '@testing-library/react';
-import '@testing-library/jest-dom';
-import SettingsPage from '../pages/SettingsPage';
 
 // Mock electron API
 const mockElectron = {
@@ -335,6 +335,19 @@ describe('Settings Page - PIVOT Tab', () => {
       success: true,
       data: 'win32',
     });
+
+    mockElectron.invoke.mockImplementation(async (channel: string) => {
+      if (channel === 'pivot:list-overlays') {
+        return { success: true, data: ['Eventide', 'XIView', 'Ashenbubs'] };
+      }
+      if (channel === 'eventide:get-paths') {
+        return {
+          success: true,
+          data: { gameRoot: 'C:/EventideXI/Game/Eventide' },
+        };
+      }
+      return { success: true };
+    });
   });
 
   it('should render PIVOT category tab', async () => {
@@ -344,16 +357,19 @@ describe('Settings Page - PIVOT Tab', () => {
     expect(pivotTab).toBeInTheDocument();
   });
 
-  it('should show Eventide overlay setting when PIVOT tab clicked', async () => {
+  it('should show Pivot overlays list when PIVOT tab clicked', async () => {
     render(<SettingsPage />);
 
     const pivotTab = screen.getByRole('button', { name: /^PIVOT$/i });
     fireEvent.click(pivotTab);
 
     await waitFor(() => {
-      expect(screen.getByText(/Overlays/i)).toBeInTheDocument();
-      const eventideLabel = screen.getByLabelText(/Eventide overlay/i);
-      expect(eventideLabel).toBeInTheDocument();
+      expect(
+        screen.getByRole('heading', { name: /^Overlays$/i }),
+      ).toBeInTheDocument();
+      expect(screen.getByText(/Eventide \(required\)/i)).toBeInTheDocument();
+      expect(screen.getByText(/XIView/i)).toBeInTheDocument();
+      expect(screen.getByText(/Ashenbubs/i)).toBeInTheDocument();
     });
   });
 });

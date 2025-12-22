@@ -431,7 +431,7 @@ describe('Error Display and Recovery', () => {
       });
     });
 
-    it('should clear downloads when Clear Downloads button clicked', async () => {
+    it('should suggest clearing downloads for corrupted downloads', async () => {
       mockElectron.invoke.mockImplementation((channel: string) => {
         if (channel === 'game:check') {
           return Promise.resolve({
@@ -442,9 +442,6 @@ describe('Error Display and Recovery', () => {
         }
         if (channel === 'game:download') {
           return Promise.reject(new Error('SHA256 mismatch'));
-        }
-        if (channel === 'clear-downloads') {
-          return Promise.resolve({ success: true });
         }
         return Promise.resolve({ success: true });
       });
@@ -466,19 +463,12 @@ describe('Error Display and Recovery', () => {
         expect(screen.getByText(/Download Corrupted/i)).toBeInTheDocument();
       });
 
-      const clearButton = screen.getByRole('button', {
-        name: /Clear Downloads/i,
-      });
-      await act(async () => {
-        fireEvent.click(clearButton);
-      });
-
-      await waitFor(() => {
-        expect(mockElectron.invoke).toHaveBeenCalledWith('clear-downloads');
-      });
+      expect(
+        screen.getByText(/clearing downloads and downloading again/i),
+      ).toBeInTheDocument();
     });
 
-    it('should open log file when View Log button clicked', async () => {
+    it('should suggest checking logs on unknown errors', async () => {
       mockElectron.invoke.mockImplementation((channel: string) => {
         if (channel === 'game:check') {
           return Promise.resolve({
@@ -489,9 +479,6 @@ describe('Error Display and Recovery', () => {
         }
         if (channel === 'game:download') {
           return Promise.reject(new Error('Download failed'));
-        }
-        if (channel === 'open-log-file') {
-          return Promise.resolve({ success: true });
         }
         return Promise.resolve({ success: true });
       });
@@ -514,14 +501,7 @@ describe('Error Display and Recovery', () => {
         expect(errorCard).toBeInTheDocument();
       });
 
-      const viewLogButton = screen.getByRole('button', { name: /View Log/i });
-      await act(async () => {
-        fireEvent.click(viewLogButton);
-      });
-
-      await waitFor(() => {
-        expect(mockElectron.invoke).toHaveBeenCalledWith('open-log-file');
-      });
+      expect(screen.getByText(/Check the log file for details/i)).toBeInTheDocument();
     });
   });
 

@@ -2,6 +2,12 @@
 // Tests for v1 → v2 schema migration
 
 // Mock electron-log - uses __mocks__/electron-log.js
+import {
+  validateStorageJson,
+  getDefaultStorage,
+  StorageJson,
+} from '../storage';
+
 jest.mock('electron-log');
 
 // Mock electron
@@ -21,12 +27,6 @@ jest.mock('../../main/paths', () => ({
     downloadRoot: '/mock/downloads',
   })),
 }));
-
-import {
-  validateStorageJson,
-  getDefaultStorage,
-  StorageJson,
-} from '../storage';
 
 describe('Storage Schema Migration', () => {
   describe('validateStorageJson', () => {

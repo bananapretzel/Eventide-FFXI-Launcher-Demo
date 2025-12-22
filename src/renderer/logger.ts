@@ -20,39 +20,33 @@ function sanitizeLogMessage(message: unknown): unknown {
     let sanitized = message;
 
     // Remove Windows user paths (C:\Users\USERNAME\...)
-    sanitized = sanitized.replace(
-      /([A-Za-z]:\\Users\\)[^\\]+/gi,
-      '$1<user>'
-    );
+    sanitized = sanitized.replace(/([A-Za-z]:\\Users\\)[^\\]+/gi, '$1<user>');
 
     // Remove Unix user paths (/home/username/... or /Users/username/...)
-    sanitized = sanitized.replace(
-      /(\/(?:home|Users)\/)[^/]+/gi,
-      '$1<user>'
-    );
+    sanitized = sanitized.replace(/(\/(?:home|Users)\/)[^/]+/gi, '$1<user>');
 
     // Remove Wine prefix paths with usernames
     sanitized = sanitized.replace(
       /(\.wine\/drive_c\/users\/)[^/]+/gi,
-      '$1<user>'
+      '$1<user>',
     );
 
     // Remove AppData paths with usernames
     sanitized = sanitized.replace(
       /(AppData\\(?:Local|Roaming)\\)/gi,
-      'AppData\\<type>\\'
+      'AppData\\<type>\\',
     );
 
     // Remove email addresses
     sanitized = sanitized.replace(
       /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g,
-      '<email>'
+      '<email>',
     );
 
     // Remove potential credentials/tokens (basic patterns)
     sanitized = sanitized.replace(
       /(password|passwd|pwd|token|secret|apikey|api_key|auth|credential)[=:]\s*["']?[^"'\s]+["']?/gi,
-      '$1=<redacted>'
+      '$1=<redacted>',
     );
 
     return sanitized;
@@ -61,7 +55,9 @@ function sanitizeLogMessage(message: unknown): unknown {
   if (typeof message === 'object') {
     if (message instanceof Error) {
       // Sanitize error messages but preserve error type
-      const sanitizedError = new Error(sanitizeLogMessage(message.message) as string);
+      const sanitizedError = new Error(
+        sanitizeLogMessage(message.message) as string,
+      );
       sanitizedError.name = message.name;
       // Don't include stack traces in production
       if (!isProduction) {
@@ -76,7 +72,7 @@ function sanitizeLogMessage(message: unknown): unknown {
 
     // Sanitize object properties
     const sanitizedObj: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(message)) {
+    Object.entries(message).forEach(([key, value]) => {
       // Skip sensitive keys entirely
       const lowerKey = key.toLowerCase();
       if (
@@ -90,7 +86,7 @@ function sanitizeLogMessage(message: unknown): unknown {
       } else {
         sanitizedObj[key] = sanitizeLogMessage(value);
       }
-    }
+    });
     return sanitizedObj;
   }
 
@@ -102,7 +98,7 @@ function sanitizeLogMessage(message: unknown): unknown {
  */
 function createSanitizedLogFn(
   originalFn: (...args: unknown[]) => void,
-  level: 'debug' | 'info' | 'warn' | 'error'
+  level: 'debug' | 'info' | 'warn' | 'error',
 ): (...args: unknown[]) => void {
   return (...args: unknown[]) => {
     // In production, skip debug logs entirely
@@ -143,4 +139,3 @@ const sanitizedLogger = {
 
 // Export logger with sanitization
 export default sanitizedLogger;
-
