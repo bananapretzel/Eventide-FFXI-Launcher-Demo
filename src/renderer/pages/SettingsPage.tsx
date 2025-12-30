@@ -215,13 +215,25 @@ function LauncherUpdatesCard({
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
 
+  const normalizeUpdateStatus = (status: string): string => {
+    // Renderer UI expects a simplified internal status.
+    // Main process caches electron-updater statuses like 'update-available'.
+    switch (status) {
+      case 'update-available':
+        return 'available';
+      default:
+        return status;
+    }
+  };
+
   useEffect(() => {
     // Initialize from the last-known update status (startup check may have already run)
     const init = async () => {
       try {
         const res = await window.electron?.launcherUpdate?.getStatus?.();
         if (res?.success && res.payload?.status) {
-          setUpdateStatus(res.payload.status);
+          const nextStatus = normalizeUpdateStatus(res.payload.status);
+          setUpdateStatus(nextStatus);
           if (res.payload.info) {
             setUpdateInfo(res.payload.info);
           }

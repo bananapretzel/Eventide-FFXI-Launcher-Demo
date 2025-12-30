@@ -618,7 +618,7 @@ app.once('ready', async () => {
         sendLauncherUpdateEvent({
           status: 'update-available',
           info,
-          message: `Launcher update available${versionInfo}. Click to download.`,
+          message: `New launcher update available${versionInfo}.`,
         });
       });
 
