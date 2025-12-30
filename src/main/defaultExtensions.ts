@@ -15,7 +15,7 @@ export const DEFAULT_ADDONS = [
     author: 'atom0s',
     version: '1.0',
     link: 'https://ashitaxi.com',
-    enabled: false,
+    enabled: true,
   },
   {
     name: 'autojoin',
@@ -175,7 +175,7 @@ export const DEFAULT_ADDONS = [
     author: 'atom0s',
     version: '1.1',
     link: 'https://ashitaxi.com',
-    enabled: false,
+    enabled: true,
   },
   {
     name: 'filterless',
@@ -183,7 +183,7 @@ export const DEFAULT_ADDONS = [
     author: 'atom0s',
     version: '1.0',
     link: 'https://ashitaxi.com',
-    enabled: false,
+    enabled: true,
   },
   {
     name: 'filters',
@@ -209,7 +209,7 @@ export const DEFAULT_ADDONS = [
     author: 'atom0s',
     version: '1.1',
     link: 'https://ashitaxi.com',
-    enabled: false,
+    enabled: true,
   },
   {
     name: 'freemem',
@@ -218,7 +218,7 @@ export const DEFAULT_ADDONS = [
     author: 'atom0s',
     version: '1.0',
     link: 'https://ashitaxi.com',
-    enabled: false,
+    enabled: true,
   },
   {
     name: 'HGather',
@@ -256,11 +256,11 @@ export const DEFAULT_ADDONS = [
     enabled: false,
   },
   {
-    name: 'HXUI',
+    name: 'XIUI (previously HXUI)',
     description: 'Multiple UI elements with manager',
-    author: 'Team HXUI (Tirem, Shuu, colorglut, RheaCloud)',
-    version: '1.1.1',
-    link: 'https://github.com/tirem/HXUI',
+    author: 'Team HXUI',
+    version: '1.6.11',
+    link: 'https://github.com/tirem/XIUI',
     enabled: false,
   },
   {
@@ -287,7 +287,7 @@ export const DEFAULT_ADDONS = [
     author: 'atom0s',
     version: '1.0',
     link: 'https://ashitaxi.com',
-    enabled: false,
+    enabled: true,
   },
   {
     name: 'instantchat',
@@ -537,7 +537,7 @@ export const DEFAULT_ADDONS = [
     author: 'atom0s',
     version: '1.0',
     link: 'https://ashitaxi.com',
-    enabled: false,
+    enabled: true,
   },
   {
     name: 'xicamera',
@@ -569,7 +569,7 @@ export const DEFAULT_PLUGINS = [
     name: 'HardwareMouse',
     description:
       'Fixes issues with the mouse not working properly when using some graphics proxy libraries, such as dgVoodoo.',
-    enabled: false,
+    enabled: true,
   },
   {
     name: 'LegacyAC',
@@ -586,7 +586,7 @@ export const DEFAULT_PLUGINS = [
     name: 'Nameplate',
     description:
       'Fixes the rendering issue for the names above players, mobs, and entitiies. ',
-    enabled: false,
+    enabled: true,
   },
   {
     name: 'PacketFlow',

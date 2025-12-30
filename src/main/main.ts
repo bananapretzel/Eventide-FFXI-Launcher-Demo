@@ -74,6 +74,20 @@ const manifestCache: ManifestCache = {
   timestamp: null,
 };
 
+// Cache the most recent launcher update event so late-subscribing renderer views
+// (e.g., Settings opened after startup) can still show the correct status.
+let lastLauncherUpdateEvent: any = { status: 'idle' };
+
+function sendLauncherUpdateEvent(payload: any): void {
+  lastLauncherUpdateEvent = payload;
+  const g: any = global;
+  g.mainWindow?.webContents.send('launcher:update-event', payload);
+}
+
+// Prevent concurrent download/resume IPC from button-spam.
+// Pause/cancel remain allowed while this is true.
+let baseGameInstallInProgress = false;
+
 // Track which release URL the app is using.
 // In production builds we always force this to the configured constant.
 let currentReleaseUrl: string = RELEASE_JSON_URL;
@@ -569,6 +583,13 @@ app.once('ready', async () => {
       autoUpdater.autoDownload = false;
       autoUpdater.autoInstallOnAppQuit = true;
 
+      // In development, electron-updater will skip update checks unless a dev
+      // config is forced (and dev-app-update.yml exists). We want startup
+      // update checks to work in dev as well.
+      if (!app.isPackaged) {
+        (autoUpdater as any).forceDevUpdateConfig = true;
+      }
+
       autoUpdater.on('checking-for-update', () => {
         // Skip update checks if patching is in progress
         if (isPatchingInProgress) {
@@ -580,8 +601,7 @@ app.once('ready', async () => {
           return;
         }
         log.info(chalk.cyan('[autoUpdater] Checking for launcher updates...'));
-        const g: any = global;
-        g.mainWindow?.webContents.send('launcher:update-event', {
+        sendLauncherUpdateEvent({
           status: 'checking',
           message: 'Checking for Eventide Launcher updates...',
         });
@@ -595,8 +615,7 @@ app.once('ready', async () => {
           ),
           info,
         );
-        const g: any = global;
-        g.mainWindow?.webContents.send('launcher:update-event', {
+        sendLauncherUpdateEvent({
           status: 'update-available',
           info,
           message: `Launcher update available${versionInfo}. Click to download.`,
@@ -605,8 +624,7 @@ app.once('ready', async () => {
 
       autoUpdater.on('update-not-available', (info) => {
         log.info(chalk.green('[autoUpdater] Launcher is up to date'));
-        const g: any = global;
-        g.mainWindow?.webContents.send('launcher:update-event', {
+        sendLauncherUpdateEvent({
           status: 'up-to-date',
           info,
           message: 'Eventide Launcher is up to date!',
@@ -623,8 +641,7 @@ app.once('ready', async () => {
           chalk.cyan('[autoUpdater] Download progress:'),
           `${percent.toFixed(1)}% (${transferredMB}/${totalMB} MB) @ ${speedMB} MB/s`,
         );
-        const g: any = global;
-        g.mainWindow?.webContents.send('launcher:update-event', {
+        sendLauncherUpdateEvent({
           status: 'downloading',
           progress,
           message: `Downloading update: ${percent.toFixed(1)}% (${transferredMB}/${totalMB} MB)`,
@@ -638,8 +655,7 @@ app.once('ready', async () => {
             `[autoUpdater] Update${versionInfo} downloaded successfully!`,
           ),
         );
-        const g: any = global;
-        g.mainWindow?.webContents.send('launcher:update-event', {
+        sendLauncherUpdateEvent({
           status: 'downloaded',
           info,
           message: `Update${versionInfo} ready! Restart to install.`,
@@ -649,8 +665,7 @@ app.once('ready', async () => {
       autoUpdater.on('error', (error) => {
         const errorMsg = error instanceof Error ? error.message : String(error);
         log.error(chalk.red('[autoUpdater] Update error:'), errorMsg);
-        const g: any = global;
-        g.mainWindow?.webContents.send('launcher:update-event', {
+        sendLauncherUpdateEvent({
           status: 'error',
           error: errorMsg,
           message: `Update failed: ${errorMsg}. Try again later.`,
@@ -840,16 +855,31 @@ app.once('ready', async () => {
   }
 });
 
+// IPC handler so renderer can query current launcher update status on demand.
+ipcMain.handle('launcher:get-update-status', async () => {
+  return { success: true, payload: lastLauncherUpdateEvent };
+});
+
 // IPC handlers for launcher self-updates
 ipcMain.handle('launcher:checkForUpdates', async () => {
   try {
+    sendLauncherUpdateEvent({
+      status: 'checking',
+      message: 'Checking for Eventide Launcher updates...',
+    });
     const result = await autoUpdater.checkForUpdates();
     return { success: true, result };
   } catch (error) {
     log.error(chalk.red('[launcher:checkForUpdates] error'), error);
+    const msg = error instanceof Error ? error.message : String(error);
+    sendLauncherUpdateEvent({
+      status: 'error',
+      error: msg,
+      message: `Update failed: ${msg}. Try again later.`,
+    });
     return {
       success: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: msg,
     };
   }
 });
@@ -1458,9 +1488,18 @@ ipcMain.handle(
     _baseVersion: string,
     _expectedSize?: number,
   ) => {
+    if (baseGameInstallInProgress) {
+      log.warn(
+        chalk.yellow('[launcher:downloadGame] Download already in progress'),
+      );
+      return { success: true, inProgress: true };
+    }
+
+    baseGameInstallInProgress = true;
     try {
-      // Check and prompt for DirectPlay on Windows before download/extraction
-      await ensureDirectPlay();
+      // Ensure customInstallDir is synced from storage and required directories exist
+      await ensureCustomInstallDirSynced();
+      ensureDirs(true);
 
       // Derive download parameters from the trusted release.json rather than trusting renderer input.
       const release = await getReleaseJson(
@@ -1496,11 +1535,18 @@ ipcMain.handle(
         sizeBytes,
         onDownloadProgress,
         onExtractProgress,
+        async () => {
+          // Prompt during extraction (not during download). Skip repeated prompts within a session.
+          await ensureDirectPlay(true);
+        },
       );
       log.info(chalk.cyan('[download] Download completed successfully'));
       return { success: true };
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
+      if (errorMessage === 'DOWNLOAD_IN_PROGRESS') {
+        return { success: true, inProgress: true };
+      }
       // Handle paused download (not an error)
       if (errorMessage === 'DOWNLOAD_PAUSED') {
         log.info(chalk.yellow('[download] Download was paused'));
@@ -1508,6 +1554,8 @@ ipcMain.handle(
       }
       log.error(chalk.red(`[download] Download failed: ${errorMessage}`));
       return { success: false, error: errorMessage };
+    } finally {
+      baseGameInstallInProgress = false;
     }
   },
 );
@@ -1650,6 +1698,37 @@ app.on('ready', () => {
     },
   });
   mainWindow.loadURL(resolveHtmlPath('index.html'));
+
+  // Check for launcher updates on startup once the renderer is ready
+  // so it can show a toast immediately if an update is available.
+  // Note: In dev mode this may fail if no update feed is configured; that's OK.
+  mainWindow.webContents.once('did-finish-load', () => {
+    if (isPatchingInProgress) {
+      log.info(
+        chalk.yellow(
+          '[autoUpdater] Skipping startup update check - patching in progress',
+        ),
+      );
+      return;
+    }
+
+    // Ensure the renderer sees a state transition even if checkForUpdates()
+    // fails before autoUpdater emits any events (common in dev setups).
+    sendLauncherUpdateEvent({
+      status: 'checking',
+      message: 'Checking for Eventide Launcher updates...',
+    });
+
+    autoUpdater.checkForUpdates().catch((err) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.warn(chalk.yellow('[autoUpdater] Startup update check failed:'), msg);
+      sendLauncherUpdateEvent({
+        status: 'error',
+        error: msg,
+        message: `Update failed: ${msg}. Try again later.`,
+      });
+    });
+  });
 
   // Security: Prevent unauthorized window creation
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -2952,9 +3031,19 @@ ipcMain.handle('clear-downloads', async () => {
 });
 
 ipcMain.handle('game:download', async () => {
+  if (baseGameInstallInProgress) {
+    log.warn(chalk.yellow('[game:download] Download already in progress'));
+    return { success: true, inProgress: true };
+  }
+
+  baseGameInstallInProgress = true;
   try {
     // Ensure customInstallDir is synced from storage
     await ensureCustomInstallDirSynced();
+
+    // Ensure install/download directories exist (prevents ENOENT on createWriteStream)
+    ensureDirs(true);
+
     const paths = getEventidePaths();
     const installDir = paths.gameRoot;
     const downloadsDir = paths.dlRoot;
@@ -3007,9 +3096,6 @@ ipcMain.handle('game:download', async () => {
       ),
     );
 
-    // Check and prompt for DirectPlay on Windows before download/extraction
-    await ensureDirectPlay();
-
     // Progress callbacks
     const onDownloadProgress = (dl: number, total: number) => {
       if (mainWindow) {
@@ -3032,6 +3118,10 @@ ipcMain.handle('game:download', async () => {
       release.game.sizeBytes,
       onDownloadProgress,
       onExtractProgress,
+      async () => {
+        // Prompt during extraction (not during download). Skip repeated prompts within a session.
+        await ensureDirectPlay(true);
+      },
     );
 
     // After successful download and extraction, invalidate cache and fetch fresh data
@@ -3105,6 +3195,13 @@ ipcMain.handle('game:download', async () => {
     ) {
       errorMessage =
         'Network error: Unable to connect to download server. Check your internet connection.';
+    } else if (
+      errorMessage.toLowerCase().includes('aborted') ||
+      errorMessage.toLowerCase().includes('socket hang up') ||
+      errorMessage.toLowerCase().includes('econnreset')
+    ) {
+      errorMessage =
+        'Network error: Connection was interrupted during download. Please try again (the launcher will resume automatically if possible).';
     } else if (errorMessage.includes('ENOSPC')) {
       errorMessage =
         'Insufficient disk space. Please free up space and try again.';
@@ -3136,6 +3233,8 @@ ipcMain.handle('game:download', async () => {
       });
     }
     return { success: false, error: errorMessage };
+  } finally {
+    baseGameInstallInProgress = false;
   }
 });
 
@@ -3228,6 +3327,14 @@ ipcMain.handle('game:pause-download', async () => {
  * Resume a paused download
  */
 ipcMain.handle('game:resume-download', async () => {
+  if (baseGameInstallInProgress) {
+    log.warn(
+      chalk.yellow('[game:resume-download] Download already in progress'),
+    );
+    return { success: true, inProgress: true };
+  }
+
+  baseGameInstallInProgress = true;
   try {
     log.info(
       chalk.cyan('[game:resume-download] Checking for resumable download...'),
@@ -3247,14 +3354,64 @@ ipcMain.handle('game:resume-download', async () => {
       ),
     );
 
-    // Check and prompt for DirectPlay on Windows before download/extraction
-    await ensureDirectPlay();
-
     // Ensure customInstallDir is synced from storage
     await ensureCustomInstallDirSynced();
+
+    // Ensure install/download directories exist (prevents ENOENT on createWriteStream)
+    ensureDirs(true);
+
     const paths = getEventidePaths();
     const installDir = paths.gameRoot;
     const { release } = await getCachedManifests();
+
+    // If the launcher release changed since the partial download was saved (common if paused for days),
+    // resuming will almost certainly fail checksum/extraction. Clear it and force a fresh download.
+    const currentUrl = release?.game?.fullUrl;
+    const currentSha = release?.game?.sha256;
+    const currentSize = Number(release?.game?.sizeBytes || 0);
+    const progressSize = Number(progress.totalBytes || 0);
+
+    const urlMismatch = Boolean(currentUrl && progress.url !== currentUrl);
+    const shaMismatch = Boolean(currentSha && progress.sha256 !== currentSha);
+    const sizeMismatch = Boolean(
+      currentSize > 0 && progressSize > 0 && progressSize !== currentSize,
+    );
+
+    if (urlMismatch || shaMismatch || sizeMismatch) {
+      log.warn(
+        chalk.yellow(
+          '[game:resume-download] Stored resumable download does not match current release; clearing stale partial download',
+        ),
+        {
+          urlMismatch,
+          shaMismatch,
+          sizeMismatch,
+          progress: {
+            url: progress.url,
+            sha256: progress.sha256,
+            totalBytes: progress.totalBytes,
+          },
+          current: {
+            url: currentUrl,
+            sha256: currentSha,
+            totalBytes: currentSize,
+          },
+        },
+      );
+
+      await cancelDownload(progress.destPath);
+      const msg =
+        'Saved download is outdated and cannot be resumed (release changed). Please start the download again.';
+
+      if (mainWindow) {
+        mainWindow.webContents.send('game:status', {
+          status: 'error',
+          message: msg,
+        });
+      }
+
+      return { success: false, error: msg };
+    }
 
     // Progress callbacks
     const onDownloadProgress = (dl: number, total: number) => {
@@ -3286,6 +3443,10 @@ ipcMain.handle('game:resume-download', async () => {
       progress.totalBytes,
       onDownloadProgress,
       onExtractProgress,
+      async () => {
+        // Prompt during extraction (not during download/resume). Skip repeated prompts within a session.
+        await ensureDirectPlay(true);
+      },
     );
 
     if (result.wasPaused) {
@@ -3344,6 +3505,8 @@ ipcMain.handle('game:resume-download', async () => {
       });
     }
     return { success: false, error: errorMessage };
+  } finally {
+    baseGameInstallInProgress = false;
   }
 });
 

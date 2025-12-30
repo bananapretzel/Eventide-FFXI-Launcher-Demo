@@ -14,6 +14,8 @@ import log from './logger';
 
 const execAsync = promisify(exec);
 
+let hasPromptedThisSession = false;
+
 /**
  * Check if DirectPlay is enabled on Windows using DISM
  * @returns Promise<boolean> - true if DirectPlay is enabled, false otherwise
@@ -229,10 +231,17 @@ export async function promptEnableDirectPlay(): Promise<
  * @returns Promise<boolean> - true if DirectPlay is ready or user was informed
  */
 export async function ensureDirectPlay(
-  _skipIfAlreadyPrompted: boolean = false,
+  skipIfAlreadyPrompted: boolean = false,
 ): Promise<boolean> {
   if (process.platform !== 'win32') {
     log.info(chalk.cyan('[DirectPlay] Not on Windows, skipping'));
+    return true;
+  }
+
+  if (skipIfAlreadyPrompted && hasPromptedThisSession) {
+    log.info(
+      chalk.cyan('[DirectPlay] Already prompted this session; skipping prompt'),
+    );
     return true;
   }
 
@@ -248,6 +257,8 @@ export async function ensureDirectPlay(
   log.info(
     chalk.yellow('[DirectPlay] DirectPlay is not enabled, prompting user...'),
   );
+
+  hasPromptedThisSession = true;
 
   const result = await promptEnableDirectPlay();
 

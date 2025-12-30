@@ -34,6 +34,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set<string>([
   'launcher:checkForUpdates',
   'launcher:downloadUpdate',
   'launcher:installUpdate',
+  'launcher:get-update-status',
 
   // Game lifecycle helpers
   'game:check',
@@ -220,6 +221,7 @@ const electronHandler = {
     checkForUpdates: () => ipcRenderer.invoke('launcher:checkForUpdates'),
     downloadUpdate: () => ipcRenderer.invoke('launcher:downloadUpdate'),
     installUpdate: () => ipcRenderer.invoke('launcher:installUpdate'),
+    getStatus: () => ipcRenderer.invoke('launcher:get-update-status'),
     onUpdateEvent: (
       handler: (event: IpcRendererEvent, payload: any) => void,
     ) => {

@@ -216,6 +216,26 @@ function LauncherUpdatesCard({
   const [downloadProgress, setDownloadProgress] = useState(0);
 
   useEffect(() => {
+    // Initialize from the last-known update status (startup check may have already run)
+    const init = async () => {
+      try {
+        const res = await window.electron?.launcherUpdate?.getStatus?.();
+        if (res?.success && res.payload?.status) {
+          setUpdateStatus(res.payload.status);
+          if (res.payload.info) {
+            setUpdateInfo(res.payload.info);
+          }
+          if (res.payload.status === 'downloading') {
+            setDownloadProgress(res.payload.progress?.percent || 0);
+          }
+        }
+      } catch {
+        // best-effort
+      }
+    };
+
+    init();
+
     if (!window.electron?.launcherUpdate?.onUpdateEvent) {
       return () => {};
     }
@@ -234,7 +254,6 @@ function LauncherUpdatesCard({
           case 'up-to-date':
             setUpdateStatus('up-to-date');
             setIsChecking(false);
-            handleShowToast(payload.message || 'Launcher is up to date!');
             break;
           case 'downloading':
             setUpdateStatus('downloading');
@@ -344,11 +363,30 @@ function LauncherUpdatesCard({
         style: { background: 'var(--success)' },
       };
     }
-    // Default: idle, up-to-date, or error - show check for updates
+
+    if (updateStatus === 'error') {
+      return {
+        text: 'Retry Update Check',
+        action: handleCheckForUpdates,
+        disabled: false,
+        style: {},
+      };
+    }
+
+    if (updateStatus === 'up-to-date') {
+      return {
+        text: 'Up to Date',
+        action: () => {},
+        disabled: true,
+        style: {},
+      };
+    }
+
+    // Default: idle (startup check in progress or not yet reported)
     return {
-      text: 'Check For Updates',
-      action: handleCheckForUpdates,
-      disabled: false,
+      text: 'Checking on Startup...',
+      action: () => {},
+      disabled: true,
       style: {},
     };
   };
@@ -1411,9 +1449,11 @@ export default function SettingsPage() {
                     color: 'var(--ink, #004D40)',
                     lineHeight: 1.4,
                     marginBottom: '10px',
+                    textAlign: 'center',
                   }}
                 >
-                  Click & Drag overlays to set priority. Top is applied first,
+                  Folders are detected inside Game/polplugins/DATs. Click & Drag
+                  overlays to set priority. Top is applied first, bottom is
                   bottom is applied last.
                 </div>
                 <div

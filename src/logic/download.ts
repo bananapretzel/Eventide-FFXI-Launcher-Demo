@@ -24,6 +24,9 @@ import {
 let lastProgressSaveTime = 0;
 const PROGRESS_SAVE_INTERVAL_MS = 5000; // Save progress every 5 seconds
 
+// Prevent concurrent downloads/resumes (e.g., due to button spamming)
+let downloadResumableInFlight = false;
+
 export interface DownloadGameResult {
   completed: boolean;
   wasPaused: boolean;
@@ -129,6 +132,7 @@ export async function downloadGame(
   expectedSize?: number,
   onProgress?: (dl: number, total: number) => void,
   onExtractProgress?: (current: number, total: number) => void,
+  beforeExtract?: () => Promise<void>,
 ): Promise<void> {
   const result = await downloadGameResumable(
     url,
@@ -139,6 +143,7 @@ export async function downloadGame(
     expectedSize,
     onProgress,
     onExtractProgress,
+    beforeExtract,
   );
 
   if (!result.completed && result.wasPaused) {
@@ -155,7 +160,19 @@ export async function downloadGameResumable(
   expectedSize?: number,
   onProgress?: (dl: number, total: number) => void,
   onExtractProgress?: (current: number, total: number) => void,
+  beforeExtract?: () => Promise<void>,
 ): Promise<DownloadGameResult> {
+  if (downloadResumableInFlight) {
+    log.warn(
+      chalk.yellow(
+        '[downloadGameResumable] Download already in progress; rejecting concurrent start',
+      ),
+    );
+    throw new Error('DOWNLOAD_IN_PROGRESS');
+  }
+  downloadResumableInFlight = true;
+
+  try {
   log.info(
     chalk.cyan('[downloadGameResumable] ================================='),
   );
@@ -187,11 +204,17 @@ export async function downloadGameResumable(
   let startByte = 0;
   const existingProgress = await getDownloadProgress();
 
-  if (
-    existingProgress &&
-    existingProgress.url === url &&
-    existingProgress.destPath === zipPath
-  ) {
+  // If the stored progress no longer matches the current expected download, treat it as stale.
+  // This can happen if the user pauses for days and release.json changes (URL/SHA/size).
+  const progressMatchesCurrentDownload = (p: DownloadProgress): boolean => {
+    if (p.url !== url) return false;
+    if (p.destPath !== zipPath) return false;
+    if (p.sha256 !== sha256) return false;
+    if (expectedSize && p.totalBytes && p.totalBytes !== expectedSize) return false;
+    return true;
+  };
+
+  if (existingProgress && progressMatchesCurrentDownload(existingProgress)) {
     // Verify the partial file exists and get actual size
     const actualSize = getPartialDownloadSize(zipPath);
     if (actualSize > 0) {
@@ -203,12 +226,32 @@ export async function downloadGameResumable(
       );
     }
   } else if (existingProgress) {
-    // Different download in progress, clear it
+    // Different/stale download in progress, clear it and delete the old partial ZIP.
     log.warn(
       chalk.yellow(
-        '[downloadGameResumable] Found progress for different download, clearing...',
+        '[downloadGameResumable] Found stale download progress (URL/SHA/size changed), clearing...',
       ),
     );
+
+    // Best-effort delete to avoid resuming/validating the wrong file later.
+    try {
+      if (existingProgress.destPath) {
+        await fs.unlink(existingProgress.destPath);
+        log.info(
+          chalk.cyan(
+            `[downloadGameResumable] Deleted stale partial download: ${existingProgress.destPath}`,
+          ),
+        );
+      }
+    } catch (err) {
+      log.warn(
+        chalk.yellow(
+          '[downloadGameResumable] Could not delete stale partial download:',
+        ),
+        err,
+      );
+    }
+
     await clearDownloadProgress();
   }
 
@@ -356,6 +399,11 @@ export async function downloadGameResumable(
 
   log.info(chalk.green('[downloadGameResumable] Checksum verified'));
 
+  if (beforeExtract) {
+    log.info(chalk.cyan('[downloadGameResumable] Running pre-extraction hook...'));
+    await beforeExtract();
+  }
+
   log.info(chalk.cyan(`[downloadGameResumable] Extracting to: ${installDir}`));
 
   try {
@@ -429,4 +477,7 @@ export async function downloadGameResumable(
     bytesDownloaded: expectedSize || 0,
     totalBytes: expectedSize || 0,
   };
+  } finally {
+    downloadResumableInFlight = false;
+  }
 }

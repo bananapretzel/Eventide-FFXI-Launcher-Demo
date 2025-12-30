@@ -1,6 +1,0 @@
-Test on a fresh windows VM
-
-Test on linux
-
-either test adding shorthand as a patch to see if the gui updates itself with the new plugin or repackage the base game with it included.
-

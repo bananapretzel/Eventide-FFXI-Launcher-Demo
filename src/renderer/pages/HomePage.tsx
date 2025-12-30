@@ -50,7 +50,11 @@ export default function HomePage(props: HomePageProps) {
   const [isUpdating, setIsUpdating] = useState(false);
   const [lastStatus, setLastStatus] = useState<string | null>(null);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [downloadControlsBusy, setDownloadControlsBusy] = useState(false);
   const cancelDialogRef = useRef<HTMLDivElement | null>(null);
+  const downloadControlsBusyTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
 
   // Speed tracking state
   const [downloadSpeed, setDownloadSpeed] = useState<number>(0);
@@ -101,6 +105,27 @@ export default function HomePage(props: HomePageProps) {
     }
   }, [showCancelDialog]);
 
+  // Cleanup any outstanding UI throttle timers
+  useEffect(() => {
+    return () => {
+      if (downloadControlsBusyTimerRef.current) {
+        clearTimeout(downloadControlsBusyTimerRef.current);
+        downloadControlsBusyTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  const throttleDownloadControls = useCallback((ms: number = 350) => {
+    setDownloadControlsBusy(true);
+    if (downloadControlsBusyTimerRef.current) {
+      clearTimeout(downloadControlsBusyTimerRef.current);
+    }
+    downloadControlsBusyTimerRef.current = setTimeout(() => {
+      setDownloadControlsBusy(false);
+      downloadControlsBusyTimerRef.current = null;
+    }, ms);
+  }, []);
+
   // Listen for launcher update events
   useEffect(() => {
     if (!window.electron?.launcherUpdate?.onUpdateEvent) {
@@ -123,7 +148,6 @@ export default function HomePage(props: HomePageProps) {
             break;
           case 'up-to-date':
             setUpdateStatus('up-to-date');
-            handleShowToast(payload.message || 'Launcher is up to date!');
             break;
           case 'downloading':
             setUpdateStatus('downloading');
@@ -939,7 +963,10 @@ export default function HomePage(props: HomePageProps) {
                   </span>
                   <button
                     type="button"
+                    disabled={downloadControlsBusy}
                     onClick={async () => {
+                      if (downloadControlsBusy) return;
+                      throttleDownloadControls();
                       try {
                         // Just call pause - the main process will send game:status event
                         // with accurate bytesDownloaded/totalBytes from disk
@@ -952,16 +979,18 @@ export default function HomePage(props: HomePageProps) {
                     style={{
                       background: 'transparent',
                       border: 'none',
-                      cursor: 'pointer',
+                      cursor: downloadControlsBusy ? 'not-allowed' : 'pointer',
                       padding: 4,
                       fontSize: 16,
-                      opacity: 0.7,
+                      opacity: downloadControlsBusy ? 0.4 : 0.7,
                       transition: 'opacity 0.2s',
                     }}
                     onMouseEnter={(e) => {
+                      if (downloadControlsBusy) return;
                       e.currentTarget.style.opacity = '1';
                     }}
                     onMouseLeave={(e) => {
+                      if (downloadControlsBusy) return;
                       e.currentTarget.style.opacity = '0.7';
                     }}
                     aria-label="Pause download"
@@ -980,20 +1009,23 @@ export default function HomePage(props: HomePageProps) {
                   {!isUpdating && (
                     <button
                       type="button"
+                      disabled={downloadControlsBusy}
                       onClick={() => setShowCancelDialog(true)}
                       style={{
                         background: 'transparent',
                         border: 'none',
-                        cursor: 'pointer',
+                        cursor: downloadControlsBusy ? 'not-allowed' : 'pointer',
                         padding: 4,
                         fontSize: 16,
-                        opacity: 0.7,
+                        opacity: downloadControlsBusy ? 0.4 : 0.7,
                         transition: 'opacity 0.2s',
                       }}
                       onMouseEnter={(e) => {
+                        if (downloadControlsBusy) return;
                         e.currentTarget.style.opacity = '1';
                       }}
                       onMouseLeave={(e) => {
+                        if (downloadControlsBusy) return;
                         e.currentTarget.style.opacity = '0.7';
                       }}
                       aria-label="Cancel download"
@@ -1059,19 +1091,13 @@ export default function HomePage(props: HomePageProps) {
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <button
                     type="button"
+                    disabled={downloadControlsBusy}
                     onClick={async () => {
-                      try {
-                        dispatch({
-                          type: 'SET',
-                          state: {
-                            status: 'downloading',
-                            progress: getProgress(state) || 0,
-                            downloaded: getDownloaded(state),
-                            total: getTotal(state),
-                          },
-                        });
-                        await safeInvoke('game:resume-download');
-                      } catch (err) {
+                      if (downloadControlsBusy) return;
+                      throttleDownloadControls();
+
+                      // Resume is long-running; don't lock the UI waiting for it.
+                      safeInvoke('game:resume-download').catch((err) => {
                         log.error('[HomePage] Resume error:', err);
                         dispatch({
                           type: 'ERROR',
@@ -1079,21 +1105,23 @@ export default function HomePage(props: HomePageProps) {
                           isRetryable: true,
                           lastOperation: 'download',
                         });
-                      }
+                      });
                     }}
                     style={{
                       background: 'transparent',
                       border: 'none',
-                      cursor: 'pointer',
+                      cursor: downloadControlsBusy ? 'not-allowed' : 'pointer',
                       padding: 4,
                       fontSize: 16,
-                      opacity: 0.7,
+                      opacity: downloadControlsBusy ? 0.4 : 0.7,
                       transition: 'opacity 0.2s',
                     }}
                     onMouseEnter={(e) => {
+                      if (downloadControlsBusy) return;
                       e.currentTarget.style.opacity = '1';
                     }}
                     onMouseLeave={(e) => {
+                      if (downloadControlsBusy) return;
                       e.currentTarget.style.opacity = '0.7';
                     }}
                     aria-label="Resume download"
@@ -1112,20 +1140,23 @@ export default function HomePage(props: HomePageProps) {
                   {!isUpdating && (
                     <button
                       type="button"
+                      disabled={downloadControlsBusy}
                       onClick={() => setShowCancelDialog(true)}
                       style={{
                         background: 'transparent',
                         border: 'none',
-                        cursor: 'pointer',
+                        cursor: downloadControlsBusy ? 'not-allowed' : 'pointer',
                         padding: 4,
                         fontSize: 16,
-                        opacity: 0.7,
+                        opacity: downloadControlsBusy ? 0.4 : 0.7,
                         transition: 'opacity 0.2s',
                       }}
                       onMouseEnter={(e) => {
+                        if (downloadControlsBusy) return;
                         e.currentTarget.style.opacity = '1';
                       }}
                       onMouseLeave={(e) => {
+                        if (downloadControlsBusy) return;
                         e.currentTarget.style.opacity = '0.7';
                       }}
                       aria-label="Cancel download"
@@ -1407,23 +1438,27 @@ export default function HomePage(props: HomePageProps) {
               <button
                 type="button"
                 onClick={() => setShowCancelDialog(false)}
+                disabled={downloadControlsBusy}
                 style={{
                   padding: '10px 20px',
                   backgroundColor: 'transparent',
                   color: 'rgba(255, 255, 255, 0.7)',
                   border: '1px solid rgba(255, 255, 255, 0.2)',
                   borderRadius: '6px',
-                  cursor: 'pointer',
+                  cursor: downloadControlsBusy ? 'not-allowed' : 'pointer',
                   fontSize: '14px',
                   fontWeight: 500,
                   transition: 'all 0.2s',
+                  opacity: downloadControlsBusy ? 0.6 : 1,
                 }}
                 onMouseEnter={(e) => {
+                  if (downloadControlsBusy) return;
                   e.currentTarget.style.backgroundColor =
                     'rgba(255, 255, 255, 0.05)';
                   e.currentTarget.style.color = '#ffffff';
                 }}
                 onMouseLeave={(e) => {
+                  if (downloadControlsBusy) return;
                   e.currentTarget.style.backgroundColor = 'transparent';
                   e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)';
                 }}
@@ -1433,10 +1468,12 @@ export default function HomePage(props: HomePageProps) {
               <button
                 type="button"
                 onClick={async () => {
+                  if (downloadControlsBusy) return;
+                  throttleDownloadControls();
                   try {
-                    setShowCancelDialog(false);
                     log.info('[HomePage] Canceling download...');
                     await safeInvoke('game:cancel-download');
+                    setShowCancelDialog(false);
                     // The main process will send game:status 'missing'
                   } catch (err) {
                     log.error('[HomePage] Cancel download error:', err);
@@ -1448,21 +1485,25 @@ export default function HomePage(props: HomePageProps) {
                     });
                   }
                 }}
+                disabled={downloadControlsBusy}
                 style={{
                   padding: '10px 20px',
                   backgroundColor: '#ef4444',
                   color: '#ffffff',
                   border: 'none',
                   borderRadius: '6px',
-                  cursor: 'pointer',
+                  cursor: downloadControlsBusy ? 'not-allowed' : 'pointer',
                   fontSize: '14px',
                   fontWeight: 500,
                   transition: 'all 0.2s',
+                  opacity: downloadControlsBusy ? 0.7 : 1,
                 }}
                 onMouseEnter={(e) => {
+                  if (downloadControlsBusy) return;
                   e.currentTarget.style.backgroundColor = '#dc2626';
                 }}
                 onMouseLeave={(e) => {
+                  if (downloadControlsBusy) return;
                   e.currentTarget.style.backgroundColor = '#ef4444';
                 }}
               >
