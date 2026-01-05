@@ -244,10 +244,15 @@ export async function downloadFileResumable(
   const INITIAL_RETRY_DELAY_MS = 1000;
   const REQUEST_TIMEOUT_MS = 45_000;
 
-  const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const delay = (ms: number) =>
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, ms);
+    });
 
   const isRetryableNetworkError = (err: unknown): boolean => {
-    const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+    const msg = (
+      err instanceof Error ? err.message : String(err)
+    ).toLowerCase();
     // Node sometimes reports dropped connections as just "aborted".
     return (
       msg.includes('aborted') ||
@@ -358,7 +363,9 @@ export async function downloadFileResumable(
                 `[downloadFileResumable] Following redirect to: ${location}`,
               ),
             );
-            resolve(downloadOnce(location, attemptStartByte, redirectCount + 1));
+            resolve(
+              downloadOnce(location, attemptStartByte, redirectCount + 1),
+            );
             return;
           }
 

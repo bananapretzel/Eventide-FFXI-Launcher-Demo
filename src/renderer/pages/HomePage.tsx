@@ -782,6 +782,19 @@ export default function HomePage(props: HomePageProps) {
       <section className="login-section">
         <div className="login-card">
           <h2 className="section-title">ACCOUNT LOGIN</h2>
+          <div
+            style={{
+              fontSize: '13px',
+              color: 'var(--ink, #004D40)',
+              lineHeight: 1,
+              marginTop: '-15px',
+              marginBottom: '5px',
+              textAlign: 'center',
+            }}
+          >
+            To create an account, leave the username and password blank and
+            press play.
+          </div>
           <div className="field">
             <input
               id="username"
@@ -1014,7 +1027,9 @@ export default function HomePage(props: HomePageProps) {
                       style={{
                         background: 'transparent',
                         border: 'none',
-                        cursor: downloadControlsBusy ? 'not-allowed' : 'pointer',
+                        cursor: downloadControlsBusy
+                          ? 'not-allowed'
+                          : 'pointer',
                         padding: 4,
                         fontSize: 16,
                         opacity: downloadControlsBusy ? 0.4 : 0.7,
@@ -1145,7 +1160,9 @@ export default function HomePage(props: HomePageProps) {
                       style={{
                         background: 'transparent',
                         border: 'none',
-                        cursor: downloadControlsBusy ? 'not-allowed' : 'pointer',
+                        cursor: downloadControlsBusy
+                          ? 'not-allowed'
+                          : 'pointer',
                         padding: 4,
                         fontSize: 16,
                         opacity: downloadControlsBusy ? 0.4 : 0.7,

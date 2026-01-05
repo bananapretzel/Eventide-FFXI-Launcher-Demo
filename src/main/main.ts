@@ -689,6 +689,9 @@ app.once('ready', async () => {
         installDir: '',
         addons: getDefaultAddonsObject(),
         plugins: getDefaultPluginsObject(),
+        desktopShortcutPrompted: false,
+        desktopShortcutNeverAskAgain: false,
+        desktopShortcutOptIn: null,
       };
       await writeJson(configPath, defaultConfig);
       log.info(
@@ -1121,6 +1124,81 @@ async function readConfigHandler() {
     if (!config.plugins) {
       config.plugins = {};
     }
+
+    // Keep the Extensions list in sync with defaults.
+    // - We always ADD new defaults (existing behavior).
+    // - We also REMOVE entries that were previously managed by defaults but are no longer present.
+    //   This enables removing an addon/plugin from the GUI list by deleting it from defaultExtensions.ts.
+    // Escape hatch: if an entry has `{ managed: false }`, it will never be auto-removed.
+    const DEFAULTS_SNAPSHOT_KEY = '__eventideDefaultsSnapshot';
+    type DefaultsSnapshot = { addons: string[]; plugins: string[] };
+
+    const isValidSnapshot = (v: any): v is DefaultsSnapshot =>
+      !!v &&
+      typeof v === 'object' &&
+      Array.isArray(v.addons) &&
+      Array.isArray(v.plugins);
+
+    const snapshot: DefaultsSnapshot = isValidSnapshot(
+      config[DEFAULTS_SNAPSHOT_KEY],
+    )
+      ? config[DEFAULTS_SNAPSHOT_KEY]
+      : {
+          // First time we introduce syncing, assume existing entries were launcher-managed.
+          // This means old defaults that you remove from defaultExtensions.ts will be pruned.
+          addons: Object.keys(config.addons || {}),
+          plugins: Object.keys(config.plugins || {}),
+        };
+
+    if (!isValidSnapshot(config[DEFAULTS_SNAPSHOT_KEY])) {
+      config[DEFAULTS_SNAPSHOT_KEY] = snapshot;
+      configUpdated = true;
+      log.info(
+        chalk.cyan(
+          '[config] Initialized defaults snapshot for extensions sync',
+        ),
+      );
+    }
+
+    // Prune addons/plugins that were previously in defaults but no longer exist.
+    const removedAddons = (snapshot.addons || []).filter(
+      (name) => !(name in defaultAddons),
+    );
+    for (const name of removedAddons) {
+      const entry = config.addons?.[name];
+      if (entry && typeof entry === 'object' && entry.managed === false) {
+        continue;
+      }
+      if (config.addons && name in config.addons) {
+        delete config.addons[name];
+        configUpdated = true;
+        log.info(
+          chalk.cyan(`[config] Removed addon no longer in defaults: ${name}`),
+        );
+      }
+    }
+
+    const removedPlugins = (snapshot.plugins || []).filter(
+      (name) => !(name in defaultPlugins),
+    );
+    for (const name of removedPlugins) {
+      const entry = config.plugins?.[name];
+      if (entry && typeof entry === 'object' && entry.managed === false) {
+        continue;
+      }
+      if (config.plugins && name in config.plugins) {
+        delete config.plugins[name];
+        configUpdated = true;
+        log.info(
+          chalk.cyan(`[config] Removed plugin no longer in defaults: ${name}`),
+        );
+      }
+    }
+
+    // Update snapshot to the current defaults for next run.
+    snapshot.addons = Object.keys(defaultAddons);
+    snapshot.plugins = Object.keys(defaultPlugins);
+    config[DEFAULTS_SNAPSHOT_KEY] = snapshot;
 
     // Add any new addons that don't exist in user's config
     for (const [name, addonData] of Object.entries(defaultAddons)) {
@@ -1774,7 +1852,10 @@ app.on('ready', () => {
   });
   (global as any).mainWindow = mainWindow;
 
-  // Create desktop shortcut on first run (only in production)
+  // Desktop shortcut behavior:
+  // - Start Menu entry is always created by the installer.
+  // - Desktop shortcut is an explicit opt-in (prompted once on first run).
+  // - Never recreate a desktop shortcut during silent updates.
   if (process.env.NODE_ENV === 'production') {
     const {
       createDesktopShortcut,
@@ -1783,8 +1864,8 @@ app.on('ready', () => {
       isRunningUnderWine,
     } = require('./util');
 
-    // On Wine/Linux: create proper .desktop file and clean up broken Wine-generated ones
     if (isRunningUnderWine()) {
+      // On Wine/Linux: create proper .desktop file and clean up broken Wine-generated ones.
       removeWineDesktopFile()
         .then(() => createLinuxDesktopFile())
         .then((result: { success: boolean; error?: string }) => {
@@ -1809,29 +1890,70 @@ app.on('ready', () => {
           );
         });
     } else {
-      // On native Windows: create standard shortcut
-      createDesktopShortcut()
-        .then((result: { success: boolean; error?: string }) => {
-          if (result.success) {
-            log.info(
-              chalk.green(
-                '[startup] Desktop shortcut created or already exists',
-              ),
-            );
-          } else {
-            log.warn(
-              chalk.yellow('[startup] Failed to create desktop shortcut:'),
-              result.error,
-            );
+      // On native Windows: ask once whether to create a desktop shortcut.
+      // We store the choice in config.json so updates do not re-prompt or recreate.
+      (async () => {
+        try {
+          const paths = getEventidePaths();
+          const configPath = paths.config;
+
+          if (!fs.existsSync(configPath)) {
+            // Config creation happens earlier during startup, but guard just in case.
+            return;
           }
-          return undefined;
-        })
-        .catch((err: Error) => {
-          log.error(
-            chalk.red('[startup] Error creating desktop shortcut:'),
+
+          const raw = fs.readFileSync(configPath, 'utf-8');
+          const config: any = JSON.parse(raw || '{}');
+
+          const prompted = config.desktopShortcutPrompted === true;
+          const neverAskAgain = config.desktopShortcutNeverAskAgain === true;
+
+          if (prompted || neverAskAgain) {
+            return;
+          }
+
+          const result = await dialog.showMessageBox(mainWindow, {
+            type: 'question',
+            title: 'Desktop Shortcut',
+            message:
+              'Would you like to create a desktop shortcut for EventideXI?',
+            detail:
+              'You will always be able to launch EventideXI from the Start Menu.',
+            buttons: ['Create desktop shortcut', 'No thanks'],
+            defaultId: 0,
+            cancelId: 1,
+            noLink: true,
+            checkboxLabel: "Don't ask again",
+            checkboxChecked: false,
+          });
+
+          if (result.response === 0) {
+            const created = await createDesktopShortcut();
+            if (!created.success) {
+              log.warn(
+                chalk.yellow(
+                  '[startup] User opted in but shortcut creation failed:',
+                ),
+                created.error,
+              );
+            }
+            config.desktopShortcutOptIn = true;
+          } else {
+            config.desktopShortcutOptIn = false;
+          }
+
+          // Mark as prompted. Respect checkbox for future prompts.
+          config.desktopShortcutPrompted = true;
+          config.desktopShortcutNeverAskAgain = result.checkboxChecked === true;
+
+          await writeJson(configPath, config);
+        } catch (err) {
+          log.warn(
+            chalk.yellow('[startup] Desktop shortcut opt-in prompt failed:'),
             err,
           );
-        });
+        }
+      })();
     }
   }
 });
@@ -2406,7 +2528,7 @@ ipcMain.handle(
       const extensionFolder =
         folderType === 'plugins'
           ? path.join(paths.gameRoot, 'plugins')
-          : path.join(paths.gameRoot, 'config', folderType);
+          : path.join(paths.gameRoot, folderType);
 
       // Ensure folder exists
       if (!fs.existsSync(extensionFolder)) {

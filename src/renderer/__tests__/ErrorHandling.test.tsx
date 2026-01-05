@@ -501,7 +501,9 @@ describe('Error Display and Recovery', () => {
         expect(errorCard).toBeInTheDocument();
       });
 
-      expect(screen.getByText(/Check the log file for details/i)).toBeInTheDocument();
+      expect(
+        screen.getByText(/Check the log file for details/i),
+      ).toBeInTheDocument();
     });
   });
 

@@ -1,7 +1,7 @@
 {
   "name": "eventide-launcherv2",
   "description": "A launcher for the private FFXI private server called Eventide.",
-  "version": "0.6.8",
+  "version": "1.0.0",
   "keywords": [
     "electron",
     "boilerplate",
@@ -13,10 +13,10 @@
     "hot",
     "reload"
   ],
-  "homepage": "https://github.com/bananapretzel/Eventide-FFXI-Launcher-Demo",
+  "homepage": "https://github.com/bananapretzel/Eventide-XI-Launcher",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/bananapretzel/Eventide-FFXI-Launcher-Demo.git"
+    "url": "git+https://github.com/bananapretzel/Eventide-XI-Launcher.git"
   },
   "license": "GPL-3.0-or-later",
   "author": {
@@ -270,8 +270,9 @@
       "uninstallerIcon": "assets/icon.ico",
       "installerHeaderIcon": "assets/icon.ico",
       "installerSidebar": "assets/installerSidebar.bmp",
-      "createDesktopShortcut": "always",
+      "createDesktopShortcut": false,
       "createStartMenuShortcut": true,
+      "menuCategory": "EventideXI",
       "artifactName": "${productName}-Setup-${version}.${ext}",
       "include": "assets/installer.nsh",
       "deleteAppDataOnUninstall": false,
@@ -288,7 +289,7 @@
     "publish": {
       "provider": "github",
       "owner": "bananapretzel",
-      "repo": "eventide-launcher-updates"
+      "repo": "Eventide-XI-Launcher"
     }
   },
   "devEngines": {

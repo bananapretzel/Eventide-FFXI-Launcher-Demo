@@ -16,81 +16,107 @@
   - [📋 Table of Contents](#-table-of-contents)
   - [✨ Features](#-features)
   - [🆕 Recent Changes](#-recent-changes)
+    - [Major Features](#major-features)
+    - [Technical Improvements](#technical-improvements)
+    - [UI/UX Enhancements](#uiux-enhancements)
   - [📦 Prerequisites](#-prerequisites)
   - [🚀 Installation](#-installation)
   - [💻 Development](#-development)
     - [Starting the Development Environment](#starting-the-development-environment)
-    - [Common Scripts](#common-scripts)
+    - [Available Scripts](#available-scripts)
+    - [VS Code Tasks](#vs-code-tasks)
   - [🏗️ Architecture](#️-architecture)
+    - [Key Files](#key-files)
+    - [IPC Endpoints](#ipc-endpoints)
+    - [Startup Flow](#startup-flow)
   - [🔨 Building](#-building)
     - [Build for Production](#build-for-production)
-    - [Build for All Platforms](#build-for-all-platforms)
-    - [Build Options](#build-options)
+    - [Platform-Specific Builds](#platform-specific-builds)
+    - [Build Configuration](#build-configuration)
   - [🐛 Debugging](#-debugging)
-    - [VS Code Debugging](#vs-code-debugging)
-    - [Opening DevTools](#opening-devtools)
-    - [Debugging Main Process](#debugging-main-process)
-    - [Logging](#logging)
+    - [VS Code Launch Configs](#vs-code-launch-configs)
+    - [DevTools](#devtools)
+    - [Debug Mode](#debug-mode)
+    - [Logging Locations](#logging-locations)
     - [Common Issues](#common-issues)
   - [📁 Project Structure](#-project-structure)
   - [📄 Configuration \& Data Storage](#-configuration--data-storage)
+    - [Directory Layout](#directory-layout)
     - [`config.json`](#configjson)
-    - [`storage.json`](#storagejson)
-    - [Default Script Generation](#default-script-generation)
+    - [`storage.json` (Schema v2)](#storagejson-schema-v2)
     - [Security Notes](#security-notes)
   - [🧪 Testing](#-testing)
   - [🛠️ Technology Stack](#️-technology-stack)
+    - [Core](#core)
+    - [UI](#ui)
+    - [Backend](#backend)
+    - [Development](#development)
   - [📝 License](#-license)
 
 ## ✨ Features
 
-- 🐧 **Cross-Platform Support** – Runs natively on Windows and Linux (macOS support planned)
-- 🎮 **Secure Credential Management** – Uses `keytar` for OS keychain integration (no plaintext on disk)
+- 🐧 **Cross-Platform Support** – Runs natively on Windows and Linux using wine.
+- 🎮 **Secure Credential Management** – Uses `keytar` for OS keychain integration (no plaintext passwords on disk)
 - 📦 **Game Bootstrap & Auto-Extraction** – Detects downloaded base game archive and extracts it automatically on first run
-- ⬇️ **Patch & Update System** – Remote release + patch manifest retrieval (`release.json` + patch manifest) with version comparison
-- 🔄 **Incremental Patching** – Applies patches sequentially via `logic/patch.ts` ensuring integrity with direct-to-game-root extraction
-- 🌐 **Network + Manifest Layer** – Separate `core/net.ts`, `core/manifest.ts` for clean remote interactions
-- 🧪 **Storage Validation** – `core/storage.ts` schema validation and safe defaults (protects against corrupt `storage.json`)
-- 🔐 **Config Isolation** – Per-user `config.json` stored under Electron `userData` (not in repository) – replaces earlier root-level config approach
-- 🧩 **Addon & Plugin Auto-Script** – Generates `scripts/default.txt` dynamically from enabled 63 addons and 10 plugins
-- 🧬 **Integrity & Hash Utilities** – `core/hash.ts` for verifying downloaded artifacts (SHA256 validation)
-- 🪣 **Remote Asset Download** – S3 / R2 backed release and patch distribution (AWS SDK + axios)
-- 📁 **Centralized Paths API** – IPC exposes launcher path map for renderer consumption (`eventide:get-paths`)
-- 🧰 **Directory Self-Heal** – Ensures required folders (Downloads/Game/logs) on startup
-- 🧪 **Testing Harness** – Jest + Testing Library for unit and renderer tests
-- ⚡ **Hot Reload Dev Flow** – Concurrent main + renderer watch with fast iteration
-- 🖼️ **Modern UI** – React 19 + Tailwind utility styling, Lucide icons
-- 📝 **Manifest Caching** – Intelligent 5-minute TTL cache for release/patch manifests to reduce network calls
-
-> Older sections about root-level `settings.json`, `extensions.json`, and `Eventide.ini` have been superseded by unified `config.json` + dynamic script generation.
+- ⬇️ **Resumable Downloads** – Pause, resume, and cancel game downloads with progress persistence across launcher restarts
+- 🔄 **Incremental Patching** – Applies patches sequentially via `logic/patch.ts` with direct-to-game-root extraction and SHA256 verification
+- 🌐 **Network + Manifest Layer** – Separate `core/net.ts`, `core/manifest.ts` for clean remote interactions with 5-minute TTL caching
+- 🧪 **Storage Validation** – Schema v2 `storage.json` with automatic migration, validation, and safe defaults
+- 🔐 **Security Layer** – URL allowlist validation for external links, input sanitization, and secure IPC preload bridge
+- 🧩 **Addon & Plugin Management** – 63+ Ashita addons and 10 plugins with metadata, auto-generates `scripts/default.txt`
+- 🎮 **DirectPlay Integration** – Automatic detection and prompt to enable DirectPlay on Windows (required for FFXI)
+- 🕹️ **Gamepad Configuration** – Reads FFXI gamepad settings from Windows registry and applies them to INI
+- ⚙️ **INI Settings Mapping** – Bidirectional sync between Settings UI and `Eventide.ini` game configuration
+- 🎨 **Pivot Overlay Support** – Integration with Pivot overlays including overlay order management
+- 📁 **Custom Install Directory** – Flexible installation paths supporting legacy launcher migrations and any folder structure
+- 🧬 **Integrity & Hash Utilities** – SHA256 verification for all downloaded artifacts
+- 🪣 **Remote Asset Distribution** – S3/R2-backed release and patch hosting (AWS SDK + native HTTPS)
+- 📁 **Centralized Paths API** – IPC exposes launcher path map (`eventide:get-paths`) for renderer consumption
+- 🧰 **Directory Self-Heal** – Ensures required folders (Downloads/Game/logs) on startup with write permission handling
+- 🔄 **Auto-Updates** – Built-in launcher self-update via electron-updater with GitHub releases
+- 🧪 **Testing Harness** – Jest + React Testing Library with comprehensive test coverage
+- ⚡ **Hot Reload Dev Flow** – Concurrent main + renderer watch with electronmon for fast iteration
+- 🖼️ **Modern UI** – React 19 + Tailwind CSS with dark mode support, Lucide & Simple Icons iconography
+- 📰 **Patch Notes Feed** – In-app display of server patch notes fetched from remote API
 
 ## 🆕 Recent Changes
 
-Date: 2025-11-27
+Date: 2026-01-05
 
-- **Direct Patch Extraction** – Patches now extract directly to the game root folder for simplified file management
-- **Manifest Caching** – Implemented 5-minute TTL cache for release and patch manifests to reduce redundant network calls
-- **Config Migration** – Automatic migration from old `extensions.addons/plugins` arrays to new object-based structure
-- **Patch Extraction Enhancement** – Smart ZIP extraction with automatic directory merging (prevents nested folder issues)
-- Introduced layered architecture (`core`, `logic`) separating domain concerns from Electron main
-- Added automatic base game extraction and version initialization logic
-- Implemented remote release + patch manifest fetching with update notification logic
-- Added dynamic default script generation for Ashita (63 addons + 10 plugins auto-load)
-- Migrated config/storage handling to Electron `userData` directory (per user, cross-platform)
-- Added storage self-sync with filesystem (downloaded/extracted flags) and zero-version normalization
-- Introduced hash/integrity helpers and error abstraction modules with SHA256 verification
-- Added IPC bootstrap endpoint returning release, patchManifest, clientVersion & game state flags
-- Refined logging strategy with structured startup phases using electron-log + chalk
-- Added AWS S3/R2 integration for remote assets (release JSON + patch manifest)
-- Upgraded React to 19 and integrated updated dependency stack (Electron 35, TypeScript 5.8)
-- Expanded test scaffolding under `src/__tests__` with setup environment and Jest configuration
+### Major Features
+- **Resumable Downloads** – Full pause/resume/cancel support for base game downloads with progress persistence
+- **DirectPlay Auto-Detection** – Prompts Windows users to enable DirectPlay via DISM if not installed
+- **Gamepad Configuration** – Reads controller settings from Windows registry and applies to game INI
+- **Security Hardening** – URL allowlist for external links (eventide-xi.com, discord.gg, github.com, ashitaxi.com)
+- **Storage Schema v2** – Migrated from `GAME_UPDATER` to cleaner `gameState` structure with automatic migration
+- **Custom Install Directories** – Full support for custom game paths with legacy launcher migration support
+- **Pivot Overlay Integration** – Manage Pivot overlay order through the Settings UI
+- **Download Speed & ETA** – Real-time download speed calculation with exponential smoothing and time remaining estimates
+
+### Technical Improvements
+- **React 19 Context API** – `GameStateContext` for centralized game state management across components
+- **INI Bidirectional Mapping** – Settings page reads/writes directly to `Eventide.ini` with type-safe transforms
+- **Atomic File Writes** – JSON writes use temp files with rename for crash safety
+- **Write Lock Protection** – Prevents concurrent storage writes (especially important for Wine compatibility)
+- **Manifest Caching** – 5-minute TTL cache with stale-cache fallback on network errors
+- **Progress Throttling** – Download/patch progress saves throttled to reduce disk writes
+- **Preload Security** – Strict allowlist for IPC invoke/send/listen channels
+- **Structured Logging** – Color-coded console output with chalk + electron-log file persistence
+
+### UI/UX Enhancements
+- **Dark Mode** – Toggle between light and dark themes
+- **Version Display** – Shows both launcher and game versions in the UI
+- **Toast Notifications** – In-app notifications for updates, errors, and status changes
+- **Cancel Dialog** – Confirmation dialog before canceling active downloads
+- **Extension Cards** – Rich addon/plugin cards with author, version, and description metadata
+- **Settings Categories** – Organized settings with FFXI, Pivot, and Troubleshooting tabs
 
 ## 📦 Prerequisites
 
 Before you begin, ensure you have the following installed:
 
-- **Node.js** (v16 or higher) - [Download here](https://nodejs.org/)
-- **npm** (comes with Node.js)
+- **Node.js** (v14 or higher) - [Download here](https://nodejs.org/)
+- **npm** (v7 or higher, comes with Node.js)
 - **Git** - [Download here](https://git-scm.com/)
 
 ## 🚀 Installation
@@ -108,10 +134,10 @@ cd Eventide-FFXI-Launcher-Demo
 npm install
 ```
 
-3. **Verify installation**
+3. **Start development**
 
 ```bash
-npm run check
+npm start
 ```
 
 ## 💻 Development
@@ -125,21 +151,21 @@ npm start
 ```
 
 This performs:
-1. Port availability check
-2. Builds/starts main process in watch mode
-3. Serves renderer (`webpack-dev-server`) at `http://localhost:1212`
-4. Launches Electron with preload + hot module refresh
+1. Port availability check (default: 1212)
+2. Builds main process with webpack
+3. Serves renderer via `webpack-dev-server` at `http://localhost:1212`
+4. Launches Electron with electronmon for hot reload
 
-### Common Scripts
+### Available Scripts
 
 ```bash
-# Start dev (main builds once, renderer served)
+# Start development (main builds once, renderer served with HMR)
 npm start
 
-# Manually start only renderer (if main already running)
+# Start only renderer dev server
 npm run start:renderer
 
-# Manually start main (debug / watch)
+# Start main process in watch mode
 npm run start:main
 
 # Full production build (main + renderer)
@@ -155,11 +181,16 @@ npm run lint:fix
 # Run tests
 npm test
 
-# Rebuild native modules for packaged app
+# Rebuild native modules
 npm run rebuild
 ```
 
-> Note: Former scripts like `tsc`, `prettier`, and custom coverage commands are not currently defined. Use IDE/type checking and add new scripts as needed.
+### VS Code Tasks
+
+The project includes VS Code tasks for convenience:
+- **Start Renderer Dev Server** – Runs `npm run start:renderer`
+- **Start Electron** – Runs main with debug, depends on renderer
+- **TypeScript Check** – Runs `npx tsc --noEmit` for type checking
 
 ## 🏗️ Architecture
 
@@ -167,160 +198,145 @@ Layered separation for maintainability:
 
 | Layer    | Location       | Responsibility                                                                                     |
 | -------- | -------------- | -------------------------------------------------------------------------------------------------- |
-| Core     | `src/core`     | Generic utilities: storage, fs, hashing, manifests, versions, network, errors                      |
+| Core     | `src/core`     | Pure utilities: storage, fs, hashing, manifests, versions, network, errors, constants              |
 | Logic    | `src/logic`    | Domain workflows: bootstrap sequence, download orchestration, patch application, state transitions |
-| Main     | `src/main`     | Electron lifecycle, IPC handlers, path normalization, secure config access, directory management   |
-| Renderer | `src/renderer` | React UI, user interaction, status display, initiation of bootstrap via IPC                        |
+| Main     | `src/main`     | Electron lifecycle, IPC handlers, paths, security, DirectPlay, gamepad, INI mapping                |
+| Renderer | `src/renderer` | React UI, pages (Home/Extensions/Settings), contexts, components                                   |
 
-Startup Flow Overview:
-1. Electron `ready` → directories ensured (`ensureDirs`)
-2. `storage.json` read/validated → defaults applied if missing
-3. Paths synced (download/install) → game state flags updated
-4. Auto-extraction if base archive present & not extracted
-5. Remote release / patch manifest fetched → version comparison
-6. Renderer `launcher:bootstrap` IPC returns unified state snapshot
+### Key Files
 
-IPC Endpoints (selected):
-- `launcher:bootstrap` – Initial state (release, patchManifest, clientVersion, base game flags)
-- `eventide:get-paths` – UserData + resource path map
-- `read-config` / `write-settings` – Secure config access (with keytar credential retrieval)
-- `write-default-script` – Generates `scripts/default.txt` from enabled addons/plugins
+| File                                         | Purpose                                                                |
+| -------------------------------------------- | ---------------------------------------------------------------------- |
+| `src/main/main.ts`                           | App entry, IPC handlers (~4000 lines), window management, auto-updater |
+| `src/main/preload.ts`                        | Secure IPC bridge with channel allowlists                              |
+| `src/main/paths.ts`                          | Path resolution with custom install directory support                  |
+| `src/main/security.ts`                       | URL validation and input sanitization                                  |
+| `src/main/directplay.ts`                     | Windows DirectPlay detection and installation                          |
+| `src/main/gamepad.ts`                        | Registry-based gamepad config reading                                  |
+| `src/main/config/iniMappings.ts`             | Bidirectional INI ↔ Settings transforms                                |
+| `src/core/storage.ts`                        | Schema v2 storage with migration support                               |
+| `src/core/net.ts`                            | Resumable downloads with AbortController                               |
+| `src/logic/download.ts`                      | Download orchestration with pause/resume                               |
+| `src/logic/patch.ts`                         | Patch application with version recovery                                |
+| `src/renderer/contexts/GameStateContext.tsx` | React context for game state management                                |
 
-Game Updating:
-- Download orchestrated via `logic/download.ts` (to `Downloads/`)
-- Patch application via `logic/patch.ts` with manifest guidance
-- Patches extract directly to the game root folder
-- Smart ZIP extraction with automatic directory merging (avoids nested folders)
-- Integrity & version tracking stored in `storage.json` with SHA256 verification
-- Manifest caching (5-minute TTL) reduces redundant network requests
+### IPC Endpoints
+
+| Channel                          | Purpose                                                      |
+| -------------------------------- | ------------------------------------------------------------ |
+| `launcher:bootstrap`             | Initial state (release, patchManifest, clientVersion, flags) |
+| `launcher:downloadGame`          | Start/resume base game download                              |
+| `launcher:applyPatches`          | Apply pending patches                                        |
+| `launcher:launchGame`            | Launch FFXI with credentials                                 |
+| `game:pause-download`            | Pause active download                                        |
+| `game:resume-download`           | Resume paused download                                       |
+| `game:cancel-download`           | Cancel and cleanup download                                  |
+| `game:check-resumable`           | Check for resumable download                                 |
+| `eventide:get-paths`             | Get launcher paths                                           |
+| `read-config` / `write-settings` | Config access with keytar                                    |
+| `write-default-script`           | Generate Ashita load script                                  |
+| `read-ini-settings`              | Read game configuration                                      |
+| `pivot:list-overlays`            | List Pivot overlay folders                                   |
+
+### Startup Flow
+
+1. Electron `ready` → `ensureDirs()` creates required folders
+2. `storage.json` read → schema validated → migrated if v1
+3. Custom install paths synced from storage
+4. DirectPlay check on Windows
+5. Main window created with preload
+6. Renderer calls `launcher:bootstrap` → gets unified state
+7. Game state determined (missing/needs-extraction/update-available/ready)
 
 ## 🔨 Building
 
 ### Build for Production
 
-To create a production build for your current platform:
-
 ```bash
 npm run package
 ```
 
-The built application will be located in the `release/build` directory.
+Output: `release/build/` directory
 
-### Build for All Platforms
+### Platform-Specific Builds
 
 ```bash
-# Build for Windows
-npm run package:win
+# Windows (NSIS installer)
+npm run publish:win
 
-# Build for macOS
-npm run package:mac
-
-# Build for Linux
-npm run package:linux
-
-# Build for all platforms
-npm run package:all
+# The package.json also supports:
+# npm run package:win
+# npm run package:mac
+# npm run package:linux
 ```
 
-### Linux-Specific Build Notes
+### Build Configuration
 
-The launcher supports Linux and creates three package formats:
-- **AppImage** - Universal Linux package that runs on most distributions
-- **deb** - Debian/Ubuntu package format
-- **tar.gz** - Portable archive
+electron-builder configuration in `package.json`:
 
-**Building on Linux:**
-```bash
-npm run package:linux
+```json
+{
+  "build": {
+    "productName": "EventideXI",
+    "appId": "com.eventide.ffxi.launcher",
+    "win": {
+      "target": ["nsis"],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "createDesktopShortcut": "always",
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}
 ```
-
-**Running FFXI on Linux:**
-The launcher itself runs natively on Linux, but Final Fantasy XI requires Windows compatibility:
-- **Wine/Proton**: Use Wine 8.0+ or Proton for running the Windows game client
-- **Launch Script**: The launcher creates `Launch_Eventide.sh` which should be configured to launch the game through Wine
-  - See `Launch_Eventide.sh.example` in the project root for a template
-  - See `LINUX_SETUP.md` for detailed Linux installation and configuration guide
-- **Default Paths**: Game files install to `~/.config/Eventide Launcherv2/Eventide/Game/`
-
-**Linux Installation:**
-```bash
-# AppImage (recommended)
-chmod +x Eventide-FFXI-Launcher-*.AppImage
-./Eventide-FFXI-Launcher-*.AppImage
-
-# Debian/Ubuntu
-sudo dpkg -i eventide-ffxi-launcher_*.deb
-sudo apt-get install -f  # Install dependencies if needed
-
-# Portable tar.gz
-tar -xzf eventide-ffxi-launcher-*.tar.gz
-cd eventide-ffxi-launcher/
-./eventide-ffxi-launcher
-```
-
-### Build Options
-
-The launcher uses `electron-builder` for packaging. Configuration is in `package.json` under the `build` section.
 
 ## 🐛 Debugging
 
-### VS Code Debugging
+### VS Code Launch Configs
 
-The project includes VS Code launch configurations for debugging:
+1. **Debug Main Process** – Set breakpoints in `src/main/`, press F5
+2. **Debug Renderer** – Use Chrome DevTools or VS Code debugger
 
-1. **Debug Main Process**
-   - Set breakpoints in `src/main/main.ts`
-   - Press `F5` or use the "Electron: Main" debug configuration
-   - Inspect IPC handlers, file operations, and window management
+### DevTools
 
-2. **Debug Renderer Process**
-   - Set breakpoints in React components (`src/renderer/`)
-   - Use Chrome DevTools (automatically opens)
-   - Or use "Electron: Renderer" debug configuration in VS Code
+- Press `Ctrl+Shift+I` (Windows/Linux) or `Cmd+Option+I` (macOS)
+- Auto-opens in development mode
 
-### Opening DevTools
-
-DevTools automatically open in development mode. To toggle:
-
-- Press `Ctrl+Shift+I` (Windows/Linux)
-- Press `Cmd+Option+I` (macOS)
-
-### Debugging Main Process
+### Debug Mode
 
 ```bash
-# Start with inspect flag
 npm run start:main:debug
 ```
 
-Then attach your debugger to `localhost:5858`
+Attach debugger to `localhost:5858`
 
-### Logging
+### Logging Locations
 
-The application uses `electron-log` for logging:
-
-- **Development**: Logs appear in the console
-- **Production**: Logs are written to platform-specific locations:
-  - Windows: `%USERPROFILE%\AppData\Roaming\Eventide Launcherv2\logs\`
-  - macOS: `~/Library/Logs/Eventide Launcherv2/`
-  - Linux: `~/.config/Eventide Launcherv2/logs/`
+| Platform | Path                                                      |
+| -------- | --------------------------------------------------------- |
+| Windows  | `%USERPROFILE%\AppData\Roaming\Eventide Launcherv2\logs\` |
+| macOS    | `~/Library/Logs/Eventide Launcherv2/`                     |
+| Linux    | `~/.config/Eventide Launcherv2/logs/`                     |
 
 ### Common Issues
 
-**Port already in use:**
-```bash
-# Kill process on port 1212 (Windows)
+**Port 1212 in use:**
+```powershell
+# Windows
 netstat -ano | findstr :1212
 taskkill /PID <PID> /F
-
-# macOS/Linux
-lsof -ti:1212 | xargs kill -9
 ```
 
-**Build failures:**
+**Native module errors:**
 ```bash
-# Clear cache and reinstall
-rm -rf node_modules
-npm cache clean --force
+npm run rebuild
+```
+
+**Clear cache:**
+```bash
+rm -rf node_modules .erb/dll
 npm install
 ```
 
@@ -328,168 +344,258 @@ npm install
 
 ```
 Eventide-FFXI-Launcher-Demo/
-├── assets/                    # Static assets bundled (icons, branding, entitlements)
-│   ├── eventide-logo.png
-│   ├── slime2.png
-│   └── icons/
-├── Eventide-test/             # Local test game assets + sample client tree (used in dev mode)
+├── assets/                    # Static assets (icons, fonts, installer resources)
+│   ├── icons/                 # App icons for all platforms
+│   ├── fonts/                 # Custom fonts
+│   ├── entitlements.mac.plist # macOS code signing
+│   └── installer.nsh          # NSIS installer script
 ├── src/
-│   ├── core/                  # Pure logic + utilities (no Electron/React):
-│   │   ├── fs.ts              # JSON read/write, zip extraction helper entry
-│   │   ├── storage.ts         # storage.json schema + validation + defaults
-│   │   ├── manifest.ts        # Remote release + patch manifest fetching
-│   │   ├── versions.ts        # Version helpers (normalization/comparison)
-│   │   ├── net.ts             # Network fetch utilities (axios abstraction)
-│   │   ├── hash.ts            # Hash / integrity helpers
-│   │   ├── errors.ts          # Error types / classification
-│   │   └── __tests__/         # Unit tests for core modules
-│   ├── logic/                 # Domain workflows composed from core utilities:
-│   │   ├── bootstrap.ts       # Startup orchestration (release, manifest, version state)
-│   │   ├── download.ts        # Game + patch download pipeline
-│   │   ├── patch.ts           # Patch application sequence
-│   │   ├── state.ts           # Shared state helpers / transitions
-│   │   └── __tests__/         # Workflow tests
-│   ├── main/                  # Electron main process layer:
-│   │   ├── main.ts            # App entry, startup lifecycle, IPC registration
-│   │   ├── paths.ts           # Central path resolution + directory ensure
-│   │   ├── config.ts          # Environment constants, resource/exec path helpers
-│   │   ├── preload.ts         # Preload script (secure IPC bridge)
-│   │   ├── menu.ts            # Application menu setup
-│   │   ├── util.ts            # HTML resolution helpers
-│   │   └── utils/             # (Additional main utilities)
-│   ├── renderer/              # React UI layer (runs in BrowserWindow):
-│   │   ├── index.tsx          # Renderer entry point
-│   │   ├── App.tsx            # Root component
-│   │   ├── App.css / styles.css
-│   │   ├── pages/             # UI pages (Home, Extensions, Settings, etc.)
-│   │   ├── data/              # Static feed / sample data
-│   │   ├── types/             # Renderer-only TS types
+│   ├── core/                  # Pure utilities (no Electron/React)
+│   │   ├── constants.ts       # URLs, filenames
+│   │   ├── errors.ts          # Error types
+│   │   ├── fs.ts              # File operations, ZIP extraction
+│   │   ├── hash.ts            # SHA256 verification
+│   │   ├── manifest.ts        # Release/patch manifest types & fetching
+│   │   ├── net.ts             # Network utilities, resumable downloads
+│   │   ├── storage.ts         # storage.json schema v2, migration
+│   │   ├── versions.ts        # Version comparison utilities
+│   │   └── __tests__/         # Core module tests
+│   ├── logic/                 # Domain workflows
+│   │   ├── bootstrap.ts       # Startup orchestration
+│   │   ├── download.ts        # Resumable game download
+│   │   ├── patch.ts           # Patch application
+│   │   ├── state.ts           # State transitions
+│   │   └── __tests__/         # Logic tests
+│   ├── main/                  # Electron main process
+│   │   ├── main.ts            # Entry point, IPC handlers
+│   │   ├── preload.ts         # Secure IPC bridge
+│   │   ├── paths.ts           # Path management
+│   │   ├── config.ts          # Environment config
+│   │   ├── security.ts        # URL validation, sanitization
+│   │   ├── directplay.ts      # Windows DirectPlay utility
+│   │   ├── gamepad.ts         # Controller config from registry
+│   │   ├── logger.ts          # electron-log setup
+│   │   ├── menu.ts            # Application menu
+│   │   ├── util.ts            # HTML resolution
+│   │   ├── defaultExtensions.ts # 63 addons + 10 plugins definitions
+│   │   ├── globals.ts         # Global state
+│   │   ├── config/
+│   │   │   └── iniMappings.ts # Settings ↔ INI transforms
+│   │   └── utils/
+│   │       └── io.ts          # I/O utilities
+│   ├── renderer/              # React UI
+│   │   ├── index.tsx          # Entry point
+│   │   ├── App.tsx            # Root component, routing
+│   │   ├── App.css            # Global styles
+│   │   ├── styles.css         # Tailwind imports
+│   │   ├── logger.ts          # Renderer logging
+│   │   ├── pages/
+│   │   │   ├── HomePage.tsx   # Main page with download/launch
+│   │   │   ├── ExtensionsPage.tsx # Addon/plugin management
+│   │   │   └── SettingsPage.tsx   # Game and launcher settings
+│   │   ├── components/
+│   │   │   └── Select.tsx     # Custom select component
+│   │   ├── contexts/
+│   │   │   └── GameStateContext.tsx # Game state management
+│   │   ├── data/
+│   │   │   └── feed.ts        # Patch notes fetching
+│   │   ├── types/
+│   │   │   └── feed.ts        # Feed type definitions
+│   │   ├── utils/
+│   │   │   ├── format.ts      # Formatting utilities
+│   │   │   ├── index.ts       # Utility exports
+│   │   │   └── ipc.ts         # Safe IPC wrappers
 │   │   └── __tests__/         # Component tests
-│   └── types/                 # Shared cross-layer type definitions
-├── release/                   # Packaged application output (electron-builder)
-├── scripts/                   # Generated or helper scripts (e.g., default.txt target)
-├── tailwind.config.js         # Tailwind configuration
-├── tsconfig.json              # TypeScript project config
-├── postcss.config.js          # PostCSS (Tailwind pipeline)
-├── jest.config.custom.js      # Jest configuration override
-├── package.json               # Dependencies, build & runtime scripts
-├── LICENSE                    # Project license
-└── README.md                  # Project documentation (this file)
+│   ├── types/                 # Shared type definitions
+│   │   ├── electron-log.d.ts
+│   │   └── ini.d.ts
+│   ├── ui/                    # Shared UI components
+│   │   ├── button.tsx
+│   │   └── main.tsx
+│   └── __tests__/             # Integration tests
+│       ├── App.test.tsx
+│       ├── ipcHandlers.test.ts
+│       ├── manifestValidation.test.ts
+│       └── setup.ts
+├── __mocks__/                 # Jest mocks
+│   └── electron-log.js
+├── release/                   # Build output
+│   ├── app/package.json       # Production dependencies
+│   └── build/                 # Packaged executables
+├── .erb/                      # Electron React Boilerplate configs
+├── package.json               # Dependencies & scripts
+├── tsconfig.json              # TypeScript configuration
+├── tailwind.config.js         # Tailwind CSS configuration
+├── postcss.config.js          # PostCSS configuration
+├── jest.config.custom.js      # Jest configuration
+└── LICENSE                    # GPL-3.0-or-later
 ```
-
-Notes:
-- Runtime files (`config.json`, `storage.json`, logs, extracted Game client) live under Electron `userData` and are intentionally NOT tracked here.
-- `Eventide-test/` simulates / contains base game assets for development convenience.
-- `scripts/default.txt` is generated dynamically via IPC (`write-default-script`).
 
 ## 📄 Configuration & Data Storage
 
-All runtime state lives inside Electron's `userData` directory (platform-specific):
+All runtime state lives in Electron's `userData` directory:
+
+| Platform | Path                                                 |
+| -------- | ---------------------------------------------------- |
+| Windows  | `%APPDATA%\Eventide Launcherv2\`                     |
+| macOS    | `~/Library/Application Support/Eventide Launcherv2/` |
+| Linux    | `~/.config/Eventide Launcherv2/`                     |
+
+### Directory Layout
 
 ```
-<userData>/Eventide/
-  Game/          # Extracted FFXI client
-  Downloads/     # Archived zips (base + patches)
-logs/            # Launcher logs
-config.json      # User + addon/plugin config, launcherVersion, credentials flags
-storage.json     # Update & patch state, paths, versions
+<userData>/
+├── Eventide/
+│   ├── Game/                  # Extracted FFXI client
+│   └── Downloads/             # Downloaded archives
+├── logs/                      # Application logs
+├── config.json                # User settings + extensions
+└── storage.json               # Game state + paths
 ```
 
 ### `config.json`
-Structure (abridged):
+
 ```json
 {
-  "username": "",           // Retrieved via keytar if rememberCredentials true
-  "password": "",           // Retrieved via keytar if rememberCredentials true
+  "username": "",
+  "password": "",
   "rememberCredentials": false,
-  "launcherVersion": "<current>",
+  "launcherVersion": "0.6.8",
   "installDir": "",
-  "addons": { 
-    "aspect": { 
-      "description": "Forces the games aspect ratio to match the windows resolution.",
+  "addons": {
+    "aspect": {
+      "description": "Forces the games aspect ratio...",
       "author": "atom0s",
       "version": "1.0",
       "link": "https://ashitaxi.com",
-      "enabled": false 
-    },
-    // ... 62 more addons with metadata
+      "enabled": true
+    }
+    // ... 62 more addons
   },
-  "plugins": { 
-    "Addons": { 
-      "description": "Enabled use of addons.",
-      "enabled": true 
-    },
-    // ... 9 more plugins with metadata
+  "plugins": {
+    "Addons": {
+      "description": "Enables use of addons.",
+      "enabled": true
+    }
+    // ... 9 more plugins
   }
 }
 ```
-**Note:** On first run, `config.json` is automatically populated with 63 addons and 10 plugins, each with their metadata (description, author, version, link, enabled status). This provides a complete Ashita addon/plugin management system out of the box. The config automatically migrates from legacy array-based structure to the current object-based format if needed.
 
-### `storage.json`
-Tracks game & patch state:
+### `storage.json` (Schema v2)
+
 ```json
 {
-  "paths": { "installPath": "...", "downloadPath": "..." },
-  "GAME_UPDATER": {
-    "baseGame": { "downloaded": true, "extracted": true },
-    "currentVersion": "1.0.0",
-    "latestVersion": "1.1.0",
-    "updater": { "downloaded": "0", "extracted": "0" }
+  "schemaVersion": 2,
+  "paths": {
+    "installPath": "C:\\...\\Game",
+    "downloadPath": "C:\\...\\Downloads",
+    "customInstallDir": "D:\\Games\\Eventide"
+  },
+  "gameState": {
+    "installedVersion": "1.0.0",
+    "availableVersion": "1.1.0",
+    "baseGame": {
+      "isDownloaded": true,
+      "isExtracted": true
+    },
+    "patches": {
+      "downloadedVersion": "1.0.0",
+      "appliedVersion": "1.0.0"
+    },
+    "downloadProgress": {
+      "url": "...",
+      "destPath": "...",
+      "bytesDownloaded": 1234567890,
+      "totalBytes": 2000000000,
+      "sha256": "...",
+      "isPaused": true,
+      "startedAt": 1704067200000,
+      "lastUpdatedAt": 1704067500000
+    }
   }
 }
 ```
 
-### Default Script Generation
-`write-default-script` builds `scripts/default.txt` with auto-load commands based on enabled addons/plugins.
-
-### Patch Extraction
-Patches are extracted directly to the game root folder:
-- Patch files download to `Downloads/` directory
-- ZIP files extract directly to the game installation folder
-- Smart extraction with automatic directory merging prevents nested folder issues
-- Files are verified post-extraction with SHA256 checksums
-- Version tracking ensures patches apply in correct order
-
 ### Security Notes
-- Credentials stored via OS keychain (`keytar`) – not in JSON files
-- Config and storage files validated & size-limited before writing
-- Directories auto-created with recursive safety checks
+
+- **Credentials** – Stored in OS keychain via `keytar`, never in JSON
+- **External URLs** – Allowlisted domains only (eventide-xi.com, discord.gg, github.com, ashitaxi.com)
+- **IPC Security** – Strict channel allowlists in preload, no direct Node access in renderer
+- **File Writes** – Atomic writes with temp files, write lock protection
+- **Input Sanitization** – Control characters stripped from user input
 
 ## 🧪 Testing
 
-Jest configuration includes JSDOM, React Testing Library setup and custom build existence check.
-
 ```bash
-npm test          # Run all tests
+# Run all tests
+npm test
+
+# Tests are located in:
+# - src/__tests__/           (integration)
+# - src/core/__tests__/      (core modules)
+# - src/logic/__tests__/     (workflows)
+# - src/renderer/__tests__/  (components)
 ```
 
-Add new tests under `src/__tests__/` or module-specific `__tests__` directories.
+Test stack: Jest 29 + React Testing Library + JSDOM
 
 ## 🛠️ Technology Stack
 
-- **Electron 35** – Desktop runtime with native module support
-- **React 19 / React DOM 19** – Modern concurrent-capable UI with hooks
-- **TypeScript 5.8** – Type-safe development with strict mode
-- **Tailwind CSS 3** – Utility-first styling with custom theme
-- **Webpack 5** – Bundling (separate configs for main/preload/renderer)
-- **electron-builder** – Cross-platform packaging (Windows/macOS/Linux)
-- **electron-updater 6.6** – Auto-update integration (release & patch coordination)
-- **electron-log 5.4** – Structured logging with chalk for colored output
-- **Axios 1.13 / AWS SDK S3 v3** – Remote asset + manifest retrieval from S3/R2
-- **Ini 6.0 / fs-extra / extract-zip 2.0** – File system, INI parsing, archive extraction
-- **Keytar** – Secure OS keychain credential storage (macOS Keychain, Windows Credential Vault, Linux Secret Service)
-- **Jest 29 + Testing Library** – Automated testing with JSDOM environment
-- **React Router DOM 7.3** – Client-side routing for multi-page navigation
-- **Lucide React 0.548 / simple-icons 15.18** – Modern iconography
-- **AJV 8.17** – JSON schema validation for manifests and storage
+### Core
+| Package    | Version | Purpose         |
+| ---------- | ------- | --------------- |
+| Electron   | 35.x    | Desktop runtime |
+| React      | 19.x    | UI framework    |
+| TypeScript | 5.8     | Type safety     |
+| Webpack    | 5.x     | Bundling        |
+
+### UI
+| Package          | Version | Purpose                 |
+| ---------------- | ------- | ----------------------- |
+| Tailwind CSS     | 4.x     | Utility-first styling   |
+| React Router DOM | 7.3     | Client-side routing     |
+| Lucide React     | 0.548   | Icons                   |
+| Simple Icons     | 15.18   | Brand icons             |
+| React Select     | 5.10    | Custom select dropdowns |
+
+### Backend
+| Package            | Version | Purpose                |
+| ------------------ | ------- | ---------------------- |
+| electron-updater   | 6.6     | Auto-updates           |
+| electron-log       | 5.4     | Logging                |
+| keytar             | 7.9     | OS keychain            |
+| axios              | 1.13    | HTTP client            |
+| @aws-sdk/client-s3 | 3.x     | S3/R2 access           |
+| extract-zip        | 2.0     | ZIP extraction         |
+| unzipper           | 0.12    | Streaming unzip        |
+| ini                | 6.0     | INI parsing            |
+| ajv                | 8.17    | JSON schema validation |
+| check-disk-space   | 3.4     | Disk space checking    |
+
+### Development
+| Package                | Version | Purpose           |
+| ---------------------- | ------- | ----------------- |
+| Jest                   | 29.x    | Testing           |
+| @testing-library/react | 16.x    | Component testing |
+| ESLint                 | 8.x     | Linting           |
+| Prettier               | 3.5     | Formatting        |
+| electron-builder       | 25.x    | Packaging         |
+| electronmon            | 2.x     | Hot reload        |
+| chalk                  | 4.x     | Colored logging   |
 
 ## 📝 License
 
-MIT © Eventide FFXI
+GPL-3.0-or-later. See [LICENSE](LICENSE).
 
 ---
 
 <div align="center">
   <img src="assets/slime2.png" alt="Eventide Slime" width="80" />
   <p><strong>Made with ❤️ for the Eventide FFXI community</strong></p>
+  <p>
+    <a href="https://eventide-xi.com/">Website</a> •
+    <a href="https://discord.gg/vT4UQU8z">Discord</a> •
+    <a href="https://github.com/bananapretzel/Eventide-XI-Launcher">GitHub</a>
+  </p>
 </div>

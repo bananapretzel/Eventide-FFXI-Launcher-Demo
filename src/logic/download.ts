@@ -173,310 +173,319 @@ export async function downloadGameResumable(
   downloadResumableInFlight = true;
 
   try {
-  log.info(
-    chalk.cyan('[downloadGameResumable] ================================='),
-  );
-  log.info(
-    chalk.cyan('[downloadGameResumable] Starting base game download...'),
-  );
-  log.info(chalk.cyan(`[downloadGameResumable] URL: ${url}`));
-  log.info(chalk.cyan(`[downloadGameResumable] Install dir: ${installDir}`));
-  log.info(
-    chalk.cyan(`[downloadGameResumable] Downloads dir: ${downloadsDir}`),
-  );
-  log.info(chalk.cyan(`[downloadGameResumable] Expected SHA256: ${sha256}`));
-  log.info(chalk.cyan(`[downloadGameResumable] Base version: ${baseVersion}`));
-  if (expectedSize) {
     log.info(
-      chalk.cyan(
-        `[downloadGameResumable] Expected size: ${(expectedSize / 1024 / 1024).toFixed(2)} MB`,
-      ),
+      chalk.cyan('[downloadGameResumable] ================================='),
     );
-  }
-  log.info(
-    chalk.cyan('[downloadGameResumable] ================================='),
-  );
-
-  const zipName = url.split('/').pop() || 'base-game.zip';
-  const zipPath = join(downloadsDir, zipName);
-
-  // Check for existing partial download
-  let startByte = 0;
-  const existingProgress = await getDownloadProgress();
-
-  // If the stored progress no longer matches the current expected download, treat it as stale.
-  // This can happen if the user pauses for days and release.json changes (URL/SHA/size).
-  const progressMatchesCurrentDownload = (p: DownloadProgress): boolean => {
-    if (p.url !== url) return false;
-    if (p.destPath !== zipPath) return false;
-    if (p.sha256 !== sha256) return false;
-    if (expectedSize && p.totalBytes && p.totalBytes !== expectedSize) return false;
-    return true;
-  };
-
-  if (existingProgress && progressMatchesCurrentDownload(existingProgress)) {
-    // Verify the partial file exists and get actual size
-    const actualSize = getPartialDownloadSize(zipPath);
-    if (actualSize > 0) {
-      startByte = actualSize;
+    log.info(
+      chalk.cyan('[downloadGameResumable] Starting base game download...'),
+    );
+    log.info(chalk.cyan(`[downloadGameResumable] URL: ${url}`));
+    log.info(chalk.cyan(`[downloadGameResumable] Install dir: ${installDir}`));
+    log.info(
+      chalk.cyan(`[downloadGameResumable] Downloads dir: ${downloadsDir}`),
+    );
+    log.info(chalk.cyan(`[downloadGameResumable] Expected SHA256: ${sha256}`));
+    log.info(
+      chalk.cyan(`[downloadGameResumable] Base version: ${baseVersion}`),
+    );
+    if (expectedSize) {
       log.info(
-        chalk.green(
-          `[downloadGameResumable] Resuming download from byte ${startByte} (${(startByte / 1024 / 1024).toFixed(2)} MB)`,
+        chalk.cyan(
+          `[downloadGameResumable] Expected size: ${(expectedSize / 1024 / 1024).toFixed(2)} MB`,
         ),
       );
     }
-  } else if (existingProgress) {
-    // Different/stale download in progress, clear it and delete the old partial ZIP.
-    log.warn(
-      chalk.yellow(
-        '[downloadGameResumable] Found stale download progress (URL/SHA/size changed), clearing...',
-      ),
+    log.info(
+      chalk.cyan('[downloadGameResumable] ================================='),
     );
 
-    // Best-effort delete to avoid resuming/validating the wrong file later.
-    try {
-      if (existingProgress.destPath) {
-        await fs.unlink(existingProgress.destPath);
+    const zipName = url.split('/').pop() || 'base-game.zip';
+    const zipPath = join(downloadsDir, zipName);
+
+    // Check for existing partial download
+    let startByte = 0;
+    const existingProgress = await getDownloadProgress();
+
+    // If the stored progress no longer matches the current expected download, treat it as stale.
+    // This can happen if the user pauses for days and release.json changes (URL/SHA/size).
+    const progressMatchesCurrentDownload = (p: DownloadProgress): boolean => {
+      if (p.url !== url) return false;
+      if (p.destPath !== zipPath) return false;
+      if (p.sha256 !== sha256) return false;
+      if (expectedSize && p.totalBytes && p.totalBytes !== expectedSize)
+        return false;
+      return true;
+    };
+
+    if (existingProgress && progressMatchesCurrentDownload(existingProgress)) {
+      // Verify the partial file exists and get actual size
+      const actualSize = getPartialDownloadSize(zipPath);
+      if (actualSize > 0) {
+        startByte = actualSize;
         log.info(
-          chalk.cyan(
-            `[downloadGameResumable] Deleted stale partial download: ${existingProgress.destPath}`,
+          chalk.green(
+            `[downloadGameResumable] Resuming download from byte ${startByte} (${(startByte / 1024 / 1024).toFixed(2)} MB)`,
           ),
         );
       }
-    } catch (err) {
+    } else if (existingProgress) {
+      // Different/stale download in progress, clear it and delete the old partial ZIP.
       log.warn(
         chalk.yellow(
-          '[downloadGameResumable] Could not delete stale partial download:',
+          '[downloadGameResumable] Found stale download progress (URL/SHA/size changed), clearing...',
         ),
-        err,
       );
-    }
 
-    await clearDownloadProgress();
-  }
-
-  log.info(chalk.cyan(`[downloadGameResumable] Downloading to: ${zipPath}`));
-
-  // Create abort controller for this download
-  const controller = createDownloadController();
-
-  // Initialize or update download progress in storage
-  await saveDownloadProgress({
-    url,
-    destPath: zipPath,
-    bytesDownloaded: startByte,
-    totalBytes: expectedSize || 0,
-    sha256,
-    isPaused: false,
-    startedAt: existingProgress?.startedAt || Date.now(),
-    lastUpdatedAt: Date.now(),
-  });
-
-  try {
-    // Progress wrapper that also saves to storage periodically
-    const wrappedOnProgress = async (dl: number, total: number) => {
-      // Always call the UI callback
-      onProgress?.(dl, total);
-
-      // Periodically save progress to storage (throttled to avoid excessive writes)
-      const now = Date.now();
-      if (now - lastProgressSaveTime > PROGRESS_SAVE_INTERVAL_MS) {
-        lastProgressSaveTime = now;
-        // Fire and forget - don't await to avoid blocking download
-        saveDownloadProgress({
-          url,
-          destPath: zipPath,
-          bytesDownloaded: dl,
-          totalBytes: total,
-          sha256,
-          isPaused: false,
-          startedAt: existingProgress?.startedAt || Date.now(),
-          lastUpdatedAt: now,
-        }).catch((err) =>
-          log.warn('[downloadGameResumable] Failed to save progress:', err),
+      // Best-effort delete to avoid resuming/validating the wrong file later.
+      try {
+        if (existingProgress.destPath) {
+          await fs.unlink(existingProgress.destPath);
+          log.info(
+            chalk.cyan(
+              `[downloadGameResumable] Deleted stale partial download: ${existingProgress.destPath}`,
+            ),
+          );
+        }
+      } catch (err) {
+        log.warn(
+          chalk.yellow(
+            '[downloadGameResumable] Could not delete stale partial download:',
+          ),
+          err,
         );
       }
-    };
 
-    const result = await downloadFileResumable(
+      await clearDownloadProgress();
+    }
+
+    log.info(chalk.cyan(`[downloadGameResumable] Downloading to: ${zipPath}`));
+
+    // Create abort controller for this download
+    const controller = createDownloadController();
+
+    // Initialize or update download progress in storage
+    await saveDownloadProgress({
       url,
-      zipPath,
-      startByte,
-      expectedSize,
-      wrappedOnProgress,
-      controller.signal,
-    );
-
-    // Handle paused download
-    if (!result.completed && result.wasPaused) {
-      log.info(
-        chalk.yellow(
-          `[downloadGameResumable] Download paused at ${result.bytesDownloaded} bytes`,
-        ),
-      );
-      await saveDownloadProgress({
-        url,
-        destPath: zipPath,
-        bytesDownloaded: result.bytesDownloaded,
-        totalBytes: result.totalBytes,
-        sha256,
-        isPaused: true,
-        startedAt: existingProgress?.startedAt || Date.now(),
-        lastUpdatedAt: Date.now(),
-      });
-      return {
-        completed: false,
-        wasPaused: true,
-        bytesDownloaded: result.bytesDownloaded,
-        totalBytes: result.totalBytes,
-      };
-    }
-
-    log.info(chalk.green('[downloadGameResumable] Download complete'));
-    clearDownloadController();
-  } catch (downloadErr) {
-    log.error(
-      chalk.red('[downloadGameResumable] Download failed:'),
-      downloadErr,
-    );
-    clearDownloadController();
-
-    // Save progress even on error (might be able to resume later)
-    const currentSize = getPartialDownloadSize(zipPath);
-    if (currentSize > 0) {
-      await saveDownloadProgress({
-        url,
-        destPath: zipPath,
-        bytesDownloaded: currentSize,
-        totalBytes: expectedSize || 0,
-        sha256,
-        isPaused: true,
-        startedAt: existingProgress?.startedAt || Date.now(),
-        lastUpdatedAt: Date.now(),
-      });
-      log.info(
-        chalk.cyan(
-          `[downloadGameResumable] Saved progress: ${currentSize} bytes downloaded`,
-        ),
-      );
-    }
-
-    throw downloadErr;
-  }
-
-  // Download completed successfully - clear progress and proceed
-  await clearDownloadProgress();
-  await updateStorage((s) => {
-    s.gameState.baseGame.isDownloaded = true;
-  });
-
-  log.info(chalk.cyan('[downloadGameResumable] Verifying checksum...'));
-  const checksumValid = await verifySha256(zipPath, sha256);
-
-  if (!checksumValid) {
-    log.error(chalk.red('[downloadGameResumable] SHA256 mismatch!'));
-
-    // Delete corrupted file
-    try {
-      await fs.unlink(zipPath);
-      log.info(
-        chalk.cyan('[downloadGameResumable] Deleted corrupted ZIP file'),
-      );
-    } catch (unlinkErr) {
-      log.warn(
-        chalk.yellow('[downloadGameResumable] Could not delete corrupted ZIP:'),
-        unlinkErr,
-      );
-    }
-
-    await updateStorage((s) => {
-      s.gameState.baseGame.isDownloaded = false;
+      destPath: zipPath,
+      bytesDownloaded: startByte,
+      totalBytes: expectedSize || 0,
+      sha256,
+      isPaused: false,
+      startedAt: existingProgress?.startedAt || Date.now(),
+      lastUpdatedAt: Date.now(),
     });
-    throw new Error(
-      'SHA256 mismatch - downloaded file is corrupted. Please try downloading again.',
-    );
-  }
 
-  log.info(chalk.green('[downloadGameResumable] Checksum verified'));
-
-  if (beforeExtract) {
-    log.info(chalk.cyan('[downloadGameResumable] Running pre-extraction hook...'));
-    await beforeExtract();
-  }
-
-  log.info(chalk.cyan(`[downloadGameResumable] Extracting to: ${installDir}`));
-
-  try {
-    await extractZip(zipPath, installDir, onExtractProgress);
-    log.info(chalk.green('[downloadGameResumable] Extraction complete'));
-  } catch (extractErr) {
-    log.error(
-      chalk.red('[downloadGameResumable] Extraction failed:'),
-      extractErr,
-    );
-
-    // If extraction fails, the ZIP might be corrupted - delete it
     try {
-      await fs.unlink(zipPath);
-      log.info(
-        chalk.cyan(
-          '[downloadGameResumable] Deleted corrupted ZIP file after extraction failure',
-        ),
+      // Progress wrapper that also saves to storage periodically
+      const wrappedOnProgress = async (dl: number, total: number) => {
+        // Always call the UI callback
+        onProgress?.(dl, total);
+
+        // Periodically save progress to storage (throttled to avoid excessive writes)
+        const now = Date.now();
+        if (now - lastProgressSaveTime > PROGRESS_SAVE_INTERVAL_MS) {
+          lastProgressSaveTime = now;
+          // Fire and forget - don't await to avoid blocking download
+          saveDownloadProgress({
+            url,
+            destPath: zipPath,
+            bytesDownloaded: dl,
+            totalBytes: total,
+            sha256,
+            isPaused: false,
+            startedAt: existingProgress?.startedAt || Date.now(),
+            lastUpdatedAt: now,
+          }).catch((err) =>
+            log.warn('[downloadGameResumable] Failed to save progress:', err),
+          );
+        }
+      };
+
+      const result = await downloadFileResumable(
+        url,
+        zipPath,
+        startByte,
+        expectedSize,
+        wrappedOnProgress,
+        controller.signal,
       );
+
+      // Handle paused download
+      if (!result.completed && result.wasPaused) {
+        log.info(
+          chalk.yellow(
+            `[downloadGameResumable] Download paused at ${result.bytesDownloaded} bytes`,
+          ),
+        );
+        await saveDownloadProgress({
+          url,
+          destPath: zipPath,
+          bytesDownloaded: result.bytesDownloaded,
+          totalBytes: result.totalBytes,
+          sha256,
+          isPaused: true,
+          startedAt: existingProgress?.startedAt || Date.now(),
+          lastUpdatedAt: Date.now(),
+        });
+        return {
+          completed: false,
+          wasPaused: true,
+          bytesDownloaded: result.bytesDownloaded,
+          totalBytes: result.totalBytes,
+        };
+      }
+
+      log.info(chalk.green('[downloadGameResumable] Download complete'));
+      clearDownloadController();
+    } catch (downloadErr) {
+      log.error(
+        chalk.red('[downloadGameResumable] Download failed:'),
+        downloadErr,
+      );
+      clearDownloadController();
+
+      // Save progress even on error (might be able to resume later)
+      const currentSize = getPartialDownloadSize(zipPath);
+      if (currentSize > 0) {
+        await saveDownloadProgress({
+          url,
+          destPath: zipPath,
+          bytesDownloaded: currentSize,
+          totalBytes: expectedSize || 0,
+          sha256,
+          isPaused: true,
+          startedAt: existingProgress?.startedAt || Date.now(),
+          lastUpdatedAt: Date.now(),
+        });
+        log.info(
+          chalk.cyan(
+            `[downloadGameResumable] Saved progress: ${currentSize} bytes downloaded`,
+          ),
+        );
+      }
+
+      throw downloadErr;
+    }
+
+    // Download completed successfully - clear progress and proceed
+    await clearDownloadProgress();
+    await updateStorage((s) => {
+      s.gameState.baseGame.isDownloaded = true;
+    });
+
+    log.info(chalk.cyan('[downloadGameResumable] Verifying checksum...'));
+    const checksumValid = await verifySha256(zipPath, sha256);
+
+    if (!checksumValid) {
+      log.error(chalk.red('[downloadGameResumable] SHA256 mismatch!'));
+
+      // Delete corrupted file
+      try {
+        await fs.unlink(zipPath);
+        log.info(
+          chalk.cyan('[downloadGameResumable] Deleted corrupted ZIP file'),
+        );
+      } catch (unlinkErr) {
+        log.warn(
+          chalk.yellow(
+            '[downloadGameResumable] Could not delete corrupted ZIP:',
+          ),
+          unlinkErr,
+        );
+      }
+
       await updateStorage((s) => {
         s.gameState.baseGame.isDownloaded = false;
       });
-    } catch (unlinkErr) {
-      log.warn(
-        chalk.yellow(
-          '[downloadGameResumable] Could not delete ZIP after extraction failure:',
-        ),
-        unlinkErr,
+      throw new Error(
+        'SHA256 mismatch - downloaded file is corrupted. Please try downloading again.',
       );
     }
 
-    throw new Error(
-      `ZIP extraction failed: ${extractErr instanceof Error ? extractErr.message : String(extractErr)}. The file may be corrupted. Please try downloading again.`,
-    );
-  }
+    log.info(chalk.green('[downloadGameResumable] Checksum verified'));
 
-  // Verify extracted files (expect at least 100 files for a base game install)
-  const verification = await verifyExtractedFiles(installDir, 100);
-  if (!verification.success) {
-    log.error(
-      chalk.red(
-        `[downloadGameResumable] Extraction verification failed! Only ${verification.fileCount} files found.`,
+    if (beforeExtract) {
+      log.info(
+        chalk.cyan('[downloadGameResumable] Running pre-extraction hook...'),
+      );
+      await beforeExtract();
+    }
+
+    log.info(
+      chalk.cyan(`[downloadGameResumable] Extracting to: ${installDir}`),
+    );
+
+    try {
+      await extractZip(zipPath, installDir, onExtractProgress);
+      log.info(chalk.green('[downloadGameResumable] Extraction complete'));
+    } catch (extractErr) {
+      log.error(
+        chalk.red('[downloadGameResumable] Extraction failed:'),
+        extractErr,
+      );
+
+      // If extraction fails, the ZIP might be corrupted - delete it
+      try {
+        await fs.unlink(zipPath);
+        log.info(
+          chalk.cyan(
+            '[downloadGameResumable] Deleted corrupted ZIP file after extraction failure',
+          ),
+        );
+        await updateStorage((s) => {
+          s.gameState.baseGame.isDownloaded = false;
+        });
+      } catch (unlinkErr) {
+        log.warn(
+          chalk.yellow(
+            '[downloadGameResumable] Could not delete ZIP after extraction failure:',
+          ),
+          unlinkErr,
+        );
+      }
+
+      throw new Error(
+        `ZIP extraction failed: ${extractErr instanceof Error ? extractErr.message : String(extractErr)}. The file may be corrupted. Please try downloading again.`,
+      );
+    }
+
+    // Verify extracted files (expect at least 100 files for a base game install)
+    const verification = await verifyExtractedFiles(installDir, 100);
+    if (!verification.success) {
+      log.error(
+        chalk.red(
+          `[downloadGameResumable] Extraction verification failed! Only ${verification.fileCount} files found.`,
+        ),
+      );
+      throw new Error(
+        `Extraction verification failed: expected at least 100 files, found ${verification.fileCount}`,
+      );
+    }
+    log.info(
+      chalk.green(
+        `[downloadGameResumable] Verification passed: ${verification.fileCount} files extracted`,
       ),
     );
-    throw new Error(
-      `Extraction verification failed: expected at least 100 files, found ${verification.fileCount}`,
+
+    await updateStorage((s) => {
+      s.gameState.baseGame.isExtracted = true;
+    });
+
+    // Set version in AppData storage (installDir is ignored by setClientVersion)
+    await setClientVersion(installDir, baseVersion);
+
+    log.info(
+      chalk.green(
+        `[downloadGameResumable] ✓ Base game installation complete! Version: ${baseVersion}`,
+      ),
     );
-  }
-  log.info(
-    chalk.green(
-      `[downloadGameResumable] Verification passed: ${verification.fileCount} files extracted`,
-    ),
-  );
 
-  await updateStorage((s) => {
-    s.gameState.baseGame.isExtracted = true;
-  });
-
-  // Set version in AppData storage (installDir is ignored by setClientVersion)
-  await setClientVersion(installDir, baseVersion);
-
-  log.info(
-    chalk.green(
-      `[downloadGameResumable] ✓ Base game installation complete! Version: ${baseVersion}`,
-    ),
-  );
-
-  return {
-    completed: true,
-    wasPaused: false,
-    bytesDownloaded: expectedSize || 0,
-    totalBytes: expectedSize || 0,
-  };
+    return {
+      completed: true,
+      wasPaused: false,
+      bytesDownloaded: expectedSize || 0,
+      totalBytes: expectedSize || 0,
+    };
   } finally {
     downloadResumableInFlight = false;
   }

@@ -31,10 +31,9 @@
     Delete "$SMPROGRAMS\${PRODUCT_NAME}.lnk"
     Delete "$SMPROGRAMS\EventideXI.lnk"
   ${Else}
-    # Not running under Wine - ensure desktop shortcut exists
-    # This is especially important during silent updates where shortcuts may not be recreated
-    SetShellVarContext current
-    CreateShortCut "$DESKTOP\${PRODUCT_NAME}.lnk" "$INSTDIR\${PRODUCT_NAME}.exe" "" "$INSTDIR\${PRODUCT_NAME}.exe" 0
+    # Not running under Wine
+    # Desktop shortcut creation is an explicit opt-in handled by the app (first-run prompt).
+    # Do not create or recreate desktop shortcuts here (silent updates run this macro).
   ${EndIf}
 !macroend
 

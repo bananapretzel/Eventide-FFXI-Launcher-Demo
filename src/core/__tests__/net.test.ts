@@ -13,6 +13,7 @@ jest.mock('electron-log', () => ({
 
 describe('Network Module', () => {
   const testDir = path.join(os.tmpdir(), 'eventide-test-downloads');
+  const originalFetch = global.fetch;
 
   beforeAll(() => {
     if (!fs.existsSync(testDir)) {
@@ -31,6 +32,57 @@ describe('Network Module', () => {
   });
 
   describe('fetchJson', () => {
+    beforeEach(() => {
+      global.fetch = (jest.fn(async (url: any) => {
+        const u = String(url);
+
+        if (u.includes('invalid-domain-that-does-not-exist-12345.com')) {
+          throw new Error('ENOTFOUND');
+        }
+
+        if (u.includes('api.github.com/repos/nonexistent/nonexistent')) {
+          return {
+            ok: false,
+            status: 404,
+            json: jest.fn(async () => ({})),
+            text: jest.fn(async () => 'Not Found'),
+          } as any;
+        }
+
+        if (u.includes('github.com/this-does-not-exist-12345')) {
+          return {
+            ok: true,
+            status: 200,
+            json: jest.fn(async () => {
+              throw new Error('Unexpected token < in JSON');
+            }),
+            text: jest.fn(async () => '<html>not json</html>'),
+          } as any;
+        }
+
+        if (u.includes('api.github.com/repos/microsoft/vscode/releases/latest')) {
+          return {
+            ok: true,
+            status: 200,
+            json: jest.fn(async () => ({ tag_name: '1.0.0' })),
+            text: jest.fn(async () => JSON.stringify({ tag_name: '1.0.0' })),
+          } as any;
+        }
+
+        return {
+          ok: false,
+          status: 500,
+          json: jest.fn(async () => ({})),
+          text: jest.fn(async () => 'Unhandled test URL'),
+        } as any;
+      }) as any) as any;
+    });
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+      jest.clearAllMocks();
+    });
+
     it('should fetch and parse valid JSON', async () => {
       const result = await fetchJson(
         'https://api.github.com/repos/microsoft/vscode/releases/latest',

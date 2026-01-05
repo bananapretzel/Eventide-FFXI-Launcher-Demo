@@ -69,7 +69,9 @@ const mockElectron = {
     checkForUpdates: jest.fn(),
     downloadUpdate: jest.fn(),
     installUpdate: jest.fn(),
-    getStatus: jest.fn().mockResolvedValue({ success: true, payload: { status: 'idle' } }),
+    getStatus: jest
+      .fn()
+      .mockResolvedValue({ success: true, payload: { status: 'idle' } }),
     onUpdateEvent: jest.fn(() => () => {}),
   },
 };
