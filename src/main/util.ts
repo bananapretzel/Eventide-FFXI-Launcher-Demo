@@ -469,9 +469,12 @@ export async function createDesktopShortcut(): Promise<{
     // Get the path to the launcher executable
     const exePath = app.getPath('exe');
 
-    // Find icon path - check resources folder first, then app directory
+    // Find icon path - prefer packaged resources first, then fall back.
     let iconPath = '';
     const possibleIconPaths = [
+      // Packaged app: extraResources "assets/**" -> "resources/assets/..."
+      // This is the most reliable location for a custom icon.
+      path.join(process.resourcesPath, 'assets', 'icon.ico'),
       path.join(path.dirname(exePath), 'resources', 'assets', 'icon.ico'),
       path.join(path.dirname(exePath), 'resources', 'icon.ico'),
       path.join(path.dirname(exePath), '..', 'resources', 'assets', 'icon.ico'),

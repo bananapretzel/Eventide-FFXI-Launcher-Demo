@@ -190,6 +190,31 @@ async function ensureCustomInstallDirSynced(): Promise<void> {
 // Global patching state to prevent concurrent operations
 let isPatchingInProgress = false;
 
+function isNoPublishedUpdateError(message: string): boolean {
+  const m = (message || '').toLowerCase();
+
+  // Typical electron-updater/GitHub provider messages when no releases exist
+  if (
+    m.includes('no published versions') ||
+    m.includes('no published releases') ||
+    m.includes('no published release')
+  ) {
+    return true;
+  }
+
+  // Often manifests as missing feed artifacts
+  if (m.includes('latest.yml') && (m.includes('not found') || m.includes('404'))) {
+    return true;
+  }
+
+  // Generic GitHub releases 404 (keep conservative)
+  if (m.includes('404') && m.includes('releases')) {
+    return true;
+  }
+
+  return false;
+}
+
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
@@ -664,6 +689,20 @@ app.once('ready', async () => {
 
       autoUpdater.on('error', (error) => {
         const errorMsg = error instanceof Error ? error.message : String(error);
+        if (isNoPublishedUpdateError(errorMsg)) {
+          log.warn(
+            chalk.yellow(
+              '[autoUpdater] No published launcher updates found; treating as up-to-date:',
+            ),
+            errorMsg,
+          );
+          sendLauncherUpdateEvent({
+            status: 'up-to-date',
+            message: 'No published launcher updates were found.',
+          });
+          return;
+        }
+
         log.error(chalk.red('[autoUpdater] Update error:'), errorMsg);
         sendLauncherUpdateEvent({
           status: 'error',
@@ -1800,6 +1839,14 @@ app.on('ready', () => {
     autoUpdater.checkForUpdates().catch((err) => {
       const msg = err instanceof Error ? err.message : String(err);
       log.warn(chalk.yellow('[autoUpdater] Startup update check failed:'), msg);
+      if (isNoPublishedUpdateError(msg)) {
+        sendLauncherUpdateEvent({
+          status: 'up-to-date',
+          message: 'No published launcher updates were found.',
+        });
+        return;
+      }
+
       sendLauncherUpdateEvent({
         status: 'error',
         error: msg,
