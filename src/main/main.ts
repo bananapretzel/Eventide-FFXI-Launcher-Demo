@@ -1952,6 +1952,26 @@ app.on('ready', () => {
           const raw = fs.readFileSync(configPath, 'utf-8');
           const config: any = JSON.parse(raw || '{}');
 
+          // If the user previously opted into a desktop shortcut, keep it updated across upgrades.
+          // This avoids stale icon/target issues when updating in-place.
+          const currentVersion = app.getVersion();
+          const optedIn = config.desktopShortcutOptIn === true;
+          const updatedFor = config.desktopShortcutUpdatedForVersion;
+          if (optedIn && updatedFor !== currentVersion) {
+            const updated = await createDesktopShortcut();
+            if (!updated.success) {
+              log.warn(
+                chalk.yellow(
+                  '[startup] Desktop shortcut update attempt failed:',
+                ),
+                updated.error,
+              );
+            } else {
+              config.desktopShortcutUpdatedForVersion = currentVersion;
+              await writeJson(configPath, config);
+            }
+          }
+
           const prompted = config.desktopShortcutPrompted === true;
           const neverAskAgain = config.desktopShortcutNeverAskAgain === true;
 

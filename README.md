@@ -301,7 +301,7 @@ electron-builder configuration in `package.json`:
 
 ### DevTools
 
-- Press `Ctrl+Shift+I` (Windows/Linux) or `Cmd+Option+I` (macOS)
+- Press `Ctrl+Shift+I` (Windows/Linux)
 - Auto-opens in development mode
 
 ### Debug Mode
@@ -317,7 +317,6 @@ Attach debugger to `localhost:5858`
 | Platform | Path                                                      |
 | -------- | --------------------------------------------------------- |
 | Windows  | `%USERPROFILE%\AppData\Roaming\Eventide Launcherv2\logs\` |
-| macOS    | `~/Library/Logs/Eventide Launcherv2/`                     |
 | Linux    | `~/.config/Eventide Launcherv2/logs/`                     |
 
 ### Common Issues
@@ -345,9 +344,8 @@ npm install
 ```
 Eventide-FFXI-Launcher-Demo/
 ├── assets/                    # Static assets (icons, fonts, installer resources)
-│   ├── icons/                 # App icons for all platforms
+│   ├── icons/                 # App icons
 │   ├── fonts/                 # Custom fonts
-│   ├── entitlements.mac.plist # macOS code signing
 │   └── installer.nsh          # NSIS installer script
 ├── src/
 │   ├── core/                  # Pure utilities (no Electron/React)
@@ -435,11 +433,10 @@ Eventide-FFXI-Launcher-Demo/
 
 All runtime state lives in Electron's `userData` directory:
 
-| Platform | Path                                                 |
-| -------- | ---------------------------------------------------- |
-| Windows  | `%APPDATA%\Eventide Launcherv2\`                     |
-| macOS    | `~/Library/Application Support/Eventide Launcherv2/` |
-| Linux    | `~/.config/Eventide Launcherv2/`                     |
+| Platform | Path                             |
+| -------- | -------------------------------- |
+| Windows  | `%APPDATA%\Eventide Launcherv2\` |
+| Linux    | `~/.config/Eventide Launcherv2/` |
 
 ### Directory Layout
 

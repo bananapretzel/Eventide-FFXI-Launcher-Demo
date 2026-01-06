@@ -194,8 +194,7 @@ export async function readGamepadConfig(
     );
     return readWindowsRegistry();
   }
-  if (platform === 'linux' || platform === 'darwin') {
-    // macOS users might also use Wine/CrossOver
+  if (platform === 'linux') {
     log.info(chalk.cyan('[Gamepad] Reading gamepad config from Wine registry'));
     return readWineRegistry(winePrefix);
   }

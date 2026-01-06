@@ -444,27 +444,14 @@ export async function createDesktopShortcut(): Promise<{
 
     const shortcutPath = path.join(desktopPath, 'Eventide Launcher.lnk');
 
-    // Check if shortcut already exists
-    if (fs.existsSync(shortcutPath)) {
-      log.info(
-        chalk.cyan('[createDesktopShortcut] Shortcut already exists at:'),
-        shortcutPath,
-      );
-      return { success: true };
-    }
+    // Also check for alternative names that may exist from previous versions / installer
+    const altShortcutPath = path.join(desktopPath, 'Eventide-FFXI-Launcher.lnk');
+    const builderShortcutPath = path.join(desktopPath, 'EventideXI.lnk');
 
-    // Also check for the alternative name that NSIS might create
-    const altShortcutPath = path.join(
-      desktopPath,
-      'Eventide-FFXI-Launcher.lnk',
+    // Prefer updating an existing shortcut rather than leaving it stale after an upgrade.
+    const existingShortcutPath = [shortcutPath, altShortcutPath, builderShortcutPath].find(
+      (p) => fs.existsSync(p),
     );
-    if (fs.existsSync(altShortcutPath)) {
-      log.info(
-        chalk.cyan('[createDesktopShortcut] NSIS shortcut already exists at:'),
-        altShortcutPath,
-      );
-      return { success: true };
-    }
 
     // Get the path to the launcher executable
     const exePath = app.getPath('exe');
@@ -488,21 +475,62 @@ export async function createDesktopShortcut(): Promise<{
       }
     }
 
-    // Create the shortcut using Electron's shell.writeShortcutLink
-    const success = shell.writeShortcutLink(shortcutPath, {
+    const desiredShortcut = {
       target: exePath,
       description: 'Eventide FFXI Launcher',
       cwd: path.dirname(exePath),
       icon: iconPath || exePath,
       iconIndex: 0,
-    });
+    } as const;
+
+    const destination = existingShortcutPath ?? shortcutPath;
+
+    if (existingShortcutPath) {
+      try {
+        const current = shell.readShortcutLink(existingShortcutPath);
+
+        const targetMatches =
+          typeof current.target === 'string' &&
+          current.target.toLowerCase() === desiredShortcut.target.toLowerCase();
+
+        // icon can be empty depending on how the shortcut was created; treat that as "needs update"
+        const iconMatches =
+          typeof current.icon === 'string' &&
+          current.icon.length > 0 &&
+          current.icon.toLowerCase() === desiredShortcut.icon.toLowerCase();
+
+        if (targetMatches && iconMatches) {
+          log.info(
+            chalk.cyan('[createDesktopShortcut] Shortcut already up to date at:'),
+            existingShortcutPath,
+          );
+          return { success: true };
+        }
+
+        log.info(
+          chalk.cyan('[createDesktopShortcut] Updating existing shortcut at:'),
+          existingShortcutPath,
+        );
+      } catch (readErr) {
+        // If readShortcutLink fails (corrupt .lnk, permissions, etc.), fall through and rewrite.
+        log.warn(
+          chalk.yellow(
+            '[createDesktopShortcut] Could not read existing shortcut; will rewrite:',
+          ),
+          readErr,
+        );
+      }
+    }
+
+    // Create/update the shortcut using Electron's shell.writeShortcutLink
+    const success = shell.writeShortcutLink(destination, desiredShortcut);
 
     if (success) {
       log.info(
         chalk.green(
           '[createDesktopShortcut] ✓ Desktop shortcut created successfully at:',
         ),
-        shortcutPath,
+        destination,
       );
       return { success: true };
     }

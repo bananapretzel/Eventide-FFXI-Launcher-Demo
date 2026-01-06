@@ -135,7 +135,7 @@ describe('Logger Sanitization', () => {
         expect(result).toBe('/home/<user>/games/ffxi');
       });
 
-      it('should sanitize /Users paths (macOS)', () => {
+      it('should sanitize /Users paths', () => {
         const input = '/Users/johndoe/Library/Application Support';
         const result = sanitizeLogMessage(input);
         expect(result).toBe('/Users/<user>/Library/Application Support');

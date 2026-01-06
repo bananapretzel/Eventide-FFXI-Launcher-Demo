@@ -1553,12 +1553,6 @@ body {
   transform: translateX(16px);
 }
 
-@media (max-width: 900px) {
-  .ext-columns {
-    grid-template-columns: 1fr;
-  }
-}
-
 /* Modal Dialog Styles */
 .modal-overlay {
   position: fixed;

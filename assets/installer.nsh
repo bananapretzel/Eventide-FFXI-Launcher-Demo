@@ -34,6 +34,30 @@
     # Not running under Wine
     # Desktop shortcut creation is an explicit opt-in handled by the app (first-run prompt).
     # Do not create or recreate desktop shortcuts here (silent updates run this macro).
+
+    # Best-effort refresh of this launcher's EXE icon in Explorer after an in-place upgrade.
+    # Avoids clearing the entire system icon cache.
+    IfFileExists "$SYSDIR\ie4uinit.exe" 0 +2
+      ExecWait '"$SYSDIR\ie4uinit.exe" -show'
+    # SHCNE_UPDATEITEM (0x00002000) + SHCNF_PATHW (0x0005)
+    IfFileExists "$INSTDIR\${PRODUCT_NAME}.exe" 0 +2
+      System::Call 'shell32::SHChangeNotify(i 0x00002000, i 0x0005, w "$INSTDIR\\${PRODUCT_NAME}.exe", i 0)'
+
+    # Also refresh Start Menu shortcuts (these can survive upgrades and keep an old cached icon).
+    # Note: We don't assume exact shortcut names; just best-effort notify common paths.
+    IfFileExists "$SMPROGRAMS\${PRODUCT_NAME}" 0 +2
+      System::Call 'shell32::SHChangeNotify(i 0x00002000, i 0x0005, w "$SMPROGRAMS\\${PRODUCT_NAME}", i 0)'
+
+    IfFileExists "$SMPROGRAMS\${PRODUCT_NAME}\${PRODUCT_NAME}.lnk" 0 +2
+      System::Call 'shell32::SHChangeNotify(i 0x00002000, i 0x0005, w "$SMPROGRAMS\\${PRODUCT_NAME}\\${PRODUCT_NAME}.lnk", i 0)'
+    IfFileExists "$SMPROGRAMS\${PRODUCT_NAME}\EventideXI.lnk" 0 +2
+      System::Call 'shell32::SHChangeNotify(i 0x00002000, i 0x0005, w "$SMPROGRAMS\\${PRODUCT_NAME}\\EventideXI.lnk", i 0)'
+    IfFileExists "$SMPROGRAMS\${PRODUCT_NAME}\Eventide Launcher.lnk" 0 +2
+      System::Call 'shell32::SHChangeNotify(i 0x00002000, i 0x0005, w "$SMPROGRAMS\\${PRODUCT_NAME}\\Eventide Launcher.lnk", i 0)'
+    IfFileExists "$SMPROGRAMS\EventideXI.lnk" 0 +2
+      System::Call 'shell32::SHChangeNotify(i 0x00002000, i 0x0005, w "$SMPROGRAMS\\EventideXI.lnk", i 0)'
+    IfFileExists "$SMPROGRAMS\Eventide Launcher.lnk" 0 +2
+      System::Call 'shell32::SHChangeNotify(i 0x00002000, i 0x0005, w "$SMPROGRAMS\\Eventide Launcher.lnk", i 0)'
   ${EndIf}
 !macroend
 
