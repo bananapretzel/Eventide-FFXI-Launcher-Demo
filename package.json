@@ -289,7 +289,7 @@
     "publish": {
       "provider": "github",
       "owner": "bananapretzel",
-      "repo": "Eventide-XI-Launcher"
+      "repo": "eventide-launcher-updates"
     }
   },
   "devEngines": {

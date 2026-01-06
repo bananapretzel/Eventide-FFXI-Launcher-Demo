@@ -661,19 +661,6 @@ body {
   color: var(--close-btn-hover);
 }
 
-/* Media Queries */
-@media (max-width: 860px) {
-  .launcher-main {
-    grid-template-columns: 1fr;
-  }
-
-  .news-section {
-    margin-top: 24px;
-    border-radius: 18px;
-
-  }
-}
-
 /* Settings Page Layout */
 .settings-page {
   display: flex;
