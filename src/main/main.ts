@@ -1654,7 +1654,15 @@ ipcMain.handle(
         onExtractProgress,
         async () => {
           // Prompt during extraction (not during download). Skip repeated prompts within a session.
-          await ensureDirectPlay(true);
+          // Do not block extraction on user interaction.
+          void ensureDirectPlay(true).catch((directPlayErr) => {
+            log.warn(
+              chalk.yellow(
+                '[launcher:downloadGame] DirectPlay check/prompt failed',
+              ),
+              directPlayErr,
+            );
+          });
         },
       );
       log.info(chalk.cyan('[download] Download completed successfully'));
@@ -1903,7 +1911,9 @@ app.on('ready', () => {
   // - Start Menu entry is always created by the installer.
   // - Desktop shortcut is an explicit opt-in (prompted once on first run).
   // - Never recreate a desktop shortcut during silent updates.
-  if (process.env.NODE_ENV === 'production') {
+  // Use app.isPackaged instead of NODE_ENV to avoid environment-dependent behavior
+  // (e.g., first run launched by the installer vs subsequent runs).
+  if (app.isPackaged) {
     const {
       createDesktopShortcut,
       createLinuxDesktopFile,
@@ -1941,11 +1951,80 @@ app.on('ready', () => {
       // We store the choice in config.json so updates do not re-prompt or recreate.
       (async () => {
         try {
+          // Wait until the window is actually visible/ready. When the app is auto-launched
+          // right after NSIS finishes, focus/z-order can still be in flux and message boxes
+          // can end up behind other windows.
+          const waitForUiReady = async () => {
+            if (!mainWindow || mainWindow.isDestroyed()) return;
+
+            // Ensure the main window is shown/restored.
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            if (!mainWindow.isVisible()) mainWindow.show();
+
+            // Wait for the renderer to finish loading (best-effort).
+            await new Promise<void>((resolve) => {
+              let done = false;
+              const finish = () => {
+                if (done) return;
+                done = true;
+                resolve();
+              };
+
+              // If already loaded, continue quickly.
+              if (!mainWindow || mainWindow.isDestroyed()) {
+                finish();
+                return;
+              }
+
+              if (mainWindow.webContents && !mainWindow.webContents.isLoading()) {
+                finish();
+                return;
+              }
+
+              // Otherwise wait a bit, but don't hang forever.
+              const timeout = setTimeout(finish, 5000);
+              mainWindow.webContents?.once('did-finish-load', () => {
+                clearTimeout(timeout);
+                finish();
+              });
+            });
+
+            // Give the installer window time to close.
+            await new Promise((r) => setTimeout(r, 2500));
+
+            // Bring the app to the foreground (best-effort).
+            try {
+              const wasAlwaysOnTop = mainWindow.isAlwaysOnTop();
+              mainWindow.setAlwaysOnTop(true);
+              app.focus({ steal: true });
+              mainWindow.focus();
+              await new Promise((r) => setTimeout(r, 200));
+              mainWindow.setAlwaysOnTop(wasAlwaysOnTop);
+            } catch {
+              // Best-effort only.
+            }
+          };
+
           const paths = getEventidePaths();
           const configPath = paths.config;
 
-          if (!fs.existsSync(configPath)) {
-            // Config creation happens earlier during startup, but guard just in case.
+          // Config creation usually happens earlier during startup; but on some first-run paths
+          // it can still be racing. Poll briefly so we don't silently skip the prompt.
+          let configExists = fs.existsSync(configPath);
+          if (!configExists) {
+            for (let i = 0; i < 10; i += 1) {
+              await new Promise((r) => setTimeout(r, 150));
+              configExists = fs.existsSync(configPath);
+              if (configExists) break;
+            }
+          }
+          if (!configExists) {
+            log.warn(
+              chalk.yellow(
+                '[startup] config.json not found; skipping desktop shortcut prompt this run',
+              ),
+              configPath,
+            );
             return;
           }
 
@@ -1979,6 +2058,10 @@ app.on('ready', () => {
             return;
           }
 
+          await waitForUiReady();
+
+          log.info(chalk.cyan('[startup] Showing desktop shortcut opt-in prompt'));
+
           const result = await dialog.showMessageBox(mainWindow, {
             type: 'question',
             title: 'Desktop Shortcut',
@@ -2003,6 +2086,27 @@ app.on('ready', () => {
                 ),
                 created.error,
               );
+
+              // Let the user know it didn't work, and allow retry on next launch unless
+              // they explicitly checked "Don't ask again".
+              await dialog.showMessageBox(mainWindow, {
+                type: 'error',
+                title: 'Desktop Shortcut',
+                message: 'Could not create the desktop shortcut.',
+                detail:
+                  created.error ||
+                  'Windows did not allow the shortcut to be created. You can try again next time or create it manually from the Start Menu.',
+                buttons: ['OK'],
+                defaultId: 0,
+                noLink: true,
+              });
+
+              config.desktopShortcutOptIn = null;
+              config.desktopShortcutPrompted = result.checkboxChecked === true;
+              config.desktopShortcutNeverAskAgain =
+                result.checkboxChecked === true;
+              await writeJson(configPath, config);
+              return;
             }
             config.desktopShortcutOptIn = true;
           } else {
@@ -2471,12 +2575,20 @@ ipcMain.handle('open-game-folder', async () => {
 
 ipcMain.handle('uninstall-game', async () => {
   try {
-    log.info(chalk.yellow('[uninstall-game] Starting uninstallation...'));
+    log.info(chalk.yellow('[uninstall-game] Starting game uninstall...'));
     // Ensure customInstallDir is synced from storage
     await ensureCustomInstallDirSynced();
     const paths = getEventidePaths();
     const { robustRemove } = require('./util');
     const skippedItems: string[] = [];
+
+    if (!paths.gameRoot) {
+      return {
+        success: false,
+        error:
+          'No installation directory is configured. Please select an installation directory first.',
+      };
+    }
 
     // Delete game folder
     if (paths.gameRoot && fs.existsSync(paths.gameRoot)) {
@@ -2519,43 +2631,16 @@ ipcMain.handle('uninstall-game', async () => {
       }
     }
 
-    // Remove desktop shortcuts
-    const {
-      removeDesktopShortcut,
-      removeLinuxDesktopFile,
-      isRunningUnderWine,
-    } = require('./util');
-    if (isRunningUnderWine()) {
-      await removeLinuxDesktopFile();
-    } else {
-      await removeDesktopShortcut();
-    }
-    log.info(chalk.cyan('[uninstall-game] Desktop shortcuts removed'));
-
-    // Clear custom install directory
-    const { setCustomInstallDir } = require('./paths');
-    setCustomInstallDir(null);
-
-    // Delete AppData config folder (storage.json, config.json, logs/)
-    // This is the userData folder: %APPDATA%\Eventide Launcher
-    // Note: Some files may be locked by the running app, so we use robustRemove
-    const userDataPath = paths.userData;
-    if (userDataPath && fs.existsSync(userDataPath)) {
-      log.info(
-        chalk.cyan(`[uninstall-game] Deleting config folder: ${userDataPath}`),
-      );
-      const result = await robustRemove(userDataPath, {
-        continueOnError: true,
-      });
-      if (result.skippedPaths.length > 0) {
-        skippedItems.push(...result.skippedPaths);
-        log.info(
-          chalk.yellow(
-            `[uninstall-game] Some config files are in use and will be cleaned up when the app closes`,
-          ),
-        );
-      }
-    }
+    // Reset game-related state but keep launcher configuration.
+    // This ensures the UI no longer thinks the game is installed.
+    await updateStorage((data: StorageJson) => {
+      data.gameState.installedVersion = '0.0.0';
+      data.gameState.baseGame.isDownloaded = false;
+      data.gameState.baseGame.isExtracted = false;
+      data.gameState.patches.downloadedVersion = '';
+      data.gameState.patches.appliedVersion = '';
+      delete data.gameState.downloadProgress;
+    });
 
     if (skippedItems.length > 0) {
       log.info(
@@ -2564,7 +2649,7 @@ ipcMain.handle('uninstall-game', async () => {
         ),
       );
     } else {
-      log.info(chalk.green('[uninstall-game] Uninstallation complete'));
+      log.info(chalk.green('[uninstall-game] Game uninstall complete'));
     }
 
     return { success: true };
@@ -3062,8 +3147,13 @@ ipcMain.handle('game:extract', async () => {
       return { success: false, error: errorMsg };
     }
 
-    // Check and prompt for DirectPlay on Windows before extraction
-    await ensureDirectPlay();
+    // Check and prompt for DirectPlay on Windows, but do not block extraction.
+    void ensureDirectPlay().catch((directPlayErr) => {
+      log.warn(
+        chalk.yellow('[game:extract] DirectPlay check/prompt failed'),
+        directPlayErr,
+      );
+    });
 
     // Send extraction start event
     if (mainWindow) {
@@ -3309,7 +3399,13 @@ ipcMain.handle('game:download', async () => {
       onExtractProgress,
       async () => {
         // Prompt during extraction (not during download). Skip repeated prompts within a session.
-        await ensureDirectPlay(true);
+        // Do not block extraction on user interaction.
+        void ensureDirectPlay(true).catch((directPlayErr) => {
+          log.warn(
+            chalk.yellow('[game:download] DirectPlay check/prompt failed'),
+            directPlayErr,
+          );
+        });
       },
     );
 
@@ -3634,7 +3730,15 @@ ipcMain.handle('game:resume-download', async () => {
       onExtractProgress,
       async () => {
         // Prompt during extraction (not during download/resume). Skip repeated prompts within a session.
-        await ensureDirectPlay(true);
+        // Do not block extraction on user interaction.
+        void ensureDirectPlay(true).catch((directPlayErr) => {
+          log.warn(
+            chalk.yellow(
+              '[game:resume-download] DirectPlay check/prompt failed',
+            ),
+            directPlayErr,
+          );
+        });
       },
     );
 

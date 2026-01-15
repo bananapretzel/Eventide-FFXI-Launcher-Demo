@@ -1,7 +1,7 @@
 {
   "name": "eventide-launcherv2",
-  "version": "1.0.0",
-  "description": "A launcher for the private FFXI private server called Eventide.",
+  "version": "1.1.0",
+  "description": "Eventide FFXI Launcher",
   "license": "GPL-3.0-or-later",
   "author": {
     "name": "Eventide Dev Team"

@@ -1268,19 +1268,44 @@ export default function SettingsPage() {
 
   // Update a specific setting
   const updateSetting = (path: string, value: any) => {
-    const newSettings = { ...settings };
-    const keys = path.split('.');
+    const DISALLOWED_PATH_KEYS = new Set([
+      '__proto__',
+      'prototype',
+      'constructor',
+    ]);
+
+    const keys = (path || '')
+      .split('.')
+      .map((k) => k.trim())
+      .filter(Boolean);
+
+    if (keys.length === 0) return;
+
+    // Guard against prototype pollution (e.g. "__proto__.polluted = true")
+    if (keys.some((k) => DISALLOWED_PATH_KEYS.has(k))) {
+      handleShowToast('Blocked unsafe settings path');
+      return;
+    }
+
+    // Clone to avoid mutating React state objects in-place.
+    // Settings are JSON-serializable, so this is safe and consistent with saveSettings.
+    const newSettings: any = JSON.parse(JSON.stringify(settings ?? {}));
     let current: any = newSettings;
 
     for (let i = 0; i < keys.length - 1; i += 1) {
-      if (!current[keys[i]]) {
-        current[keys[i]] = {};
+      const key = keys[i];
+      const hasOwn = Object.prototype.hasOwnProperty.call(current, key);
+      const next = hasOwn ? current[key] : undefined;
+
+      if (next === null || typeof next !== 'object' || Array.isArray(next)) {
+        current[key] = {};
       }
-      current = current[keys[i]];
+
+      current = current[key];
     }
 
     current[keys[keys.length - 1]] = value;
-    saveSettings(newSettings);
+    saveSettings(newSettings as Settings);
   };
 
   const reorderPivotOverlays = (fromIndex: number, toIndex: number) => {
@@ -1850,9 +1875,9 @@ export default function SettingsPage() {
                     }}
                   >
                     <span style={{ fontWeight: 500, color: '#dc2626' }}>
-                      Uninstall
+                      Uninstall Game
                     </span>
-                    <Tooltip content="This will permanently delete all game files, downloads, and launcher data. This action cannot be undone." />
+                    <Tooltip content="This will permanently delete the installed game files and downloaded content. Launcher settings will be kept." />
                   </div>
                   <span
                     style={{
@@ -1868,7 +1893,7 @@ export default function SettingsPage() {
                             2,
                             '0',
                           )}:${(uninstallElapsed % 60).toString().padStart(2, '0')} elapsed)`
-                      : 'Remove all game files, downloads, and launcher configuration.'}
+                      : 'Remove all installed game files and downloaded content.'}
                   </span>
                 </div>
                 <button
@@ -1879,11 +1904,11 @@ export default function SettingsPage() {
                   onClick={async () => {
                     // eslint-disable-next-line no-alert
                     const confirmed = window.confirm(
-                      'Are you sure you want to uninstall?\n\n' +
+                      'Are you sure you want to uninstall the game?\n\n' +
                         'This will permanently delete:\n' +
                         '• All game files\n' +
-                        '• Downloaded content\n' +
-                        '• Launcher configuration\n\n' +
+                        '• Downloaded content\n\n' +
+                        'Launcher settings will be kept.\n\n' +
                         'This action cannot be undone.',
                     );
                     if (!confirmed) return;
@@ -1907,12 +1932,7 @@ export default function SettingsPage() {
                       setIsUninstalling(false);
 
                       if (result.success) {
-                        handleShowToast(
-                          'Uninstall complete. The launcher will now close.',
-                        );
-                        setTimeout(() => {
-                          window.electron?.windowControls?.close?.();
-                        }, 2000);
+                        handleShowToast('Game files removed successfully.');
                       } else {
                         handleShowToast(
                           `Failed to uninstall: ${result.error || 'Unknown error'}`,

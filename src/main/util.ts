@@ -431,7 +431,8 @@ export async function createDesktopShortcut(): Promise<{
     }
 
     // Windows shortcut (.lnk)
-    const desktopPath = path.join(app.getPath('home'), 'Desktop');
+    // Use Electron's desktop path (handles OneDrive / redirected desktops correctly).
+    const desktopPath = app.getPath('desktop');
 
     // Ensure desktop directory exists
     if (!fs.existsSync(desktopPath)) {
@@ -572,7 +573,7 @@ export async function removeDesktopShortcut(): Promise<{
       return { success: true };
     }
 
-    const desktopPath = path.join(app.getPath('home'), 'Desktop');
+    const desktopPath = app.getPath('desktop');
 
     // Check if desktop folder exists
     if (!fs.existsSync(desktopPath)) {

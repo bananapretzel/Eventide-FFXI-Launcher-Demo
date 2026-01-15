@@ -1,7 +1,7 @@
 {
   "name": "eventide-launcherv2",
-  "description": "A launcher for the private FFXI private server called Eventide.",
-  "version": "1.0.0",
+  "description": "A launcher for the FFXI private server called Eventide.",
+  "version": "1.1.0",
   "keywords": [
     "electron",
     "boilerplate",
@@ -218,6 +218,9 @@
     "productName": "EventideXI",
     "buildVersion": "1.0.0.0",
     "appId": "com.eventide.ffxi.launcher",
+    "extraMetadata": {
+      "description": "Eventide FFXI Launcher"
+    },
     "asar": true,
     "asarUnpack": "**\\*.{node,dll}",
     "files": [
@@ -245,7 +248,7 @@
       "menuCategory": "EventideXI",
       "artifactName": "${productName}-Setup-${version}.${ext}",
       "include": "assets/installer.nsh",
-      "deleteAppDataOnUninstall": false,
+      "deleteAppDataOnUninstall": true,
       "warningsAsErrors": false
     },
     "directories": {

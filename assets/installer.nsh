@@ -62,158 +62,57 @@
 !macroend
 
 !macro customUnInstall
-  # During auto-updates, the installer runs in silent mode (/S flag)
-  # We should NOT delete user data during updates, only during full uninstalls
-  # Check if running in silent mode (auto-update) vs interactive uninstall
+  # Windows "Apps & features" uninstall can run the NSIS uninstaller in silent mode.
+  # We still want to remove launcher app data (Roaming/Local) in that case.
+  # Keep the scope tight: remove launcher data folders, but do not touch game installs.
 
-  ${IfNot} ${Silent}
-    # Only delete user data during interactive (non-silent) uninstall
-    # This preserves storage.json, config.json, and game data during auto-updates
-
-    SetShellVarContext current
-
-    # Build list of directories that will be removed
-    StrCpy $R9 "The following locations will be moved to the Recycle Bin:$\n$\n"
-
-    IfFileExists "$APPDATA\Eventide Launcherv2\*.*" 0 +2
-      StrCpy $R9 "$R9• $APPDATA\Eventide Launcherv2$\n"
-    IfFileExists "$APPDATA\Eventide Launcher\*.*" 0 +2
-      StrCpy $R9 "$R9• $APPDATA\Eventide Launcher$\n"
-    IfFileExists "$APPDATA\eventide-launcherv2\*.*" 0 +2
-      StrCpy $R9 "$R9• $APPDATA\eventide-launcherv2$\n"
-    IfFileExists "$APPDATA\eventide-launcher\*.*" 0 +2
-      StrCpy $R9 "$R9• $APPDATA\eventide-launcher$\n"
-    IfFileExists "$LOCALAPPDATA\Eventide Launcherv2\*.*" 0 +2
-      StrCpy $R9 "$R9• $LOCALAPPDATA\Eventide Launcherv2$\n"
-    IfFileExists "$LOCALAPPDATA\Eventide Launcher\*.*" 0 +2
-      StrCpy $R9 "$R9• $LOCALAPPDATA\Eventide Launcher$\n"
-    IfFileExists "$LOCALAPPDATA\eventide-launcherv2\*.*" 0 +2
-      StrCpy $R9 "$R9• $LOCALAPPDATA\eventide-launcherv2$\n"
-    IfFileExists "$LOCALAPPDATA\eventide-launcher\*.*" 0 +2
-      StrCpy $R9 "$R9• $LOCALAPPDATA\eventide-launcher$\n"
-    IfFileExists "$LOCALAPPDATA\${PRODUCT_NAME}\*.*" 0 +2
-      StrCpy $R9 "$R9• $LOCALAPPDATA\${PRODUCT_NAME}$\n"
-    IfFileExists "$DOCUMENTS\Eventide\*.*" 0 +2
-      StrCpy $R9 "$R9• $DOCUMENTS\Eventide$\n"
-    IfFileExists "$DOCUMENTS\EventideXI\*.*" 0 +2
-      StrCpy $R9 "$R9• $DOCUMENTS\EventideXI$\n"
-
-    StrCpy $R9 "$R9$\nAll items will be sent to the Recycle Bin and can be restored if needed.$\n$\nContinue with uninstall?"
-
-    MessageBox MB_YESNO|MB_ICONQUESTION "$R9" IDYES proceed_uninstall
-      Abort "Uninstall cancelled by user"
-    proceed_uninstall:
-
-    DetailPrint "Starting uninstall process..."
-    DetailPrint "Moving files to Recycle Bin..."
-
-    # Delete desktop shortcuts (these are just shortcuts, so permanent delete is fine)
-    DetailPrint "Removing desktop shortcuts..."
-    IfFileExists "$DESKTOP\${PRODUCT_NAME}.lnk" 0 +2
-      DetailPrint "  - Removing $DESKTOP\${PRODUCT_NAME}.lnk"
-    Delete "$DESKTOP\${PRODUCT_NAME}.lnk"
-
-    IfFileExists "$DESKTOP\EventideXI.lnk" 0 +2
-      DetailPrint "  - Removing $DESKTOP\EventideXI.lnk"
-    Delete "$DESKTOP\EventideXI.lnk"
-
-    IfFileExists "$DESKTOP\Eventide XI.lnk" 0 +2
-      DetailPrint "  - Removing $DESKTOP\Eventide XI.lnk"
-    Delete "$DESKTOP\Eventide XI.lnk"
-
-    IfFileExists "$DESKTOP\Eventide Launcher.lnk" 0 +2
-      DetailPrint "  - Removing $DESKTOP\Eventide Launcher.lnk"
-    Delete "$DESKTOP\Eventide Launcher.lnk"
-
-    # Delete Start Menu shortcuts (these are just shortcuts, so permanent delete is fine)
-    DetailPrint "Removing Start Menu shortcuts..."
-    IfFileExists "$SMPROGRAMS\${PRODUCT_NAME}" 0 +2
-      DetailPrint "  - Removing Start Menu folder: $SMPROGRAMS\${PRODUCT_NAME}"
-    RMDir /r "$SMPROGRAMS\${PRODUCT_NAME}"
-
-    IfFileExists "$SMPROGRAMS\${PRODUCT_NAME}.lnk" 0 +2
-      DetailPrint "  - Removing $SMPROGRAMS\${PRODUCT_NAME}.lnk"
-    Delete "$SMPROGRAMS\${PRODUCT_NAME}.lnk"
-
-    IfFileExists "$SMPROGRAMS\EventideXI.lnk" 0 +2
-      DetailPrint "  - Removing $SMPROGRAMS\EventideXI.lnk"
-    Delete "$SMPROGRAMS\EventideXI.lnk"
-
-    IfFileExists "$SMPROGRAMS\Eventide XI.lnk" 0 +2
-      DetailPrint "  - Removing $SMPROGRAMS\Eventide XI.lnk"
-    Delete "$SMPROGRAMS\Eventide XI.lnk"
-
-    IfFileExists "$SMPROGRAMS\Eventide Launcher.lnk" 0 +2
-      DetailPrint "  - Removing $SMPROGRAMS\Eventide Launcher.lnk"
-    Delete "$SMPROGRAMS\Eventide Launcher.lnk"
-
-    # Move data folders to Recycle Bin using SHFileOperation
-    DetailPrint "Moving application data to Recycle Bin..."
-
-    # APPDATA directories
-    IfFileExists "$APPDATA\Eventide Launcherv2\*.*" 0 +3
-      DetailPrint "  - Recycling $APPDATA\Eventide Launcherv2 (legacy v2)"
-      Push "$APPDATA\Eventide Launcherv2"
-      Call un.RecycleBin
-
-    IfFileExists "$APPDATA\Eventide Launcher\*.*" 0 +3
-      DetailPrint "  - Recycling $APPDATA\Eventide Launcher"
-      Push "$APPDATA\Eventide Launcher"
-      Call un.RecycleBin
-
-    IfFileExists "$APPDATA\eventide-launcherv2\*.*" 0 +3
-      DetailPrint "  - Recycling $APPDATA\eventide-launcherv2 (legacy v2)"
-      Push "$APPDATA\eventide-launcherv2"
-      Call un.RecycleBin
-
-    IfFileExists "$APPDATA\eventide-launcher\*.*" 0 +3
-      DetailPrint "  - Recycling $APPDATA\eventide-launcher"
-      Push "$APPDATA\eventide-launcher"
-      Call un.RecycleBin
-
-    # LOCALAPPDATA directories
-    DetailPrint "Moving local application data to Recycle Bin..."
-
-    IfFileExists "$LOCALAPPDATA\Eventide Launcherv2\*.*" 0 +3
-      DetailPrint "  - Recycling $LOCALAPPDATA\Eventide Launcherv2 (legacy v2)"
-      Push "$LOCALAPPDATA\Eventide Launcherv2"
-      Call un.RecycleBin
-
-    IfFileExists "$LOCALAPPDATA\Eventide Launcher\*.*" 0 +3
-      DetailPrint "  - Recycling $LOCALAPPDATA\Eventide Launcher"
-      Push "$LOCALAPPDATA\Eventide Launcher"
-      Call un.RecycleBin
-
-    IfFileExists "$LOCALAPPDATA\eventide-launcherv2\*.*" 0 +3
-      DetailPrint "  - Recycling $LOCALAPPDATA\eventide-launcherv2 (legacy v2)"
-      Push "$LOCALAPPDATA\eventide-launcherv2"
-      Call un.RecycleBin
-
-    IfFileExists "$LOCALAPPDATA\eventide-launcher\*.*" 0 +3
-      DetailPrint "  - Recycling $LOCALAPPDATA\eventide-launcher"
-      Push "$LOCALAPPDATA\eventide-launcher"
-      Call un.RecycleBin
-
-    IfFileExists "$LOCALAPPDATA\${PRODUCT_NAME}\*.*" 0 +3
-      DetailPrint "  - Recycling $LOCALAPPDATA\${PRODUCT_NAME}"
-      Push "$LOCALAPPDATA\${PRODUCT_NAME}"
-      Call un.RecycleBin
-
-    # DOCUMENTS directories
-    DetailPrint "Moving user documents to Recycle Bin..."
-
-    IfFileExists "$DOCUMENTS\Eventide\*.*" 0 +3
-      DetailPrint "  - Recycling $DOCUMENTS\Eventide"
-      Push "$DOCUMENTS\Eventide"
-      Call un.RecycleBin
-
-    IfFileExists "$DOCUMENTS\EventideXI\*.*" 0 +3
-      DetailPrint "  - Recycling $DOCUMENTS\EventideXI"
-      Push "$DOCUMENTS\EventideXI"
-      Call un.RecycleBin
-
-    DetailPrint "Uninstall complete. All data has been moved to Recycle Bin."
+  # IMPORTANT: electron-updater installs updates by running the installer, which can invoke
+  # the uninstaller as part of the update flow. In that case, we must NOT delete user data,
+  # otherwise the app behaves like a fresh install (e.g., re-prompts for desktop shortcuts).
+  ${If} ${isUpdated}
+    DetailPrint "Uninstall invoked by update; skipping app data removal."
   ${EndIf}
+
+  SetShellVarContext current
+
+  DetailPrint "Starting uninstall process..."
+
+  # Delete desktop shortcuts (shortcuts only)
+  DetailPrint "Removing desktop shortcuts..."
+  Delete "$DESKTOP\${PRODUCT_NAME}.lnk"
+  Delete "$DESKTOP\EventideXI.lnk"
+  Delete "$DESKTOP\Eventide XI.lnk"
+  Delete "$DESKTOP\Eventide Launcher.lnk"
+
+  # Delete Start Menu shortcuts (shortcuts only)
+  DetailPrint "Removing Start Menu shortcuts..."
+  RMDir /r "$SMPROGRAMS\${PRODUCT_NAME}"
+  Delete "$SMPROGRAMS\${PRODUCT_NAME}.lnk"
+  Delete "$SMPROGRAMS\EventideXI.lnk"
+  Delete "$SMPROGRAMS\Eventide XI.lnk"
+  Delete "$SMPROGRAMS\Eventide Launcher.lnk"
+
+  # Remove app data folders.
+  # Use RMDir /r (permanent delete) for reliability; Windows uninstalls often run without UI.
+  DetailPrint "Removing application data (Roaming/AppData and Local/AppData)..."
+
+  ${IfNot} ${isUpdated}
+    # Remove this app's userData folders.
+    # Electron's userData path is derived from the app name/productName; keep backward
+    # compatibility with older folder names so reinstalls are predictable.
+
+    # Current product name (build.productName) is used in shortcuts and usually userData.
+    RMDir /r "$APPDATA\${PRODUCT_NAME}"
+    RMDir /r "$LOCALAPPDATA\${PRODUCT_NAME}"
+
+    # Legacy / previously-used folder names.
+    RMDir /r "$APPDATA\eventide-launcherv2"
+    RMDir /r "$LOCALAPPDATA\eventide-launcherv2-updater"
+    RMDir /r "$LOCALAPPDATA\${PRODUCT_NAME}-updater"
+    RMDir /r "$LOCALAPPDATA\${PRODUCT_NAME} Updater"
+  ${EndIf}
+
+  DetailPrint "Uninstall complete."
 !macroend
 
 # Function to move a folder to Recycle Bin

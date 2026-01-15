@@ -34,13 +34,41 @@ describe('Network Module', () => {
   describe('fetchJson', () => {
     beforeEach(() => {
       global.fetch = (jest.fn(async (url: any) => {
-        const u = String(url);
+        const toUrlString = (input: any): string => {
+          if (typeof input === 'string') return input;
+          if (
+            input &&
+            typeof input === 'object' &&
+            typeof (input as any).url === 'string'
+          ) {
+            return (input as any).url;
+          }
+          return String(input);
+        };
 
-        if (u.includes('invalid-domain-that-does-not-exist-12345.com')) {
+        const tryParseUrl = (raw: string): URL | null => {
+          try {
+            return new URL(raw);
+          } catch {
+            try {
+              // Allow relative URLs if they ever show up in tests.
+              return new URL(raw, 'http://localhost');
+            } catch {
+              return null;
+            }
+          }
+        };
+
+        const u = toUrlString(url);
+        const parsed = tryParseUrl(u);
+        const host = parsed?.hostname ?? '';
+        const pathname = parsed?.pathname ?? '';
+
+        if (host === 'invalid-domain-that-does-not-exist-12345.com') {
           throw new Error('ENOTFOUND');
         }
 
-        if (u.includes('api.github.com/repos/nonexistent/nonexistent')) {
+        if (host === 'api.github.com' && pathname === '/repos/nonexistent/nonexistent') {
           return {
             ok: false,
             status: 404,
@@ -49,7 +77,7 @@ describe('Network Module', () => {
           } as any;
         }
 
-        if (u.includes('github.com/this-does-not-exist-12345')) {
+        if (host === 'github.com' && pathname === '/this-does-not-exist-12345') {
           return {
             ok: true,
             status: 200,
@@ -60,7 +88,10 @@ describe('Network Module', () => {
           } as any;
         }
 
-        if (u.includes('api.github.com/repos/microsoft/vscode/releases/latest')) {
+        if (
+          host === 'api.github.com' &&
+          pathname === '/repos/microsoft/vscode/releases/latest'
+        ) {
           return {
             ok: true,
             status: 200,
